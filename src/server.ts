@@ -11,6 +11,7 @@ import {
   workFilterShape, buildWorkFilter, assertSemanticCompatible, GROUP_BY_FIELDS, type GroupByKey,
 } from "./filters";
 import { titleCoverage, queryCoverage, extractYear, extractDoi, guessTitle, guessSurnames } from "./text";
+import { normalizeOql, oqlHasSearch, oqlHasGroupBy, oqlHasSample, oneLine, reproduceUrl, OQL_GROUP_DIMS } from "./oql";
 
 export const SERVER_NAME = "openalex";
 export const SERVER_VERSION = "0.2.0";
@@ -18,16 +19,31 @@ export const SERVER_VERSION = "0.2.0";
 export const SERVER_INSTRUCTIONS = `OpenAlex is a free, open index of the world's scholarly research: 250M+ works (papers, books, datasets, preprints) with citations, 100M+ author profiles, and every journal, institution, funder and topic they connect to. Data is CC0.
 
 Tools:
-- search_works: find papers by keyword (Boolean supported) or by meaning (mode="semantic"). Filter by year, type, open access, citations, author/institution/source/topic/funder IDs.
+- search_works: find papers. Either fill the structured parameters (query + filters) or pass an OQL query for anything complex. preview=true returns just the count and a sample so a query can be tuned cheaply before running it.
 - get_work: full record for one paper by OpenAlex ID, DOI, PMID or PMCID. Free.
-- resolve_references: check a list of citations (DOIs, PMIDs, or free-text references) against OpenAlex; reports whether each one exists and what it matched. Use it to verify bibliographies.
+- resolve_references: check a list of citations (DOIs, PMIDs, or free-text references) against OpenAlex; reports whether each exists and what it matched. Use it to verify bibliographies.
 - list_citations: papers citing a work, the works it references, or related works.
 - search_entities: find authors, institutions, sources (journals), topics, funders or publishers by name and/or filters. Resolve names to IDs before filtering works by ID. Also the expert-finding tool: authors currently at an institution working on a topic (institution_ids + topic_ids).
 - get_entity: full profile for an author, institution, source, topic, funder or publisher. Free.
 - group_works: count works along one dimension (author, institution, country, source, year, topic, type, OA status…). Answers "who publishes most on X", "how has X grown", "which journals".
-- analyze_works: one-call profile of any set of works (an institution's output, a funder's portfolio, a topic): totals, open-access share, top-cited share, trend by year, and top fields, topics, institutions, countries, sources, funders and authors. Use for research-office, library and funder reporting questions.
+- analyze_works: one-call profile of any set of works (an institution's output, a funder's portfolio, a topic): totals, open-access share, top-cited share, trend by year, and top fields, topics, institutions, countries, sources, funders and authors.
 
-IDs: works W…, authors A…, sources S…, institutions I…, topics T…, funders F…, publishers P…. Any tool accepts the bare ID or the https://openalex.org/… URL. Names are ambiguous: resolve them with search_entities, then filter by ID. Link to works with openalex_url or https://doi.org/<doi>.`;
+Every works result includes the canonical OQL that produced it (and a reproduce_url), so users can rerun, share, or cite the exact query.
+
+OQL in one minute (full spec: https://help.openalex.org/access/oql/):
+  works where title/abstract has ((vaping or "vape*" or "electronic cigarette*") and ("adolescen*" or youth)) and year >= (2018) and type is (article or review)
+- Text search: <field> has (...). Fields: title, abstract, title/abstract, full text. Bare words are stemmed; "quotes" are exact; wildcards must be quoted ("psoriat*"); within 3 ("smart", "phone") = proximity.
+- Combine with and / or, nest with parentheses. Negate with not inside the parentheses: abstract has (not pediatric), (not (a or b)), country is (not FR).
+- Filters: year is (2020) / year >= (2019) / year <= (2023); citation count >= (100); FWCI >= (2.0); open access is (true); retracted is (false); type is (article or review); language is (en); oa status is (gold or diamond).
+- Entities take IDs, not names (resolve with search_entities first): institution is (I136199984); author is (A5067184382); source is (S137773608); topic is (T10102); funder is (F4320332161); country is (US or GB).
+- Citation links: it cites (W…); it's cited by (W…); it's related to (W…).
+- Semantic: title/abstract is similar to ("a sentence describing what you want").
+- Aggregation: … group by author | institution | country | source | funder | year | type | topic | field | oa status.
+- Sorting is not part of OQL; use the sort parameter.
+
+Recipe for "find references for this passage" or "build a systematic search": split the passage into its claims; for each claim write an AND group of synonyms joined with or; join the groups with or (or with and if every claim must hold); add year/type/retracted filters; run with preview=true, look at the count and sample, tighten with exact phrases, extra terms or not-clauses; then run for real with sort=relevance and a larger limit. Give the user the canonical OQL with the results.
+
+IDs: works W…, authors A…, sources S…, institutions I…, topics T…, funders F…, publishers P…. Any tool accepts the bare ID or the https://openalex.org/… URL. Link to works with openalex_url or https://doi.org/<doi>.`;
 
 export interface ServerContext {
   client: OpenAlexClient;
@@ -93,6 +109,14 @@ function shapeGroups(data: ListResponse) {
   );
 }
 
+/** Canonical OQL echo from a list response. */
+const queryEcho = (data: ListResponse) => {
+  const oql = oneLine((data.meta as any)?.x_query?.oql);
+  return oql ? { oql, reproduce_url: reproduceUrl(oql) } : {};
+};
+
+const PREVIEW_SELECT = ["id", "doi", "display_name", "publication_year", "type", "authorships", "primary_location", "cited_by_count", "relevance_score"];
+
 const pct = (part: number, whole: number) => (whole > 0 ? Number(((100 * part) / whole).toFixed(1)) : null);
 
 export function createServer(ctx: ServerContext): McpServer {
@@ -137,8 +161,16 @@ export function createServer(ctx: ServerContext): McpServer {
         "mode=\"semantic\" matches by meaning and is best for descriptive or long queries (up to 2,000 characters; max 50 results; no min_citations/countries filters). " +
         "mode=\"exact\" matches words without stemming. " +
         "Omit query to list works by filters alone (e.g. everything by an author, institution or funder). " +
+        "For anything the structured parameters can't express (nested Boolean groups across fields, exclusions, proximity, exact phrases, wildcards) pass an OQL query in `oql` instead; the syntax is summarized in the server instructions and at https://help.openalex.org/access/oql/. " +
+        "Set preview=true to get only the result count, the canonical OQL and a small sample, which is the cheap way to tune a query before running it. " +
+        "Every response includes the canonical OQL and a reproduce_url. " +
         "Returns compact records: title, year, authors (first 5), venue, citations, FWCI, open-access link, primary topic, truncated abstract. Use get_work for a full record.",
       inputSchema: {
+        oql: z.string().max(20000).optional().describe("An OQL query, e.g. works where title/abstract has ((vaping or \"vape*\" or \"electronic cigarette*\") and (youth or \"adolescen*\")) and year >= (2018). A bare where-clause is accepted. Mutually exclusive with query and the structured filters."),
+        oqo: z.record(z.string(), z.any()).optional().describe("The same query as an OQO JSON object (schema: https://help.openalex.org/access/oqo-schema/). Alternative to oql."),
+        preview: z.boolean().optional().describe("Return only total_results, canonical OQL and a sample of preview_limit works (no abstracts). Use while tuning a query."),
+        preview_limit: z.number().int().min(1).max(25).optional().describe("Sample size for preview. Default 10."),
+        preview_sample: z.enum(["top", "random"]).optional().describe("Preview sample: top = highest-ranked (default); random = a random draw from the whole result set, better for judging precision."),
         query: z.string().max(2000).optional().describe("Search text. Keyword mode supports Boolean operators."),
         mode: modeSchema,
         search_in: searchInSchema,
@@ -153,32 +185,86 @@ export function createServer(ctx: ServerContext): McpServer {
     },
     async (args) =>
       run("search_works", async () => {
+        const preview = !!args.preview;
+        const previewLimit = args.preview_limit ?? 10;
+        const previewRandom = preview && args.preview_sample === "random";
+        const structuredKeys = ["query", "mode", "search_in", "sort", "page", ...Object.keys(workFilterShape)] as const;
+        const usedStructured = structuredKeys.filter((k) => (args as any)[k] !== undefined);
+
+        // ---- OQL / OQO path ----
+        if (args.oql !== undefined || args.oqo !== undefined) {
+          if (args.oql !== undefined && args.oqo !== undefined) return fail("Pass either oql or oqo, not both.");
+          const disallowed = usedStructured.filter((k) => k !== "sort" && k !== "page");
+          if (disallowed.length) return fail(`oql/oqo is a complete query; put year, type and other filters inside it instead of using: ${disallowed.join(", ")}.`);
+          const body: Record<string, any> = {};
+          let hasSearch = true;
+          if (args.oql !== undefined) {
+            let q = normalizeOql(args.oql);
+            if (previewRandom && !oqlHasSample(q) && !oqlHasGroupBy(q)) q = `${q} sample ${previewLimit}`;
+            body.oql = q;
+            hasSearch = oqlHasSearch(q);
+          } else {
+            const o = { ...(args.oqo as Record<string, any>) };
+            if (!o.get_rows) o.get_rows = "works";
+            if (previewRandom && !o.sample && !(o.group_by?.length)) o.sample = previewLimit;
+            body.oqo = o;
+            hasSearch = JSON.stringify(o).includes('"operator":"has"') || JSON.stringify(o).includes("similar");
+          }
+          const sortKey = args.sort ?? (hasSearch ? "relevance" : "cited_by_count");
+          const sampled = previewRandom;
+          if (!sampled) body.sort = sortKey === "relevance" ? (hasSearch ? "relevance_score:desc" : "cited_by_count:desc") : `${sortKey}:desc`;
+          body.per_page = preview ? previewLimit : Math.min(args.limit ?? 15, 50);
+          body.page = args.page ?? 1;
+          body.select = (preview ? PREVIEW_SELECT : [...LIST_SELECT, ...(args.include_abstracts === false ? [] : ["abstract_inverted_index"])]).join(",");
+          const data = await client.post<ListResponse>(body);
+          if (data.group_by && data.group_by.length) {
+            return ok(compact({ ...queryEcho(data), total_works: data.meta.count, groups: shapeGroups(data) }));
+          }
+          const results = data.results.map((w) => shapeWork(w, { abstractChars: preview || args.include_abstracts === false ? 0 : 500, maxAuthors: preview ? 1 : 5 }));
+          return ok(compact({
+            preview: preview || null,
+            sample_basis: preview ? (previewRandom ? `random ${results.length} of all matches` : `top ${results.length} by ${sortKey}`) : null,
+            ...queryEcho(data),
+            ...pagingInfo(data.meta, results.length),
+            results,
+          }));
+        }
+
+        // ---- structured path ----
         const mode = args.mode ?? "keyword";
         const query = args.query?.trim();
         if (!query && mode === "semantic") return fail("Semantic search needs a query.");
         if (mode === "semantic") assertSemanticCompatible(args);
         const sp = searchParams(query, mode, args.search_in ?? "title_and_abstract");
         const filter = buildWorkFilter(args, sp.filters);
-        if (!query && !filter) return fail("Provide a query or at least one filter.");
+        if (!query && !filter) return fail("Provide a query, an oql query, or at least one filter.");
         const sortKey = args.sort ?? (query ? "relevance" : "cited_by_count");
         const sort = sortKey === "relevance" ? (query ? "relevance_score:desc" : "cited_by_count:desc") : `${sortKey}:desc`;
         const params: Record<string, any> = {
           ...sp.params,
           filter,
-          per_page: Math.min(args.limit ?? 15, 50),
+          per_page: preview ? previewLimit : Math.min(args.limit ?? 15, 50),
           page: args.page ?? 1,
-          select: [...LIST_SELECT, ...(args.include_abstracts === false ? [] : ["abstract_inverted_index"])].join(","),
+          select: (preview ? PREVIEW_SELECT : [...LIST_SELECT, ...(args.include_abstracts === false ? [] : ["abstract_inverted_index"])]).join(","),
         };
-        if (!(mode === "semantic" && sortKey === "relevance")) params.sort = sort;
+        if (previewRandom && mode !== "semantic") {
+          params.sample = previewLimit;
+          params.seed = Math.floor(Math.random() * 1e9);
+        } else if (!(mode === "semantic" && sortKey === "relevance")) {
+          params.sort = sort;
+        }
         const data = await client.get<ListResponse>("/works", params);
-        const results = data.results.map((w) => shapeWork(w, { abstractChars: args.include_abstracts === false ? 0 : 500 }));
+        const results = data.results.map((w) => shapeWork(w, { abstractChars: preview || args.include_abstracts === false ? 0 : 500, maxAuthors: preview ? 1 : 5 }));
         return ok(compact({
+          preview: preview || null,
+          sample_basis: preview ? (previewRandom ? `random ${results.length} of all matches` : `top ${results.length} by ${sortKey}`) : null,
+          ...queryEcho(data),
           ...pagingInfo(data.meta, results.length),
           query: query ?? null,
           mode: query ? mode : null,
           search_in: query && mode !== "semantic" ? args.search_in ?? "title_and_abstract" : null,
           filter: filter ?? null,
-          sort,
+          sort: previewRandom ? null : sort,
           results,
         }));
       })()
@@ -317,7 +403,7 @@ export function createServer(ctx: ServerContext): McpServer {
           select: [...LIST_SELECT, ...(args.include_abstracts ? ["abstract_inverted_index"] : [])].join(","),
         });
         const results = data.results.map((w) => shapeWork(w, { abstractChars: args.include_abstracts ? 400 : 0 }));
-        return ok(compact({ work_id: wid, direction, ...pagingInfo(data.meta, results.length), results }));
+        return ok(compact({ work_id: wid, direction, ...queryEcho(data), ...pagingInfo(data.meta, results.length), results }));
       })()
   );
 
@@ -406,7 +492,7 @@ export function createServer(ctx: ServerContext): McpServer {
         });
         const topicIds = idList(args.topic_ids);
         const results = data.results.map((e) => shapeEntity(kind, e, false, topicIds));
-        return ok(compact({ entity_type: kind, query: query ?? null, filter: f.length ? f.join(",") : null, ...pagingInfo(data.meta, results.length), results }));
+        return ok(compact({ entity_type: kind, query: query ?? null, filter: f.length ? f.join(",") : null, ...queryEcho(data), ...pagingInfo(data.meta, results.length), results }));
       })()
   );
 
@@ -448,9 +534,11 @@ export function createServer(ctx: ServerContext): McpServer {
         "Aggregate works matching a query and/or filters, counting them by one dimension: author, institution, institution_type, country, source (journal), publisher, funder, year, type, topic, subfield, field, domain, keyword, oa_status, is_oa, top_10_percent, top_1_percent, language, or sdg. " +
         "Answers \"who are the top authors on X\", \"which institutions publish most on Y\", \"how has research on Z grown per year\", \"which journals carry the most papers on W\", \"who does institution A collaborate with\" (institution_ids + group_by institution). " +
         "Returns each group's ID, display name and work count, sorted by count. Keyword/exact queries aggregate over all matching works; semantic queries aggregate over the 50 most relevant works only. " +
+        "Accepts an OQL query in `oql` for complex selections (the group by is added from group_by if the query has none). " +
         "Note: group_by author over institution-filtered works also counts co-authors from other institutions; for \"researchers AT institution X on topic Y\" use search_entities with institution_ids and topic_ids instead.",
       inputSchema: {
         group_by: groupByEnum.describe("Dimension to count by."),
+        oql: z.string().max(20000).optional().describe("OQL query selecting the works to count (see search_works). Mutually exclusive with query and the structured filters."),
         query: z.string().max(2000).optional().describe("Optional search text (same as search_works)."),
         mode: modeSchema,
         search_in: searchInSchema,
@@ -465,6 +553,20 @@ export function createServer(ctx: ServerContext): McpServer {
         const query = args.query?.trim();
         const field = GROUP_BY_FIELDS[args.group_by as GroupByKey];
         const limit = args.limit ?? 25;
+        if (args.oql !== undefined) {
+          const used = ["query", "mode", "search_in", ...Object.keys(workFilterShape)].filter((k) => (args as any)[k] !== undefined);
+          if (used.length) return fail(`oql is a complete query; put filters inside it instead of using: ${used.join(", ")}.`);
+          let q = normalizeOql(args.oql);
+          if (!oqlHasGroupBy(q)) {
+            const dim = OQL_GROUP_DIMS[args.group_by as string];
+            if (!dim) return fail(`group_by "${args.group_by}" is not available with oql; use one of: ${Object.keys(OQL_GROUP_DIMS).join(", ")}.`);
+            q = `${q} group by ${dim}`;
+          }
+          const data = await client.post<ListResponse>({ oql: q, per_page: limit });
+          const groups = shapeGroups(data);
+          if (args.group_by === "year") groups.sort((a: any, b: any) => Number(a.id) - Number(b.id));
+          return ok(compact({ group_by: args.group_by, ...queryEcho(data), total_works: data.meta.count, groups_returned: groups.length, groups }));
+        }
         if (mode === "semantic") {
           if (!query) return fail("Semantic mode needs a query.");
           assertSemanticCompatible(args);
@@ -485,7 +587,7 @@ export function createServer(ctx: ServerContext): McpServer {
         const data = await client.get<ListResponse>("/works", { ...sp.params, filter, group_by: field, per_page: limit });
         const groups = shapeGroups(data);
         if (args.group_by === "year") groups.sort((a: any, b: any) => Number(a.id) - Number(b.id));
-        return ok(compact({ group_by: args.group_by, query: query ?? null, filter: filter ?? null, total_works: data.meta.count, groups_returned: groups.length, groups }));
+        return ok(compact({ group_by: args.group_by, query: query ?? null, filter: filter ?? null, ...queryEcho(data), total_works: data.meta.count, groups_returned: groups.length, groups }));
       })()
   );
 
@@ -546,7 +648,7 @@ export function createServer(ctx: ServerContext): McpServer {
         const total = r.total.meta.count ?? 0;
         const trueCount = (d?: ListResponse) => d?.group_by?.find((x) => x.key_display_name === "true" || x.key === "1" || x.key === "true")?.count ?? 0;
 
-        const out: Record<string, any> = { query: query ?? null, filter: filter ?? null, total_works: total };
+        const out: Record<string, any> = { query: query ?? null, filter: filter ?? null, ...queryEcho(r.total), total_works: total };
         if (r.year) out.by_year = shapeGroups(r.year).map((x: any) => ({ year: Number(x.id), works: x.count })).sort((a: any, b: any) => a.year - b.year);
         if (r.type) out.by_type = shapeGroups(r.type).map((x: any) => ({ type: x.id, works: x.count, share_pct: pct(x.count, total) }));
         if (r.oa) {

@@ -34,7 +34,7 @@ All tools are read-only.
 
 | Tool | What it does |
 |------|--------------|
-| `search_works` | Find papers by keyword (Boolean syntax) or by meaning (`mode: "semantic"`), with filters for year, type, open access, citations, and author/institution/source/topic/funder IDs. |
+| `search_works` | Find papers by keyword (Boolean syntax) or by meaning (`mode: "semantic"`), with filters for year, type, open access, citations, and author/institution/source/topic/funder IDs. For complex selections pass an [OQL](https://help.openalex.org/access/oql/) query directly (nested groups, exclusions, exact phrases, proximity). `preview: true` returns just the count, the canonical OQL and a sample for tuning a query. Every response echoes the canonical OQL and a link that reproduces it. |
 | `get_work` | Full record for one work by OpenAlex ID, DOI, PMID or PMCID: all authors and affiliations, abstract, topics, funding, citations by year. Free. |
 | `resolve_references` | Check up to 25 citations (DOIs, PMIDs, or free-text references) in one call; reports whether each exists and how confidently it matched. Catches fabricated or garbled references and fills in DOIs. |
 | `list_citations` | Works that cite a paper, the works it references, or related works. |
@@ -42,6 +42,8 @@ All tools are read-only.
 | `get_entity` | Full profile for an author, institution, source, topic, funder or publisher. Free. |
 | `group_works` | Count works by author, institution, institution type, country, source, publisher, funder, year, type, topic, subfield, field, domain, keyword, OA status, top-10%/top-1% cited, language or SDG. |
 | `analyze_works` | One-call profile of any set of works (an institution's output, a funder's portfolio, a topic): totals, open-access share, top-cited share, trend by year, top fields, topics, institutions, countries, sources, funders and authors, and international and industry collaboration shares. |
+
+Every works query, structured or OQL, comes back with the canonical OQL that ran and a URL that reruns it, so a search can be shared, cited in a methods section, or continued by hand in the OQL tab on openalex.org.
 
 Responses are shaped for language models: abstracts are rebuilt from OpenAlex's inverted index and truncated in lists, author lists are collapsed to the first five, and every response stays under Claude's tool-result size limit.
 
@@ -53,6 +55,7 @@ Responses are shaped for language models: abstracts are rebuilt from OpenAlex's 
 - Check whether these references are real and give me DOIs: [paste a bibliography].
 - Which open-access journals in ecology charge no APC and have an h-index above 50?
 - Who cites this paper: 10.1038/s41586-021-03819-2? Summarize the follow-up work.
+- Build a systematic search for studies of vaping among adolescents since 2018, show me the count and a sample, and give me the OQL.
 
 ## Development
 

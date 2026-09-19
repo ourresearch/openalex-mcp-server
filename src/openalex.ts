@@ -79,15 +79,34 @@ export class OpenAlexClient {
     }
   }
 
+  /** POST an OQL/OQO query to the API root (no URL length limit). Same retry policy as get(). */
+  async post<T = any>(body: Record<string, any>): Promise<T> {
+    try {
+      return await this.request<T>(this.baseUrl + "/", { method: "POST", body: JSON.stringify(body), contentType: "application/json" });
+    } catch (e) {
+      if (e instanceof OpenAlexError && e.transient) {
+        await new Promise((r) => setTimeout(r, Math.min(3000, (e.retryAfterSeconds ?? 1) * 1000 + 200)));
+        return await this.request<T>(this.baseUrl + "/", { method: "POST", body: JSON.stringify(body), contentType: "application/json" });
+      }
+      throw e;
+    }
+  }
+
   private async getOnce<T = any>(path: string, params: Params = {}): Promise<T> {
-    const url = this.buildUrl(path, params);
+    return this.request<T>(this.buildUrl(path, params), { method: "GET" });
+  }
+
+  private async request<T = any>(url: string, init: { method: "GET" | "POST"; body?: string; contentType?: string }): Promise<T> {
     let res: Response;
     try {
       res = await fetch(url, {
+        method: init.method,
+        body: init.body,
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           "User-Agent": USER_AGENT,
           Accept: "application/json",
+          ...(init.contentType ? { "Content-Type": init.contentType } : {}),
         },
         signal: AbortSignal.timeout(this.timeoutMs),
       });
@@ -138,6 +157,14 @@ export class OpenAlexClient {
       throw new OpenAlexError(`${who}.${when}${fix}`, 429, retry || undefined);
     }
     if (res.status === 400) {
+      const v = body?.validation;
+      if (v && Array.isArray(v.errors) && v.errors.length) {
+        const lines = v.errors.map((e: any) => {
+          const where = typeof e.position === "number" ? ` (at character ${e.position})` : "";
+          return `${e.message}${where}`;
+        });
+        throw new OpenAlexError(`Query is not valid OQL${lines.length > 1 ? ":" : ":"} ${lines.join(" | ")}`, 400);
+      }
       throw new OpenAlexError(`OpenAlex rejected the query: ${trimFieldList(apiMessage ?? "bad request")}`, 400);
     }
     if (res.status === 401 || res.status === 403) {
