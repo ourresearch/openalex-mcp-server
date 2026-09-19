@@ -56,7 +56,7 @@ export function guessTitle(citation: string): string {
     .filter((c) => c.length > 0);
   const scored = chunks.map((c, i) => {
     const words = c.split(/\s+/);
-    const initials = words.filter((w) => /^[A-Z]{1,3}\.?,?$/.test(w)).length;
+    const initials = words.filter((w) => /^(?:[A-Z]\.?|[A-Z]{2}[.,]|[A-Z]\.[A-Z]\.?),?$/.test(w)).length;
     const commas = (c.match(/,/g) ?? []).length;
     const content = tokens(c).size;
     return { c, i, score: content - 1.5 * commas - 2 * initials, len: c.length };
