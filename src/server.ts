@@ -39,6 +39,7 @@ OQL in one minute (full spec: https://help.openalex.org/access/oql/):
 - Citation links: it cites (W…); it's cited by (W…); it's related to (W…).
 - Semantic: title/abstract is similar to ("a sentence describing what you want").
 - Aggregation: … group by author | institution | country | source | funder | year | type | topic | field | oa status.
+- Field names are the OQL words above (title/abstract, year, citation count), never API column ids (title_and_abstract.search, publication_year). Every value sits in parentheses: year >= (2018), not year >= 2018.
 - Sorting is not part of OQL; use the sort parameter.
 
 Recipe for "find references for this passage" or "build a systematic search": split the passage into its claims; for each claim write an AND group of synonyms joined with or; join the groups with or (or with and if every claim must hold); add year/type/retracted filters; run with preview=true, look at the count and sample, tighten with exact phrases, extra terms or not-clauses; then run for real with sort=relevance and a larger limit. Give the user the canonical OQL with the results.
