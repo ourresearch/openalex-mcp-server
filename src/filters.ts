@@ -99,7 +99,8 @@ export function assertSemanticCompatible(args: WorkFilterArgs) {
 export const GROUP_BY_FIELDS = {
   author: "authorships.author.id",
   institution: "authorships.institutions.id",
-  country: "authorships.institutions.country_code",
+  institution_type: "authorships.institutions.type",
+  country: "authorships.countries",
   source: "primary_location.source.id",
   publisher: "primary_location.source.host_organization",
   funder: "funders.id",
@@ -112,6 +113,8 @@ export const GROUP_BY_FIELDS = {
   keyword: "keywords.id",
   oa_status: "open_access.oa_status",
   is_oa: "is_oa",
+  top_10_percent: "citation_normalized_percentile.is_in_top_10_percent",
+  top_1_percent: "citation_normalized_percentile.is_in_top_1_percent",
   language: "language",
   sdg: "sustainable_development_goals.id",
 } as const;

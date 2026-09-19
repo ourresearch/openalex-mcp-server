@@ -156,7 +156,7 @@ export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
 
 export type EntityKind = "authors" | "institutions" | "sources" | "topics" | "funders" | "publishers";
 
-export function shapeEntity(kind: EntityKind, e: any, full = false) {
+export function shapeEntity(kind: EntityKind, e: any, full = false, requestedTopicIds: string[] = []) {
   const common: Record<string, any> = {
     id: shortId(e.id),
     name: e.display_name ?? null,
@@ -166,7 +166,15 @@ export function shapeEntity(kind: EntityKind, e: any, full = false) {
     openalex_url: openalexUrl(e.id),
   };
   const stats = e.summary_stats ?? {};
-  const topicNames = (e.topics ?? []).slice(0, full ? 10 : 3).map((t: any) => t?.display_name).filter(Boolean);
+  const topicNames = (e.topics ?? [])
+    .slice(0, full ? 10 : 3)
+    .map((t: any) => (t?.display_name ? (typeof t.count === "number" ? `${t.display_name} (${t.count})` : t.display_name) : null))
+    .filter(Boolean);
+  const worksInTopic = requestedTopicIds.length
+    ? (e.topics ?? [])
+        .filter((t: any) => requestedTopicIds.includes(shortId(t?.id) ?? ""))
+        .reduce((sum: number, t: any) => sum + (typeof t.count === "number" ? t.count : 0), 0)
+    : null;
   const countsByYear = full
     ? (e.counts_by_year ?? []).slice(0, 6).map((c: any) => ({ year: c.year, works: c.works_count, citations: c.cited_by_count }))
     : undefined;
@@ -188,6 +196,7 @@ export function shapeEntity(kind: EntityKind, e: any, full = false) {
         i10_index: full ? stats.i10_index ?? null : null,
         current_institutions: (e.last_known_institutions ?? []).map((i: any) => i?.display_name).filter(Boolean),
         affiliation_history: full ? affs : undefined,
+        works_in_topic: worksInTopic,
         topics: topicNames,
         alternate_names: full ? (e.display_name_alternatives ?? []).slice(0, 5) : undefined,
         counts_by_year: countsByYear,

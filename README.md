@@ -34,22 +34,25 @@ All tools are read-only.
 
 | Tool | What it does |
 |------|--------------|
-| `search_works` | Find papers by keyword (Boolean syntax) or by meaning (`mode: "semantic"`), with filters for year, type, open access, citations, and author/institution/source/topic IDs. |
+| `search_works` | Find papers by keyword (Boolean syntax) or by meaning (`mode: "semantic"`), with filters for year, type, open access, citations, and author/institution/source/topic/funder IDs. |
 | `get_work` | Full record for one work by OpenAlex ID, DOI, PMID or PMCID: all authors and affiliations, abstract, topics, funding, citations by year. Free. |
-| `list_citations` | Works that cite a paper, or the works it references. |
-| `search_entities` | Resolve a name to an OpenAlex ID: authors, institutions, sources (journals), topics, funders, publishers. |
+| `resolve_references` | Check up to 25 citations (DOIs, PMIDs, or free-text references) in one call; reports whether each exists and how confidently it matched. Catches fabricated or garbled references and fills in DOIs. |
+| `list_citations` | Works that cite a paper, the works it references, or related works. |
+| `search_entities` | Find authors, institutions, sources (journals), topics, funders and publishers by name and/or filters: researchers at an institution working on a topic, open-access journals in a field under a given APC, companies in a country. |
 | `get_entity` | Full profile for an author, institution, source, topic, funder or publisher. Free. |
-| `group_works` | Count works by author, institution, country, source, year, topic, type, OA status, and more. |
+| `group_works` | Count works by author, institution, institution type, country, source, publisher, funder, year, type, topic, subfield, field, domain, keyword, OA status, top-10%/top-1% cited, language or SDG. |
+| `analyze_works` | One-call profile of any set of works (an institution's output, a funder's portfolio, a topic): totals, open-access share, top-cited share, trend by year, top fields, topics, institutions, countries, sources, funders and authors, and international and industry collaboration shares. |
 
 Responses are shaped for language models: abstracts are rebuilt from OpenAlex's inverted index and truncated in lists, author lists are collapsed to the first five, and every response stays under Claude's tool-result size limit.
 
 ## Example prompts
 
 - What are the most-cited papers on CRISPR off-target effects since 2020, and who are the top authors?
-- Find recent open-access review articles on transformer models for protein structure prediction.
-- Which institutions publish the most on perovskite solar cells, and how has output grown since 2015?
+- Summarize the University of Toronto's 2024 research output: volume, open-access share, share in the top 10% most cited, strongest fields, and top collaborating countries.
+- Who at Simon Fraser University works on scientometrics? Top five by output with h-index.
+- Check whether these references are real and give me DOIs: [paste a bibliography].
+- Which open-access journals in ecology charge no APC and have an h-index above 50?
 - Who cites this paper: 10.1038/s41586-021-03819-2? Summarize the follow-up work.
-- Give me Jennifer Doudna's publication profile and her main collaborating institutions.
 
 ## Development
 

@@ -46,6 +46,26 @@ const calls: Array<[string, Record<string, any>, (r: any) => void]> = [
   ["group_works", { group_by: "author", query: "CRISPR off-target", from_year: 2020, limit: 10 }, (r) => { if (!r.groups?.length || !r.groups[0].name) throw new Error("no groups"); }],
   ["group_works", { group_by: "year", query: "CRISPR off-target", from_year: 2015 }, (r) => { if (!r.groups?.length) throw new Error("no groups"); }],
   ["group_works", { group_by: "institution", topic_ids: ["T10102"], limit: 5 }, (r) => { if (!r.groups?.length) throw new Error("no groups"); }],
+  ["group_works", { group_by: "institution", query: "symbiotic associations in marine and freshwater habitats and their ecological and evolutionary roles", mode: "semantic", limit: 5 }, (r) => { if (!r.groups?.length || !r.basis) throw new Error("no semantic groups"); }],
+  ["group_works", { group_by: "top_10_percent", institution_ids: ["I27837315"], from_year: 2024, to_year: 2024 }, (r) => { if (!r.groups?.length) throw new Error("no groups"); }],
+  ["list_citations", { work_id: "W2741809807", direction: "related", limit: 3 }, (r) => { if (!r.results?.length) throw new Error("no related"); }],
+  ["search_entities", { entity_type: "authors", institution_ids: ["I27837315"], topic_ids: ["T10102"], sort: "works_count", limit: 5 }, (r) => { if (!r.results?.length) throw new Error("no results"); }],
+  ["search_entities", { entity_type: "sources", topic_ids: ["T10102"], is_oa: true, max_apc_usd: 0, limit: 5 }, (r) => { if (!r.results?.length) throw new Error("no results"); }],
+  ["search_entities", { entity_type: "institutions", country: "AU", type: "company", min_works_count: 100, limit: 5 }, (r) => { if (!r.results?.length) throw new Error("no results"); }],
+  ["search_entities", { entity_type: "topics", country: "US", query: "x" }, (r) => { if (!r.error) throw new Error("expected error"); }],
+  ["analyze_works", { institution_ids: ["I185261750"], from_year: 2024, to_year: 2024, top_n: 5 }, (r) => { if (!r.total_works || !r.open_access || !r.citation_impact || !r.top_fields?.length || !r.collaboration) throw new Error("incomplete profile " + Object.keys(r)); }],
+  ["analyze_works", { query: "perovskite solar cells", from_year: 2015, sections: ["by_year", "top_institutions"], top_n: 5 }, (r) => { if (!r.by_year?.length || !r.top_institutions?.length || r.top_fields) throw new Error("sections wrong"); }],
+  ["resolve_references", { references: [
+    "10.7717/peerj.4375",
+    "Piwowar et al. (2018) The state of OA. PeerJ",
+    "Piwowar, H., Priem, J., Larivière, V., et al. (2018). The state of OA: a large-scale analysis of the prevalence and impact of Open Access articles. PeerJ, 6, e4375.",
+    "Lazzarotto CR et al. CHANGE-seq reveals genetic and epigenetic effects on CRISPR-Cas9 genome-wide activity. Nat Biotechnol. 2020",
+    "Smith, J. (2021). Quantum entanglement of kelp forests and municipal bond yields: a randomized trial. Journal of Imaginary Results, 12(3), 45-67.",
+    "10.9999/definitely-not-real",
+  ] }, (r) => {
+    const m = r.results.map((x: any) => x.match);
+    if (m[0] !== "exact" || !["exact","likely"].includes(m[1]) || m[2] !== "exact" || !["exact","likely"].includes(m[3]) || m[4] !== "none" || m[5] !== "none") throw new Error("unexpected matches " + JSON.stringify(m));
+  }],
 ];
 
 for (const [name, args, check] of calls) {
