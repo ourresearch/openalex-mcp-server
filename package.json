@@ -1,0 +1,28 @@
+{
+  "name": "openalex-mcp-server",
+  "version": "0.1.0",
+  "description": "Official OpenAlex MCP server: scholarly literature search, citations, authors, institutions and more, for Claude and other MCP clients.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8788",
+    "deploy": "wrangler deploy",
+    "deploy:production": "wrangler deploy --env production",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "smoke": "tsx scripts/smoke.ts"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "hono": "^4.13.8",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250918.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "wrangler": "^4.135.0"
+  }
+}

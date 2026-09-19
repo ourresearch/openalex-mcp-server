@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openalex-mcp-server",
+  "account_id": "a452eddbbe06eb7d02f4879cee70d29c",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "vars": {
+    "ENVIRONMENT": "staging",
+    "OPENALEX_API_BASE": "https://api.openalex.org"
+  },
+  "analytics_engine_datasets": [
+    { "binding": "ANALYTICS", "dataset": "openalex_mcp_requests" }
+  ],
+  // Secrets (set with `wrangler secret put NAME [--env production]`):
+  //   OPENALEX_API_KEY  - the OpenAlex key the server uses when the client sends none
+  "env": {
+    "production": {
+      "name": "openalex-mcp-server-production",
+      "workers_dev": false,
+      "routes": [{ "pattern": "mcp.openalex.org", "custom_domain": true }],
+      "vars": { "ENVIRONMENT": "production", "OPENALEX_API_BASE": "https://api.openalex.org" },
+      "analytics_engine_datasets": [
+        { "binding": "ANALYTICS", "dataset": "openalex_mcp_requests" }
+      ]
+    }
+  }
+}
