@@ -143,7 +143,9 @@ export function registerExpertTools(server: McpServer, deps: ExpertDeps) {
             const extra = [...sp.filters];
             if (country) extra.push(`authorships.institutions.country_code:${country}`);
             const filter = buildWorkFilter(filterArgs, extra);
-            if (!query && !filter) return fail("Provide a query, an oql selection, or at least one filter (topic_ids, institution_ids, …).");
+            // buildWorkFilter always adds is_retracted:false, so test the inputs, not the string.
+            const scoped = !!query || !!args.topic_ids?.length || !!args.institution_ids?.length || !!args.funder_ids?.length || !!args.raw_filter?.trim();
+            if (!scoped) return fail("Give the topic: query text (preferred), topic_ids, an oql selection, or at least institution_ids/funder_ids/raw_filter.");
             filterUsed = filter;
             const base = { ...sp.params, filter, per_page: GROUP_PAGE, group_by: "authorships.author.id" };
             const [groups, sampleData, recent] = await Promise.all([
