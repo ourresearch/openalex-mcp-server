@@ -13,6 +13,8 @@ const DOCS = {
   oql: "https://help.openalex.org/access/oql.md",
   oql_spec: "https://help.openalex.org/access/oql-spec.md",
   api_quick_reference: "https://help.openalex.org/api/llm-quick-reference.md",
+  fixing_authors: "https://help.openalex.org/access/fixing-errors/authors.md",
+  author_curation: "https://help.openalex.org/api/author-curation.md",
 };
 
 const check = process.argv.includes("--check");

@@ -12,6 +12,7 @@ import { OAuthProvider, AuthorizationError } from "@cloudflare/workers-oauth-pro
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createServer, SERVER_NAME, SERVER_VERSION } from "./server";
 import { OpenAlexClient } from "./openalex";
+import { UsersApiClient } from "./users";
 import {
   type AuthEnv, type GrantProps, SCOPE, storePending, takePending, consentUrl, exchangeCode, ExchangeError,
   revokeAllGrants, keyLabel,
@@ -124,6 +125,7 @@ publicApp.get("/oauth/callback", async (c) => {
     keyKind: identity.key_kind,
     organizationName: identity.organization_name ?? undefined,
     clientName: pending.clientName,
+    personalApiKey: identity.personal_api_key ?? (identity.key_kind === "personal" ? identity.api_key : undefined),
   };
   const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
     request: pending.request,
@@ -165,8 +167,29 @@ async function handleMcp(c: any) {
       c.executionCtx?.waitUntil?.(revokeAllGrants(env.OAUTH_PROVIDER, props.userId).catch((e: any) => console.error("revoke failed", e?.message)));
     },
   });
+  // users-api authenticates the *user's* key only; org-key grants made before #1269 carry no personal key.
+  const personalKey = props.personalApiKey ?? (props.keyKind === "personal" ? props.apiKey : undefined);
+  const users = personalKey
+    ? new UsersApiClient({
+        apiKey: personalKey,
+        baseUrl: env.USERS_API_BASE,
+        onUnauthorized: () => {
+          c.executionCtx?.waitUntil?.(revokeAllGrants(env.OAUTH_PROVIDER, props.userId).catch((e: any) => console.error("revoke failed", e?.message)));
+        },
+      })
+    : null;
   const server = createServer({
     client,
+    users,
+    account: {
+      userId: props.userId,
+      email: props.email,
+      displayName: props.displayName,
+      keyKind: props.keyKind,
+      organizationName: props.organizationName,
+      clientName: props.clientName,
+      usersApiReady: Boolean(personalKey),
+    },
     onToolCall: (info) => {
       try {
         env.ANALYTICS?.writeDataPoint({

@@ -16,5 +16,17 @@
     "sha": "e78f54b252a6881a",
     "fetched_at": "2026-09-20",
     "bytes": 6549
+  },
+  "fixing_authors": {
+    "url": "https://help.openalex.org/access/fixing-errors/authors/",
+    "sha": "4761e968270322f4",
+    "fetched_at": "2026-09-20",
+    "bytes": 5896
+  },
+  "author_curation": {
+    "url": "https://help.openalex.org/api/author-curation/",
+    "sha": "ec0914a2f4c8ff3a",
+    "fetched_at": "2026-09-20",
+    "bytes": 8902
   }
 }

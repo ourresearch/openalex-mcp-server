@@ -97,6 +97,20 @@ const calls: Array<[string, Record<string, any>, (r: any) => void]> = [
     const m = r.results.map((x: any) => x.match);
     if (m[0] !== "exact" || !["exact","likely"].includes(m[1]) || m[2] !== "exact" || !["exact","likely"].includes(m[3]) || m[4] !== "none" || m[5] !== "none") throw new Error("unexpected matches " + JSON.stringify(m));
   }],
+  // ---- profile curation (oxjob #1269): read-only paths + a no-op write the server skips ----
+  ["search_works", { author_ids: ["A5023888391"], for_author: "A5023888391", limit: 5, include_abstracts: false }, (r) => { if (!r.profile?.name || !r.results?.length || !r.results[0].this_authorship?.raw_author_name || r.results[0].this_authorship.match !== "attributed") throw new Error("audit view incomplete " + JSON.stringify(r.results?.[0]?.this_authorship)); }],
+  ["search_works", { author_ids: ["A5023888391"], for_author: "not-an-id" }, (r) => { if (!r.error) throw new Error("expected for_author validation error"); }],
+  ["resolve_references", { author_id: "A5023888391", references: ["10.7717/peerj.4375", "10.1038/s41586-021-03819-2"] }, (r) => { if (r.results[0].on_profile !== true || r.results[1].on_profile !== false) throw new Error("on_profile wrong " + JSON.stringify(r.results.map((x: any) => x.on_profile))); }],
+  ["find_candidate_works", { author_id: "A5023888391", orcid: "0000-0001-6187-6610", limit: 3 }, (r) => { if (!r.name_matches?.works?.length || !r.orcid_matches?.orcid_record?.works_on_record || !r.sibling_profiles) throw new Error("candidates incomplete " + Object.keys(r)); if (r.name_matches.works[0].this_authorship?.match === undefined) throw new Error("no byline pick"); }],
+  ["find_candidate_works", { author_id: "A5023888391", name: "Jason Priem", sources: ["name"], from_year: 2015, limit: 3 }, (r) => { if (!r.name_matches) throw new Error("no name section"); if (r.orcid_matches || r.sibling_profiles) throw new Error("sources filter ignored"); }],
+  ["get_my_account", {}, (r) => {
+    if (r.error && /reconnect/i.test(r.error)) { console.log("     (grant has no personal key yet; users-api tools skipped until users-api ships #1269)"); return; }
+    if (!r.user?.emails?.length || !("claim_eligibility" in r)) throw new Error("account incomplete " + Object.keys(r));
+  }],
+  ["list_my_curations", { limit: 3 }, (r) => { if (r.error && /reconnect/i.test(r.error)) return; if (typeof r.total !== "number") throw new Error("no total"); }],
+  ["submit_curations", { items: [{ action: "set_display_name", value: "\u0000" }] }, (r) => { if (r.error && /reconnect/i.test(r.error)) return; if (!r.results?.[0] || r.results[0].status === "submitted") throw new Error("a control character must not be submitted: " + JSON.stringify(r.results?.[0])); }],
+  ["submit_curations", { items: [{ action: "cancel", curation_id: "cur-doesnotexist" }, { action: "add_work", work_id: "W1", raw_author_name: "" }] }, (r) => { if (r.error && /reconnect/i.test(r.error)) return; if (r.summary?.errors !== 2) throw new Error("expected 2 item errors " + JSON.stringify(r.summary)); }],
+  ["claim_author_profile", { author_id: "A5023888391" }, (r) => { if (r.error && /reconnect/i.test(r.error)) return; if (!r.already_claimed && !/already/.test(r.error ?? "")) throw new Error("expected already-claimed " + JSON.stringify(r)); }],
 ];
 
 for (const [name, args, check] of calls) {

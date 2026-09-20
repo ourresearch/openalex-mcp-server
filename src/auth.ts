@@ -21,6 +21,8 @@ export interface GrantProps {
   keyKind: "personal" | "organization";
   organizationName?: string;
   clientName?: string;
+  /** The user's own key, for users-api calls (claims, curations); equals apiKey for personal grants. */
+  personalApiKey?: string;
 }
 
 export interface AuthEnv {
@@ -91,6 +93,7 @@ export interface ExchangeResult {
   api_key: string;
   key_kind: "personal" | "organization";
   organization_name?: string | null;
+  personal_api_key?: string | null;
 }
 
 export class ExchangeError extends Error {

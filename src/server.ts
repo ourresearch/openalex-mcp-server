@@ -15,17 +15,26 @@ import { normalizeOql, oqlHasSearch, oqlHasGroupBy, oqlHasSample, oneLine, repro
 import OQL_DOC from "./docs/oql.md";
 import OQL_SPEC_DOC from "./docs/oql_spec.md";
 import API_QUICK_REF_DOC from "./docs/api_quick_reference.md";
+import FIXING_AUTHORS_DOC from "./docs/fixing_authors.md";
+import AUTHOR_CURATION_DOC from "./docs/author_curation.md";
 import DOCS_MANIFEST from "./docs/manifest.json";
+import { registerCurationTools, type AccountContext, LATENCY_NOTE } from "./curationTools";
+import { pickAuthorship, coauthorNames } from "./curation";
+import type { UsersApiClient } from "./users";
+import { UsersApiError } from "./users";
+import { OrcidError } from "./orcid";
 
 /** Canonical docs bundled from help.openalex.org (scripts/sync-docs.mjs). */
 export const DOCS: Record<string, { title: string; text: string; url: string }> = {
   oql: { title: "OQL: the OpenAlex Query Language (overview)", text: OQL_DOC, url: DOCS_MANIFEST.oql.url },
   oql_spec: { title: "OQL specification (normative, every rule and error code)", text: OQL_SPEC_DOC, url: DOCS_MANIFEST.oql_spec.url },
   api_quick_reference: { title: "OpenAlex API quick reference for agents (entities, filters, syntax)", text: API_QUICK_REF_DOC, url: DOCS_MANIFEST.api_quick_reference.url },
+  fixing_authors: { title: "Fixing author profiles: claiming, adding and removing works, merging duplicates", text: FIXING_AUTHORS_DOC, url: DOCS_MANIFEST.fixing_authors.url },
+  author_curation: { title: "Author curation API: the exact curation payloads and how they are applied", text: AUTHOR_CURATION_DOC, url: DOCS_MANIFEST.author_curation.url },
 };
 
 export const SERVER_NAME = "openalex";
-export const SERVER_VERSION = "0.2.0";
+export const SERVER_VERSION = "0.3.0";
 
 const INSTRUCTIONS_BASE = `OpenAlex is a free, open index of the world's scholarly research: 250M+ works (papers, books, datasets, preprints) with citations, 100M+ author profiles, and every journal, institution, funder and topic they connect to. Data is CC0.
 
@@ -41,6 +50,23 @@ Tools:
 
 Every works result includes the canonical OQL that produced it (and a reproduce_url), so users can rerun, share, or cite the exact query.
 
+Profile curation (the connected user's own OpenAlex author profile):
+- get_my_account: who is connected, the claimed profile, claim status, and whether a claim would be instant or reviewed.
+- claim_author_profile: claim a profile for the account (one per account; confirm the profile with the user first).
+- search_works with for_author=<A id>: the audit view. Each work carries this_authorship (the byline, raw affiliations, raw ORCID) and coauthors, and page 1 carries a profile summary.
+- find_candidate_works: works probably theirs but missing from the profile, from bylines (the name ladder), ORCID, and same-name sibling profiles.
+- resolve_references with author_id: reconcile a CV or publication list; each match says whether it is on the profile and which byline to attach.
+- submit_curations / list_my_curations: submit add_work, remove_work, set_display_name, set_full_name, set_orcid, remove_orcid, cancel; track status.
+
+Recipe for "make my profile accurate" / "fix my OpenAlex profile":
+1. get_my_account. No claimed profile: find it with search_entities (authors), show the user the candidates (name, institutions, works count, a few titles) and confirm; then claim_author_profile (collect evidence first when claim_eligibility is "review", and stop there: curation waits for approval).
+2. search_works(author_ids=[id], for_author=id, limit=50) and page through; read the profile summary; note bylines, institutions and topics that do not fit the person.
+3. If the user gave a CV, bio sketch or publication list: read it yourself, extract DOIs or titles, and call resolve_references(author_id=id) in batches of 25. Matches with on_profile=false are add candidates (use authorship_match.raw_author_name); unmatched entries may not be in OpenAlex at all.
+4. find_candidate_works(author_id, name, orcid) for the display name, then for each alternate name the person publishes under.
+5. Judge each work by whether its topic, coauthors, institution and byline fit the person: add clear fits without asking, remove clear misfits after showing them, and ask about anything in between. A CV is evidence, not truth (stale, typos). Skip paratext. Never set an ORCID the user did not give. Removing a work also removes what it alone contributed (an institution, a topic).
+6. submit_curations in batches the user has agreed to; report what is pending. ${LATENCY_NOTE}
+Duplicate profiles: add the duplicate's works to the claimed profile (search_works(author_ids=[dup], for_author=claimed) lists them with the byline to use); the emptied profile goes inert. There is no merge button.
+
 The OQL reference is appended below, verbatim from help.openalex.org. The full OQL specification and the API quick reference are also available through the read_docs tool.
 
 Recipe for "find references for this passage" or "build a systematic search": split the passage into its claims; for each claim write an AND group of synonyms joined with or; join the groups with or (or with and if every claim must hold); add year/type/retracted filters; run with preview=true, look at the count and sample, tighten with exact phrases, extra terms or not-clauses; then run for real with sort=relevance and a larger limit. Give the user the canonical OQL with the results.
@@ -54,6 +80,9 @@ export const SERVER_INSTRUCTIONS = INSTRUCTIONS_BASE + DOCS.oql.text;
 
 export interface ServerContext {
   client: OpenAlexClient;
+  /** users-api client on the user's personal key; null when the grant has none (pre-#1269 org-key grants). */
+  users?: UsersApiClient | null;
+  account?: AccountContext | null;
   onToolCall?: (info: { tool: string; ok: boolean; ms: number; credits: number; status?: number }) => void;
 }
 
@@ -141,7 +170,7 @@ export function createServer(ctx: ServerContext): McpServer {
     try {
       result = await body();
     } catch (e: any) {
-      if (e instanceof OpenAlexError) status = e.status;
+      if (e instanceof OpenAlexError || e instanceof UsersApiError || e instanceof OrcidError) status = e.status;
       result = fail(e?.message ?? String(e));
     }
     ctx.onToolCall?.({ tool, ok: !result.isError, ms: Date.now() - t0, credits: client.creditsUsed - before, status });
@@ -156,6 +185,33 @@ export function createServer(ctx: ServerContext): McpServer {
     if (wid && /^W\d+$/.test(wid)) return wid;
     const w = await client.get("/works/" + encodeURIComponent(normalizeWorkId(input)).replace(/%2F/g, "/"), { select: "id" });
     return shortId(w.id)!;
+  };
+
+  /** Profile name (for byline matching) and, on request, a summary for the audit view. Free calls. */
+  const auditContext = async (aid: string, withSummary: boolean): Promise<{ name: string | null; summary?: Record<string, any> }> => {
+    let e: any;
+    try {
+      e = await client.get(`/authors/${aid}`);
+    } catch (err: any) {
+      if (err instanceof OpenAlexError && err.status === 404) return { name: null, summary: withSummary ? { id: aid, note: "No such author profile in OpenAlex." } : undefined };
+      throw err;
+    }
+    if (!withSummary) return { name: e.display_name ?? null };
+    const years = (e.counts_by_year ?? []).map((c: any) => c.year).filter((y: any) => Number.isFinite(y));
+    return {
+      name: e.display_name ?? null,
+      summary: compact({
+        id: shortId(e.id),
+        name: e.display_name ?? null,
+        alternate_names: (e.display_name_alternatives ?? []).slice(0, 15),
+        orcid: e.orcid ? String(e.orcid).replace(/^https?:\/\/orcid\.org\//i, "") : null,
+        works_count: e.works_count ?? null,
+        cited_by_count: e.cited_by_count ?? null,
+        affiliations: (e.affiliations ?? []).slice(0, 10).map((a: any) => compact({ institution: a?.institution?.display_name, id: shortId(a?.institution?.id), years: Array.isArray(a?.years) && a.years.length ? `${Math.min(...a.years)}-${Math.max(...a.years)}` : null })),
+        topics: (e.topics ?? []).slice(0, 8).map((t: any) => compact({ name: t?.display_name, works: t?.count })),
+        recent_years: years.length ? `${Math.min(...years)}-${Math.max(...years)}` : null,
+      }),
+    };
   };
 
   // -------------------------------------------------------------------------
@@ -188,6 +244,7 @@ export function createServer(ctx: ServerContext): McpServer {
         limit: z.number().int().min(1).max(50).optional().describe("Results per page, 1-50. Default 15."),
         page: z.number().int().min(1).max(200).optional().describe("Page number. Default 1."),
         include_abstracts: z.boolean().optional().describe("Include a truncated abstract per result. Default true."),
+        for_author: z.string().max(300).optional().describe("Profile-curation audit view: an author ID (A…). Each result then carries this_authorship (the byline belonging to that author, with raw affiliations and raw ORCID, or the byline that best matches the author's name on works not yet attributed) plus coauthors; page 1 carries a summary of the profile. Typically used with author_ids=[same id] to list the profile's works, or with author_ids=[a duplicate profile] to review its works for merging."),
         ...workFilterShape,
       },
       annotations: { title: "Search works", ...READ_ONLY },
@@ -195,6 +252,14 @@ export function createServer(ctx: ServerContext): McpServer {
     async (args) =>
       run("search_works", async () => {
         const preview = !!args.preview;
+        const forAuthor = args.for_author ? shortId(args.for_author) : null;
+        if (args.for_author && !(forAuthor && /^A\d+$/.test(forAuthor))) return fail(`for_author must be an OpenAlex author ID like A5023888391, got "${args.for_author}".`);
+        const audit = forAuthor ? await auditContext(forAuthor, (args.page ?? 1) === 1 && !preview) : null;
+        const decorate = (shaped: any, w: any) => {
+          if (!audit) return shaped;
+          const pick = pickAuthorship(w.authorships ?? [], forAuthor, audit.name);
+          return compact({ ...shaped, this_authorship: pick.this_authorship, ambiguous_bylines: pick.ambiguous_bylines, coauthors: coauthorNames(w.authorships ?? [], pick.this_authorship?.position ?? null) });
+        };
         const previewLimit = args.preview_limit ?? 10;
         const previewRandom = preview && args.preview_sample === "random";
         const structuredKeys = ["query", "mode", "search_in", "sort", "page", ...Object.keys(workFilterShape)] as const;
@@ -219,12 +284,13 @@ export function createServer(ctx: ServerContext): McpServer {
           if (data.group_by && data.group_by.length) {
             return ok(compact({ ...queryEcho(data), total_works: data.meta.count, groups: shapeGroups(data) }));
           }
-          const results = data.results.map((w) => shapeWork(w, { abstractChars: preview || args.include_abstracts === false ? 0 : 500, maxAuthors: preview ? 1 : 5 }));
+          const results = data.results.map((w) => decorate(shapeWork(w, { abstractChars: preview || args.include_abstracts === false ? 0 : 500, maxAuthors: preview ? 1 : 5 }), w));
           return ok(compact({
             preview: preview || null,
             sample_basis: preview ? (previewRandom ? `random ${results.length} of all matches` : `top ${results.length} by ${sortKey}`) : null,
             ...queryEcho(data),
             ...pagingInfo(data.meta, results.length),
+            profile: audit?.summary,
             results,
           }));
         }
@@ -253,12 +319,13 @@ export function createServer(ctx: ServerContext): McpServer {
           params.sort = sort;
         }
         const data = await client.get<ListResponse>("/works", params);
-        const results = data.results.map((w) => shapeWork(w, { abstractChars: preview || args.include_abstracts === false ? 0 : 500, maxAuthors: preview ? 1 : 5 }));
+        const results = data.results.map((w) => decorate(shapeWork(w, { abstractChars: preview || args.include_abstracts === false ? 0 : 500, maxAuthors: preview ? 1 : 5 }), w));
         return ok(compact({
           preview: preview || null,
           sample_basis: preview ? (previewRandom ? `random ${results.length} of all matches` : `top ${results.length} by ${sortKey}`) : null,
           ...queryEcho(data),
           ...pagingInfo(data.meta, results.length),
+          profile: audit?.summary,
           query: query ?? null,
           mode: query ? mode : null,
           search_in: query && mode !== "semantic" ? args.search_in ?? "title_and_abstract" : null,
@@ -303,11 +370,21 @@ export function createServer(ctx: ServerContext): McpServer {
         "Use it to verify a bibliography, detect fabricated or garbled citations, fill in missing DOIs, or turn a reading list into OpenAlex IDs.",
       inputSchema: {
         references: z.array(z.string().min(3).max(600)).min(1).max(25).describe("Citations to resolve, one per item."),
+        author_id: z.string().max(300).optional().describe("Profile curation: an author ID (A…). Each matched work then reports on_profile (already attributed to that author) and authorship_match (the byline to attach, with raw_author_name for submit_curations add_work), so a CV or publication list can be reconciled against the profile."),
       },
       annotations: { title: "Resolve references", ...READ_ONLY },
     },
-    async ({ references }) =>
+    async ({ references, author_id }) =>
       run("resolve_references", async () => {
+        const forAuthor = author_id ? shortId(author_id) : null;
+        if (author_id && !(forAuthor && /^A\d+$/.test(forAuthor))) return fail(`author_id must be an OpenAlex author ID like A5023888391, got "${author_id}".`);
+        const audit = forAuthor ? await auditContext(forAuthor, false) : null;
+        const annotate = (r: any, w: any) => {
+          if (!audit || !w) return r;
+          const pick = pickAuthorship(w.authorships ?? [], forAuthor, audit.name);
+          const on = pick.this_authorship?.match === "attributed";
+          return compact({ ...r, on_profile: on, authorship_match: on ? undefined : pick.this_authorship, ambiguous_bylines: pick.ambiguous_bylines });
+        };
         const resolveOne = async (ref: string) => {
           const input = ref.trim();
           const doi = extractDoi(input);
@@ -316,7 +393,7 @@ export function createServer(ctx: ServerContext): McpServer {
           if (isId) {
             try {
               const w = await client.get("/works/" + encodeURIComponent(normalizeWorkId(doi ?? input)).replace(/%2F/g, "/"), { select: LIST_SELECT.join(",") });
-              return { input, match: "exact", matched_on: doi ? "doi" : "id", work: shapeWork(w) };
+              return annotate({ input, match: "exact", matched_on: doi ? "doi" : "id", work: shapeWork(w) }, w);
             } catch (e: any) {
               if (e instanceof OpenAlexError && e.status === 404) return { input, match: "none", note: "No OpenAlex work has this identifier." };
               throw e;
@@ -349,7 +426,7 @@ export function createServer(ctx: ServerContext): McpServer {
           else if (best.precision >= 0.85 && corroborated && !contradicted) match = "likely";
           else if (best.precision >= 0.6 && !(best.yearOk === false && best.authorOk === false)) match = "uncertain";
           else match = "none";
-          return compact({
+          return annotate(compact({
             input,
             match,
             matched_on: "title",
@@ -358,7 +435,7 @@ export function createServer(ctx: ServerContext): McpServer {
             author_consistent: best.authorOk,
             work: match === "none" ? undefined : shapeWork(best.w),
             note: match === "none" ? "Closest title in OpenAlex is not a convincing match; the reference may be garbled or fabricated." : match === "uncertain" ? "Partial title match; check the author list and year before trusting it." : undefined,
-          });
+          }), match === "none" ? null : best.w);
         };
         const results = await Promise.all(references.map(resolveOne));
         const counts = { exact: 0, likely: 0, uncertain: 0, none: 0 } as Record<string, number>;
@@ -688,6 +765,8 @@ export function createServer(ctx: ServerContext): McpServer {
   // -------------------------------------------------------------------------
   // Documentation: resources + read_docs
   // -------------------------------------------------------------------------
+  registerCurationTools(server, { client, users: ctx.users ?? null, account: ctx.account ?? null, run, ok, fail, listSelect: LIST_SELECT });
+
   for (const [key, doc] of Object.entries(DOCS)) {
     server.registerResource(
       `docs-${key}`,
@@ -704,7 +783,7 @@ export function createServer(ctx: ServerContext): McpServer {
       description:
         "Return a canonical OpenAlex documentation page, bundled from help.openalex.org: " +
         Object.entries(DOCS).map(([k, d]) => `${k} (${d.title})`).join("; ") +
-        ". Use oql_spec when an OQL query is rejected and the fix-it isn't enough, and api_quick_reference for entity fields and filter names.",
+        ". Use oql_spec when an OQL query is rejected and the fix-it isn't enough, api_quick_reference for entity fields and filter names, and fixing_authors before curating a profile.",
       inputSchema: {
         topic: z.enum(Object.keys(DOCS) as [string, ...string[]]).describe("Which page."),
         section: z.string().max(100).optional().describe("Optional heading text; returns only that section (case-insensitive substring match on headings)."),
