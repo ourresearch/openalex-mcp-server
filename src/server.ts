@@ -12,6 +12,19 @@ import {
 } from "./filters";
 import { titleCoverage, queryCoverage, extractYear, extractDoi, guessTitle, guessSurnames } from "./text";
 import { normalizeOql, oqlHasSearch, oqlHasGroupBy, oqlHasSample, oneLine, reproduceUrl, OQL_GROUP_DIMS } from "./oql";
+import OQL_DOC from "./docs/oql.md";
+import OQL_SPEC_DOC from "./docs/oql_spec.md";
+import OQO_SCHEMA_DOC from "./docs/oqo_schema.md";
+import API_QUICK_REF_DOC from "./docs/api_quick_reference.md";
+import DOCS_MANIFEST from "./docs/manifest.json";
+
+/** Canonical docs bundled from help.openalex.org (scripts/sync-docs.mjs). */
+export const DOCS: Record<string, { title: string; text: string; url: string }> = {
+  oql: { title: "OQL: the OpenAlex Query Language (overview)", text: OQL_DOC, url: DOCS_MANIFEST.oql.url },
+  oql_spec: { title: "OQL specification (normative, every rule and error code)", text: OQL_SPEC_DOC, url: DOCS_MANIFEST.oql_spec.url },
+  oqo_schema: { title: "OQO: JSON query objects and their JSON Schema", text: OQO_SCHEMA_DOC, url: DOCS_MANIFEST.oqo_schema.url },
+  api_quick_reference: { title: "OpenAlex API quick reference for agents (entities, filters, syntax)", text: API_QUICK_REF_DOC, url: DOCS_MANIFEST.api_quick_reference.url },
+};
 
 export const SERVER_NAME = "openalex";
 export const SERVER_VERSION = "0.2.0";
@@ -30,21 +43,14 @@ Tools:
 
 Every works result includes the canonical OQL that produced it (and a reproduce_url), so users can rerun, share, or cite the exact query.
 
-OQL in one minute (full spec: https://help.openalex.org/access/oql/):
-  works where title/abstract has ((vaping or "vape*" or "electronic cigarette*") and ("adolescen*" or youth)) and year >= (2018) and type is (article or review)
-- Text search: <field> has (...). Fields: title, abstract, title/abstract, full text. Bare words are stemmed; "quotes" are exact; wildcards must be quoted ("psoriat*"); within 3 ("smart", "phone") = proximity.
-- Combine with and / or, nest with parentheses. Negate with not inside the parentheses: abstract has (not pediatric), (not (a or b)), country is (not FR).
-- Filters: year is (2020) / year >= (2019) / year <= (2023); citation count >= (100); FWCI >= (2.0); open access is (true); retracted is (false); type is (article or review); language is (en); oa status is (gold or diamond).
-- Entities take IDs, not names (resolve with search_entities first): institution is (I136199984); author is (A5067184382); source is (S137773608); topic is (T10102); funder is (F4320332161); country is (US or GB).
-- Citation links: it cites (W…); it's cited by (W…); it's related to (W…).
-- Semantic: title/abstract is similar to ("a sentence describing what you want").
-- Aggregation: … group by author | institution | country | source | funder | year | type | topic | field | oa status.
-- Field names are the OQL words above (title/abstract, year, citation count), never API column ids (title_and_abstract.search, publication_year). Every value sits in parentheses: year >= (2018), not year >= 2018.
-- Sorting is not part of OQL; use the sort parameter.
+Query language: the OpenAlex Query Language (OQL) reference is appended below, verbatim from ${DOCS.oql.url}. The full specification, the OQO JSON schema and the API quick reference are available through the read_docs tool.
 
 Recipe for "find references for this passage" or "build a systematic search": split the passage into its claims; for each claim write an AND group of synonyms joined with or; join the groups with or (or with and if every claim must hold); add year/type/retracted filters; run with preview=true, look at the count and sample, tighten with exact phrases, extra terms or not-clauses; then run for real with sort=relevance and a larger limit. Give the user the canonical OQL with the results.
 
-IDs: works W…, authors A…, sources S…, institutions I…, topics T…, funders F…, publishers P…. Any tool accepts the bare ID or the https://openalex.org/… URL. Link to works with openalex_url or https://doi.org/<doi>.`;
+IDs: works W…, authors A…, sources S…, institutions I…, topics T…, funders F…, publishers P…. Any tool accepts the bare ID or the https://openalex.org/… URL. Link to works with openalex_url or https://doi.org/<doi>.
+
+---
+${DOCS.oql.text}`;
 
 export interface ServerContext {
   client: OpenAlexClient;
@@ -684,6 +690,46 @@ export function createServer(ctx: ServerContext): McpServer {
         }
         out.api_calls = keys.length;
         return ok(compact(out));
+      })()
+  );
+
+  // -------------------------------------------------------------------------
+  // Documentation: resources + read_docs
+  // -------------------------------------------------------------------------
+  for (const [key, doc] of Object.entries(DOCS)) {
+    server.registerResource(
+      `docs-${key}`,
+      `openalex://docs/${key}`,
+      { title: doc.title, description: `Canonical copy of ${doc.url}`, mimeType: "text/markdown" },
+      async (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/markdown", text: doc.text }] })
+    );
+  }
+
+  server.registerTool(
+    "read_docs",
+    {
+      title: "Read OpenAlex documentation",
+      description:
+        "Return a canonical OpenAlex documentation page, bundled from help.openalex.org: " +
+        Object.entries(DOCS).map(([k, d]) => `${k} (${d.title})`).join("; ") +
+        ". Use oql_spec when an OQL query is rejected and the fix-it isn't enough, oqo_schema to build queries as JSON, and api_quick_reference for entity fields and filter names.",
+      inputSchema: {
+        topic: z.enum(Object.keys(DOCS) as [string, ...string[]]).describe("Which page."),
+        section: z.string().max(100).optional().describe("Optional heading text; returns only that section (case-insensitive substring match on headings)."),
+      },
+      annotations: { title: "Read OpenAlex documentation", ...READ_ONLY },
+    },
+    async ({ topic, section }) =>
+      run("read_docs", async () => {
+        const doc = DOCS[topic];
+        let text = doc.text;
+        if (section) {
+          const parts = text.split(/^(?=#{1,4} )/m);
+          const hits = parts.filter((p) => new RegExp(`^#{1,4} .*${section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "im").test(p.split("\n")[0] ?? ""));
+          if (!hits.length) return fail(`No heading in ${topic} matches "${section}". Headings: ${parts.map((p) => p.split("\n")[0]).filter((h) => h.startsWith("#")).slice(0, 40).join(" | ")}`);
+          text = hits.join("\n");
+        }
+        return { content: [{ type: "text", text: `Source: ${doc.url}\n\n${text}` }] };
       })()
   );
 

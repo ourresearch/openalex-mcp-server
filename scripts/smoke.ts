@@ -40,6 +40,8 @@ const calls: Array<[string, Record<string, any>, (r: any) => void]> = [
   ["search_works", { oqo: { get_rows: "works", filter_rows: [{ column_id: "title_and_abstract.search", value: "crispr off-target", operator: "has" }, { column_id: "publication_year", value: 2019, operator: ">" }] }, limit: 3 }, (r) => { if (!r.results?.length || !r.oql) throw new Error("bad oqo run"); }],
   ["search_works", { query: "CRISPR off-target effects", from_year: 2020, preview: true, preview_limit: 3 }, (r) => { if (!r.preview || r.results.length !== 3 || !r.oql) throw new Error("bad structured preview"); }],
   ["group_works", { group_by: "institution", oql: 'title/abstract has ((vaping or "vape*" or "electronic cigarette*") and ("adolescen*" or youth)) and year >= (2018)', limit: 5 }, (r) => { if (!r.groups?.length || !r.oql || !/group by institution/.test(r.oql)) throw new Error("bad oql group " + r.oql); }],
+  ["read_docs", { topic: "oql", section: "Negation" }, (r) => { if (!/inside the parentheses/i.test(JSON.stringify(r))) throw new Error("negation section missing"); }],
+  ["read_docs", { topic: "oql_spec", section: "Diagnostics" }, (r) => { if (!/OQL_SHORT_WILDCARD_PREFIX/.test(JSON.stringify(r))) throw new Error("spec section missing"); }],
   ["get_work", { id: "10.7717/peerj.4375" }, (r) => { if (r.id !== "W2741809807") throw new Error("wrong work " + r.id); if (!r.abstract) throw new Error("no abstract"); }],
   ["get_work", { id: "10.9999/does-not-exist" }, (r) => { if (!r.error) throw new Error("expected error"); }],
   ["list_citations", { work_id: "W2741809807", limit: 3 }, (r) => { if (!r.results?.length) throw new Error("no results"); }],
@@ -81,7 +83,8 @@ for (const [name, args, check] of calls) {
   try {
     const res: any = await client.callTool({ name, arguments: args });
     const text = res.content?.[0]?.text ?? "";
-    const parsed = JSON.parse(text);
+    let parsed: any;
+    try { parsed = JSON.parse(text); } catch { parsed = { text }; }
     check(parsed);
     const approxTokens = Math.round(text.length / 4);
     console.log(`ok   ${name} ${JSON.stringify(args).slice(0, 70)}  ${Date.now() - t0}ms ~${approxTokens} tok${parsed.error ? " (expected error: " + parsed.error.slice(0, 60) + ")" : ""}`);
