@@ -22,7 +22,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250918.0",
+    "@cloudflare/workers-types": "^5.20260920.1",
     "tsx": "^4.23.13",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0",
