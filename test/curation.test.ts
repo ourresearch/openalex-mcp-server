@@ -23,6 +23,8 @@ describe("toPayload", () => {
     expect(() => toPayload({ action: "add_work", work_id: "W1", raw_author_name: "  " }, A)).toThrow(CurationItemError);
     expect(() => toPayload({ action: "set_orcid", value: "0000-0002-0889-9221" }, A)).toThrow(/check digit|valid ORCID/);
     expect(() => toPayload({ action: "set_display_name", value: "" }, A)).toThrow(CurationItemError);
+    expect(() => toPayload({ action: "set_display_name", value: "J\u0000Smith" }, A)).toThrow(/control characters/);
+    expect(() => toPayload({ action: "add_work", work_id: "W1", raw_author_name: "Smith\u0007" }, A)).toThrow(/control characters/);
   });
 });
 

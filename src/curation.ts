@@ -38,6 +38,7 @@ export function toPayload(item: Exclude<CurationItem, { action: "cancel" }>, aut
       const name = (item.raw_author_name ?? "").trim();
       if (!name) throw new CurationItemError("add_work needs raw_author_name: the byline on the work, exactly as OpenAlex returns it.");
       if (name.includes('"]')) throw new CurationItemError("raw_author_name contains the sequence \"] which the property syntax cannot carry.");
+      if (/[\u0000-\u001f\u007f]/.test(name)) throw new CurationItemError("raw_author_name contains control characters.");
       return { entity: "works", entity_id: workUrl(item.work_id), property: `authorships[raw_author_name="${name}"].author.id`, action: "replace", value: author };
     }
     case "remove_work":
@@ -47,6 +48,7 @@ export function toPayload(item: Exclude<CurationItem, { action: "cancel" }>, aut
       const v = (item.value ?? "").trim();
       if (!v) throw new CurationItemError(`${item.action} needs a non-empty value.`);
       if (v.length > 300) throw new CurationItemError(`${item.action} value is too long.`);
+      if (/[\u0000-\u001f\u007f]/.test(v)) throw new CurationItemError(`${item.action} value contains control characters.`);
       return { entity: "authors", entity_id: author, property: item.action === "set_display_name" ? "display_name" : "full_name", action: "replace", value: v };
     }
     case "set_orcid":
