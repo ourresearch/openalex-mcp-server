@@ -19,6 +19,7 @@ import FIXING_AUTHORS_DOC from "./docs/fixing_authors.md";
 import AUTHOR_CURATION_DOC from "./docs/author_curation.md";
 import DOCS_MANIFEST from "./docs/manifest.json";
 import { registerCurationTools, type AccountContext, LATENCY_NOTE } from "./curationTools";
+import { registerExpertTools } from "./expertTools";
 import { pickAuthorship, coauthorNames } from "./curation";
 import type { UsersApiClient } from "./users";
 import { UsersApiError } from "./users";
@@ -34,7 +35,7 @@ export const DOCS: Record<string, { title: string; text: string; url: string }> 
 };
 
 export const SERVER_NAME = "openalex";
-export const SERVER_VERSION = "0.3.0";
+export const SERVER_VERSION = "0.4.0";
 
 const INSTRUCTIONS_BASE = `OpenAlex is a free, open index of the world's scholarly research: 250M+ works (papers, books, datasets, preprints) with citations, 100M+ author profiles, and every journal, institution, funder and topic they connect to. Data is CC0.
 
@@ -46,6 +47,7 @@ Tools:
 - search_entities: find authors, institutions, sources (journals), topics, funders or publishers by name and/or filters. Resolve names to IDs before filtering works by ID. Also the expert-finding tool: authors currently at an institution working on a topic (institution_ids + topic_ids).
 - get_entity: full profile for an author, institution, source, topic, funder or publisher. Free.
 - group_works: count works along one dimension (author, institution, country, source, year, topic, type, OA status…). Answers "who publishes most on X", "how has X grown", "which journals".
+- find_experts: the researchers who work most on a topic (text, topic IDs or OQL), optionally at an institution or in a country, ranked with evidence: matching works, recent activity, h-index, current institution, topic share, matching titles. Reviewer search: exclude_coauthors_of + exclude_institution_ids. Prefer it over group_works-by-author whenever the question is about people.
 - analyze_works: one-call profile of any set of works (an institution's output, a funder's portfolio, a topic): totals, open-access share, top-cited share, trend by year, and top fields, topics, institutions, countries, sources, funders and authors.
 
 Every works result includes the canonical OQL that produced it (and a reproduce_url), so users can rerun, share, or cite the exact query.
@@ -765,6 +767,7 @@ export function createServer(ctx: ServerContext): McpServer {
   // -------------------------------------------------------------------------
   // Documentation: resources + read_docs
   // -------------------------------------------------------------------------
+  registerExpertTools(server, { client, run, ok, fail, searchParams, queryEcho, modeSchema, searchInSchema });
   registerCurationTools(server, { client, users: ctx.users ?? null, account: ctx.account ?? null, run, ok, fail, listSelect: LIST_SELECT });
 
   for (const [key, doc] of Object.entries(DOCS)) {
