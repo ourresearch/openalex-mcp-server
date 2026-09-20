@@ -14,7 +14,6 @@ import { titleCoverage, queryCoverage, extractYear, extractDoi, guessTitle, gues
 import { normalizeOql, oqlHasSearch, oqlHasGroupBy, oqlHasSample, oneLine, reproduceUrl, OQL_GROUP_DIMS } from "./oql";
 import OQL_DOC from "./docs/oql.md";
 import OQL_SPEC_DOC from "./docs/oql_spec.md";
-import OQO_SCHEMA_DOC from "./docs/oqo_schema.md";
 import API_QUICK_REF_DOC from "./docs/api_quick_reference.md";
 import DOCS_MANIFEST from "./docs/manifest.json";
 
@@ -22,14 +21,13 @@ import DOCS_MANIFEST from "./docs/manifest.json";
 export const DOCS: Record<string, { title: string; text: string; url: string }> = {
   oql: { title: "OQL: the OpenAlex Query Language (overview)", text: OQL_DOC, url: DOCS_MANIFEST.oql.url },
   oql_spec: { title: "OQL specification (normative, every rule and error code)", text: OQL_SPEC_DOC, url: DOCS_MANIFEST.oql_spec.url },
-  oqo_schema: { title: "OQO: JSON query objects and their JSON Schema", text: OQO_SCHEMA_DOC, url: DOCS_MANIFEST.oqo_schema.url },
   api_quick_reference: { title: "OpenAlex API quick reference for agents (entities, filters, syntax)", text: API_QUICK_REF_DOC, url: DOCS_MANIFEST.api_quick_reference.url },
 };
 
 export const SERVER_NAME = "openalex";
 export const SERVER_VERSION = "0.2.0";
 
-export const SERVER_INSTRUCTIONS = `OpenAlex is a free, open index of the world's scholarly research: 250M+ works (papers, books, datasets, preprints) with citations, 100M+ author profiles, and every journal, institution, funder and topic they connect to. Data is CC0.
+const INSTRUCTIONS_BASE = `OpenAlex is a free, open index of the world's scholarly research: 250M+ works (papers, books, datasets, preprints) with citations, 100M+ author profiles, and every journal, institution, funder and topic they connect to. Data is CC0.
 
 Tools:
 - search_works: find papers. Either fill the structured parameters (query + filters) or pass an OQL query for anything complex. preview=true returns just the count and a sample so a query can be tuned cheaply before running it.
@@ -43,14 +41,16 @@ Tools:
 
 Every works result includes the canonical OQL that produced it (and a reproduce_url), so users can rerun, share, or cite the exact query.
 
-Query language: the OpenAlex Query Language (OQL) reference is appended below, verbatim from ${DOCS.oql.url}. The full specification, the OQO JSON schema and the API quick reference are available through the read_docs tool.
+The OQL reference is appended below, verbatim from help.openalex.org. The full OQL specification and the API quick reference are also available through the read_docs tool.
 
 Recipe for "find references for this passage" or "build a systematic search": split the passage into its claims; for each claim write an AND group of synonyms joined with or; join the groups with or (or with and if every claim must hold); add year/type/retracted filters; run with preview=true, look at the count and sample, tighten with exact phrases, extra terms or not-clauses; then run for real with sort=relevance and a larger limit. Give the user the canonical OQL with the results.
 
 IDs: works W…, authors A…, sources S…, institutions I…, topics T…, funders F…, publishers P…. Any tool accepts the bare ID or the https://openalex.org/… URL. Link to works with openalex_url or https://doi.org/<doi>.
 
 ---
-${DOCS.oql.text}`;
+`;
+
+export const SERVER_INSTRUCTIONS = INSTRUCTIONS_BASE + DOCS.oql.text;
 
 export interface ServerContext {
   client: OpenAlexClient;
@@ -168,13 +168,12 @@ export function createServer(ctx: ServerContext): McpServer {
         "mode=\"semantic\" matches by meaning and is best for descriptive or long queries (up to 2,000 characters; max 50 results; no min_citations/countries filters). " +
         "mode=\"exact\" matches words without stemming. " +
         "Omit query to list works by filters alone (e.g. everything by an author, institution or funder). " +
-        "For anything the structured parameters can't express (nested Boolean groups across fields, exclusions, proximity, exact phrases, wildcards) pass an OQL query in `oql` instead; the syntax is summarized in the server instructions and at https://help.openalex.org/access/oql/. " +
+        "For anything the structured parameters can't express (nested Boolean groups across fields, exclusions, proximity, exact phrases, wildcards) pass an OQL query in `oql` instead; the OQL reference is in the server instructions and at https://help.openalex.org/access/oql/. " +
         "Set preview=true to get only the result count, the canonical OQL and a small sample, which is the cheap way to tune a query before running it. " +
         "Every response includes the canonical OQL and a reproduce_url. " +
         "Returns compact records: title, year, authors (first 5), venue, citations, FWCI, open-access link, primary topic, truncated abstract. Use get_work for a full record.",
       inputSchema: {
         oql: z.string().max(20000).optional().describe("An OQL query, e.g. works where title/abstract has ((vaping or \"vape*\" or \"electronic cigarette*\") and (youth or \"adolescen*\")) and year >= (2018). A bare where-clause is accepted. Mutually exclusive with query and the structured filters."),
-        oqo: z.record(z.string(), z.any()).optional().describe("The same query as an OQO JSON object (schema: https://help.openalex.org/access/oqo-schema/). Alternative to oql."),
         preview: z.boolean().optional().describe("Return only total_results, canonical OQL and a sample of preview_limit works (no abstracts). Use while tuning a query."),
         preview_limit: z.number().int().min(1).max(25).optional().describe("Sample size for preview. Default 10."),
         preview_sample: z.enum(["top", "random"]).optional().describe("Preview sample: top = highest-ranked (default); random = a random draw from the whole result set, better for judging precision."),
@@ -198,25 +197,15 @@ export function createServer(ctx: ServerContext): McpServer {
         const structuredKeys = ["query", "mode", "search_in", "sort", "page", ...Object.keys(workFilterShape)] as const;
         const usedStructured = structuredKeys.filter((k) => (args as any)[k] !== undefined);
 
-        // ---- OQL / OQO path ----
-        if (args.oql !== undefined || args.oqo !== undefined) {
-          if (args.oql !== undefined && args.oqo !== undefined) return fail("Pass either oql or oqo, not both.");
+        // ---- OQL path ----
+        if (args.oql !== undefined) {
           const disallowed = usedStructured.filter((k) => k !== "sort" && k !== "page");
-          if (disallowed.length) return fail(`oql/oqo is a complete query; put year, type and other filters inside it instead of using: ${disallowed.join(", ")}.`);
+          if (disallowed.length) return fail(`oql is a complete query; put year, type and other filters inside it instead of using: ${disallowed.join(", ")}.`);
           const body: Record<string, any> = {};
-          let hasSearch = true;
-          if (args.oql !== undefined) {
-            let q = normalizeOql(args.oql);
-            if (previewRandom && !oqlHasSample(q) && !oqlHasGroupBy(q)) q = `${q} sample ${previewLimit}`;
-            body.oql = q;
-            hasSearch = oqlHasSearch(q);
-          } else {
-            const o = { ...(args.oqo as Record<string, any>) };
-            if (!o.get_rows) o.get_rows = "works";
-            if (previewRandom && !o.sample && !(o.group_by?.length)) o.sample = previewLimit;
-            body.oqo = o;
-            hasSearch = JSON.stringify(o).includes('"operator":"has"') || JSON.stringify(o).includes("similar");
-          }
+          let q = normalizeOql(args.oql);
+          if (previewRandom && !oqlHasSample(q) && !oqlHasGroupBy(q)) q = `${q} sample ${previewLimit}`;
+          body.oql = q;
+          const hasSearch = oqlHasSearch(q);
           const sortKey = args.sort ?? (hasSearch ? "relevance" : "cited_by_count");
           const sampled = previewRandom;
           if (!sampled) body.sort = sortKey === "relevance" ? (hasSearch ? "relevance_score:desc" : "cited_by_count:desc") : `${sortKey}:desc`;
@@ -712,7 +701,7 @@ export function createServer(ctx: ServerContext): McpServer {
       description:
         "Return a canonical OpenAlex documentation page, bundled from help.openalex.org: " +
         Object.entries(DOCS).map(([k, d]) => `${k} (${d.title})`).join("; ") +
-        ". Use oql_spec when an OQL query is rejected and the fix-it isn't enough, oqo_schema to build queries as JSON, and api_quick_reference for entity fields and filter names.",
+        ". Use oql_spec when an OQL query is rejected and the fix-it isn't enough, and api_quick_reference for entity fields and filter names.",
       inputSchema: {
         topic: z.enum(Object.keys(DOCS) as [string, ...string[]]).describe("Which page."),
         section: z.string().max(100).optional().describe("Optional heading text; returns only that section (case-insensitive substring match on headings)."),

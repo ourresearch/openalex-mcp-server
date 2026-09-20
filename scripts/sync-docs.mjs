@@ -12,7 +12,6 @@ import { createHash } from "node:crypto";
 const DOCS = {
   oql: "https://help.openalex.org/access/oql.md",
   oql_spec: "https://help.openalex.org/access/oql-spec.md",
-  oqo_schema: "https://help.openalex.org/access/oqo-schema.md",
   api_quick_reference: "https://help.openalex.org/api/llm-quick-reference.md",
 };
 

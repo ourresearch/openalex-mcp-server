@@ -11,12 +11,6 @@
     "fetched_at": "2026-09-20",
     "bytes": 60915
   },
-  "oqo_schema": {
-    "url": "https://help.openalex.org/access/oqo-schema/",
-    "sha": "8620ea492e96bad6",
-    "fetched_at": "2026-09-20",
-    "bytes": 11945
-  },
   "api_quick_reference": {
     "url": "https://help.openalex.org/api/llm-quick-reference/",
     "sha": "e78f54b252a6881a",
