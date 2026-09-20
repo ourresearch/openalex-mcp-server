@@ -15,7 +15,9 @@
     // Must be the exact public MCP endpoint: it is the OAuth resource identifier (RFC 9728).
     "MCP_PUBLIC_URL": "https://openalex-mcp-server.our-research.workers.dev/mcp",
     "OPENALEX_WEB_BASE": "https://openalex.org",
-    "USERS_API_BASE": "https://user.openalex.org"
+    "USERS_API_BASE": "https://user.openalex.org",
+    // find_experts v1 is built but held back from the launch set (oxjob #1274); staging keeps it on.
+    "FIND_EXPERTS": "true"
   },
   // OAuth state (clients, grants, tokens; props encrypted) lives in KV.
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "e3a7ccaccec5489982e0f3a399fe9ba4" }],
@@ -37,7 +39,8 @@
         "OPENALEX_API_BASE": "https://api.openalex.org",
         "MCP_PUBLIC_URL": "https://mcp.openalex.org/mcp",
         "OPENALEX_WEB_BASE": "https://openalex.org",
-        "USERS_API_BASE": "https://user.openalex.org"
+        "USERS_API_BASE": "https://user.openalex.org",
+        "FIND_EXPERTS": "false"
       },
       "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "9ecb8f9f356949a48e217271bbf968fe" }],
       "triggers": { "crons": ["17 3 * * *"] },

@@ -23,6 +23,8 @@ export interface Env extends AuthEnv {
   OPENALEX_API_BASE: string;
   /** Exact public MCP endpoint URL; doubles as the OAuth resource identifier (RFC 9728). */
   MCP_PUBLIC_URL: string;
+  /** "true" to register find_experts (staging only until oxjob #1274 v2). */
+  FIND_EXPERTS?: string;
   ANALYTICS?: AnalyticsEngineDataset;
 }
 
@@ -190,6 +192,7 @@ async function handleMcp(c: any) {
       clientName: props.clientName,
       usersApiReady: Boolean(personalKey),
     },
+    features: { findExperts: env.FIND_EXPERTS === "true" },
     onToolCall: (info) => {
       try {
         env.ANALYTICS?.writeDataPoint({

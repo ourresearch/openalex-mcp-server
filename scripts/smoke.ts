@@ -122,7 +122,9 @@ const calls: Array<[string, Record<string, any>, (r: any) => void]> = [
   ["claim_author_profile", { author_id: "A5023888391" }, (r) => { if (r.error && /reconnect/i.test(r.error)) return; if (!r.already_claimed && !/already/.test(r.error ?? "")) throw new Error("expected already-claimed " + JSON.stringify(r)); }],
 ];
 
+const listed = new Set(tools.map((t) => t.name));
 for (const [name, args, check] of calls) {
+  if (!listed.has(name)) { console.log(`skip ${name} (not registered on this deployment)`); continue; }
   const t0 = Date.now();
   try {
     const res: any = await client.callTool({ name, arguments: args });
