@@ -4,25 +4,43 @@
   "account_id": "a452eddbbe06eb7d02f4879cee70d29c",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
-  "compatibility_flags": ["nodejs_compat"],
+  // global_fetch_strictly_public: required by workers-oauth-provider for CIMD client lookups (SSRF guard).
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "workers_dev": true,
   "observability": { "enabled": true, "head_sampling_rate": 1 },
   "vars": {
     "ENVIRONMENT": "staging",
-    "OPENALEX_API_BASE": "https://api.openalex.org"
+    "OPENALEX_API_BASE": "https://api.openalex.org",
+    // Must be the exact public MCP endpoint: it is the OAuth resource identifier (RFC 9728).
+    "MCP_PUBLIC_URL": "https://openalex-mcp-server.our-research.workers.dev/mcp",
+    "OPENALEX_WEB_BASE": "https://openalex.org",
+    "USERS_API_BASE": "https://user.openalex.org"
   },
+  // OAuth state (clients, grants, tokens; props encrypted) lives in KV.
+  "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "e3a7ccaccec5489982e0f3a399fe9ba4" }],
+  // Nightly sweep of expired grants/tokens (OAuthProvider.purgeExpiredData).
+  "triggers": { "crons": ["17 3 * * *"] },
   "analytics_engine_datasets": [
     { "binding": "ANALYTICS", "dataset": "openalex_mcp_requests" }
   ],
   // Secrets (set with `wrangler secret put NAME [--env production]`):
-  //   OPENALEX_API_KEY  - the OpenAlex key the server uses when the client sends none
+  //   OAUTH_EXCHANGE_SECRET - shared with openalex-users-api (Heroku config var of the same name);
+  //                           authenticates this Worker at users-api /oauth/exchange.
   "env": {
     "production": {
       "name": "openalex-mcp-server-production",
       "workers_dev": false,
       "routes": [{ "pattern": "mcp.openalex.org", "custom_domain": true }],
-      "vars": { "ENVIRONMENT": "production", "OPENALEX_API_BASE": "https://api.openalex.org" },
+      "vars": {
+        "ENVIRONMENT": "production",
+        "OPENALEX_API_BASE": "https://api.openalex.org",
+        "MCP_PUBLIC_URL": "https://mcp.openalex.org/mcp",
+        "OPENALEX_WEB_BASE": "https://openalex.org",
+        "USERS_API_BASE": "https://user.openalex.org"
+      },
+      "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "9ecb8f9f356949a48e217271bbf968fe" }],
+      "triggers": { "crons": ["17 3 * * *"] },
       "analytics_engine_datasets": [
         { "binding": "ANALYTICS", "dataset": "openalex_mcp_requests" }
       ]

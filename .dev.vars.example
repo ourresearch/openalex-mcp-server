@@ -1,1 +1,3 @@
-OPENALEX_API_KEY=your-openalex-api-key
+# Shared with openalex-users-api (Heroku config var OAUTH_EXCHANGE_SECRET). Any long random string;
+# for local dev point USERS_API_BASE at a local users-api that has the same value.
+OAUTH_EXCHANGE_SECRET=change-me

@@ -1,15 +1,37 @@
 /**
- * Live smoke test: connects to a running server and exercises every tool.
- * Usage: MCP_URL=http://localhost:8788/mcp npx tsx scripts/smoke.ts
- *        OPENALEX_API_KEY=... to test bring-your-own-key.
+ * Live smoke test: logs in through the real OAuth flow, then exercises every tool.
+ * Usage: MCP_URL=http://localhost:8788/mcp USERS_API_BASE=http://localhost:8000 \
+ *        SMOKE_USER_API_KEY=<a real user's OpenAlex key> npx tsx scripts/smoke.ts
+ * The user key stands in for the browser step on the consent page (see oauth-login.ts).
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { oauthLogin, expectInvalidGrant } from "./oauth-login";
 
 const url = process.env.MCP_URL ?? "http://localhost:8788/mcp";
-const key = process.env.SMOKE_BYOK_KEY;
+const usersApiBase = process.env.USERS_API_BASE ?? "https://user.openalex.org";
+const userKey = process.env.SMOKE_USER_API_KEY;
+if (!userKey) {
+  console.error("SMOKE_USER_API_KEY is required (an OpenAlex user's API key; stands in for the consent click)");
+  process.exit(2);
+}
 
-const transport = new StreamableHTTPClientTransport(new URL(url), key ? { requestInit: { headers: { Authorization: `Bearer ${key}` } } } : undefined);
+// ---- OAuth flow ------------------------------------------------------------
+const login = await oauthLogin({ mcpUrl: url, usersApiBase, userApiKey: userKey });
+console.log(`oauth ok: client ${login.clientId.slice(0, 8)}…, key_kind=${login.keyKind}${login.organizationName ? ` (${login.organizationName})` : ""}`);
+const firstRefresh = login.refreshToken!;
+const rotated = await login.refresh();
+if (!rotated.accessToken || !rotated.refreshToken || rotated.refreshToken === firstRefresh) throw new Error("refresh did not rotate");
+// The provider keeps the previous refresh token alive until its replacement is first used
+// (so a client can retry after a lost response). Use the replacement, then the original must be dead.
+await login.refresh();
+await expectInvalidGrant(login.tokenEndpoint, login.clientId, firstRefresh, url);
+console.log("refresh ok: rotated; superseded refresh token → invalid_grant");
+const badTok = await fetch(url, { method: "POST", headers: { authorization: "Bearer not-a-real-token", "content-type": "application/json", accept: "application/json, text/event-stream" }, body: "{}" });
+if (badTok.status !== 401) throw new Error(`garbage bearer: expected 401, got ${badTok.status}`);
+console.log("garbage bearer → 401");
+
+const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { Authorization: `Bearer ${login.accessToken}` } } });
 const client = new Client({ name: "smoke", version: "0.0.0" });
 await client.connect(transport);
 

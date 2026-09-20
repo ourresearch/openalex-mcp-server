@@ -145,6 +145,9 @@ export function createServer(ctx: ServerContext): McpServer {
       result = fail(e?.message ?? String(e));
     }
     ctx.onToolCall?.({ tool, ok: !result.isError, ms: Date.now() - t0, credits: client.creditsUsed - before, status });
+    // Low-budget warning as a second text block, so the JSON payload stays parseable (oxjob #1266).
+    const note = status === 429 ? null : client.budgetNote();
+    if (note) result = { ...result, content: [...result.content, { type: "text", text: note }] };
     return result;
   };
 

@@ -18,15 +18,11 @@ claude mcp add --transport http openalex https://mcp.openalex.org/mcp
 
 **Any MCP client:** point a Streamable HTTP transport at the endpoint above.
 
-### Using your own OpenAlex API key (optional)
+### Signing in
 
-By default the server queries OpenAlex on its own key, with a shared daily budget. If you want your own budget (free keys get $1/day; [plans](https://openalex.org/pricing) get more) send your key as a bearer token and the server will use it instead:
+The server is an OAuth 2.1 provider. When you add it to Claude (or any MCP client that supports OAuth), you are sent to openalex.org to log in and approve the connection; from then on every query runs on **your** OpenAlex API key and budget (free keys get $1/day; [plans and prepaid usage](https://openalex.org/pricing) get more). If you own an OpenAlex organization, the connector uses the organization's key instead, and the consent screen says so. There is no shared key and no way to query without signing in.
 
-```
-Authorization: Bearer YOUR_OPENALEX_API_KEY
-```
-
-Get a free key at https://openalex.org/settings/api. Claude's custom-connector settings support request headers for this.
+When the budget is running low, tool results carry a one-line note saying how much is left and when it resets. Rotating your API key at openalex.org/settings/api disconnects existing connections; Claude will ask you to sign in again.
 
 ## Tools
 
@@ -61,22 +57,22 @@ Responses are shaped for language models: abstracts are rebuilt from OpenAlex's 
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars   # add an OpenAlex API key
+cp .dev.vars.example .dev.vars   # shared secret + local users-api / MCP URL
 npm run dev                      # http://localhost:8788/mcp
 npm test                         # unit tests
-MCP_URL=http://localhost:8788/mcp npm run smoke   # live end-to-end test of every tool
+MCP_URL=http://localhost:8788/mcp USERS_API_BASE=http://localhost:8000 SMOKE_USER_API_KEY=<a user key> npm run smoke   # real OAuth flow + every tool
 ```
 
 Deploy (Cloudflare Workers):
 
 ```bash
-npx wrangler secret put OPENALEX_API_KEY           # staging
+npx wrangler secret put OAUTH_EXCHANGE_SECRET       # staging (same value as the users-api Heroku config var)
 npm run deploy                                     # staging: *.workers.dev
-npx wrangler secret put OPENALEX_API_KEY --env production
+npx wrangler secret put OAUTH_EXCHANGE_SECRET --env production
 npm run deploy:production                          # https://mcp.openalex.org
 ```
 
-The server is stateless: each request builds a fresh MCP server bound to the resolved API key, so it scales horizontally with no session store. Per-tool metrics go to a Cloudflare Analytics Engine dataset (`openalex_mcp_requests`).
+The server is stateless: each request builds a fresh MCP server bound to the API key in the caller's OAuth grant, so it scales horizontally with no session store. OAuth state (clients, grants, tokens) lives in Workers KV via [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider); grant props (the API key) are encrypted at rest. Identity comes from openalex-users-api: the consent page on openalex.org obtains a short-lived signed code, which the Worker exchanges server-to-server (shared secret) for the user's key. Both DCR and CIMD client registration are supported. Per-tool metrics go to a Cloudflare Analytics Engine dataset (`openalex_mcp_requests`).
 
 ## Privacy
 
