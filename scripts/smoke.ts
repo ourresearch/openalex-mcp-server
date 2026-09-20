@@ -109,7 +109,7 @@ const calls: Array<[string, Record<string, any>, (r: any) => void]> = [
   }],
   ["list_my_curations", { limit: 3 }, (r) => { if (r.error && /reconnect/i.test(r.error)) return; if (typeof r.total !== "number") throw new Error("no total"); }],
   ["submit_curations", { items: [{ action: "set_display_name", value: "\u0000" }] }, (r) => { if (r.error && /reconnect/i.test(r.error)) return; if (!r.results?.[0] || r.results[0].status === "submitted") throw new Error("a control character must not be submitted: " + JSON.stringify(r.results?.[0])); }],
-  ["submit_curations", { items: [{ action: "cancel", curation_id: "cur-doesnotexist" }, { action: "add_work", work_id: "W1", raw_author_name: "" }] }, (r) => { if (r.error && /reconnect/i.test(r.error)) return; if (r.summary?.errors !== 2) throw new Error("expected 2 item errors " + JSON.stringify(r.summary)); }],
+  ["submit_curations", { items: [{ action: "cancel", curation_id: "cur-doesnotexist" }, { action: "add_work", work_id: "10.9999/definitely-not-real", raw_author_name: "x" }] }, (r) => { if (r.error && /reconnect/i.test(r.error)) return; if (r.summary?.errors !== 2) throw new Error("expected 2 item errors " + JSON.stringify(r)); }],
   ["claim_author_profile", { author_id: "A5023888391" }, (r) => { if (r.error && /reconnect/i.test(r.error)) return; if (!r.already_claimed && !/already/.test(r.error ?? "")) throw new Error("expected already-claimed " + JSON.stringify(r)); }],
 ];
 
