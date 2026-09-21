@@ -1,0 +1,14 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "org.openalex/openalex",
+  "title": "OpenAlex",
+  "description": "Search 250M+ research papers, citations and author profiles. Free OpenAlex account; OAuth sign-in.",
+  "websiteUrl": "https://help.openalex.org/access/connector/",
+  "version": "0.5.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.openalex.org/mcp"
+    }
+  ]
+}
