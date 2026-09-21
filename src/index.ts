@@ -17,6 +17,7 @@ import {
   type AuthEnv, type GrantProps, SCOPE, storePending, takePending, consentUrl, exchangeCode, ExchangeError,
   revokeAllGrants, keyLabel,
 } from "./auth";
+import { ICON_PNG_BASE64 } from "./icon";
 
 export interface Env extends AuthEnv {
   ENVIRONMENT: string;
@@ -57,6 +58,14 @@ publicApp.get("/", (c) =>
     support: "support@openalex.org",
   })
 );
+
+/** Listing icon: the connectors directory and clients read the favicon from the server origin. */
+const iconResponse = () => {
+  const bytes = Uint8Array.from(atob(ICON_PNG_BASE64), (ch) => ch.charCodeAt(0));
+  return new Response(bytes, { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
+};
+publicApp.get("/favicon.ico", () => iconResponse());
+publicApp.get("/icon-512.png", () => iconResponse());
 
 publicApp.get("/health", (c) =>
   c.json({ ok: true, env: c.env.ENVIRONMENT, oauth: true, exchange_secret: Boolean(c.env.OAUTH_EXCHANGE_SECRET) })
