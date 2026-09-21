@@ -46,7 +46,7 @@ export const workFilterShape = {
   core_sources_only: z.boolean().optional()
     .describe("Only works published in 'core' sources: reputable, well-indexed journals and repositories (see https://help.openalex.org/data/sources/). Useful to exclude low-quality venues."),
   include_retracted: z.boolean().optional()
-    .describe("Include retracted works. Default false (retracted works are excluded)."),
+    .describe("Include retracted works. Default false: retracted works are hidden and the response says so (retracted_works). Also honoured with oql, where the default adds a `retracted is (false)` clause unless the query has its own."),
   raw_filter: z.string().max(2000).optional()
     .describe("Escape hatch: extra OpenAlex filter expression appended verbatim, using the syntax documented at https://help.openalex.org/api/filtering/ (e.g. \"has_abstract:true,primary_topic.field.id:17\"). Combined with the structured filters above using AND."),
 };
@@ -120,3 +120,9 @@ export const GROUP_BY_FIELDS = {
 } as const;
 
 export type GroupByKey = keyof typeof GROUP_BY_FIELDS;
+
+/** What the response says about retracted works (oxjob #1281). */
+export const RETRACTED_EXCLUDED_NOTE = "excluded by default; set include_retracted=true to include them";
+export const RETRACTED_INCLUDED_NOTE = "included; retracted rows carry is_retracted: true";
+export const RETRACTED_PER_QUERY_NOTE = "as filtered by the query's own retracted clause";
+export const retractedNote = (included: boolean) => (included ? RETRACTED_INCLUDED_NOTE : RETRACTED_EXCLUDED_NOTE);

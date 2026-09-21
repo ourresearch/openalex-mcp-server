@@ -151,3 +151,19 @@ describe("serializeWithinBudget", () => {
     expect(truncate("hello brave new world", 12)).toBe("hello brave…");
   });
 });
+
+import { RETRACTION_WARNING } from "../src/shape";
+
+describe("retracted works lead with the flag (oxjob #1281)", () => {
+  const retracted = { ...sampleWork, is_retracted: true };
+  it("list rows put is_retracted first", () => {
+    const s = shapeWork(retracted) as any;
+    expect(Object.keys(s)[0]).toBe("is_retracted");
+    expect(s.warning).toBeUndefined();
+  });
+  it("full records put the warning second", () => {
+    const s = shapeWork(retracted, { full: true }) as any;
+    expect(Object.keys(s).slice(0, 2)).toEqual(["is_retracted", "warning"]);
+    expect(s.warning).toBe(RETRACTION_WARNING);
+  });
+});

@@ -8,8 +8,8 @@ import { z } from "zod";
 import { OpenAlexClient, type ListResponse } from "./openalex";
 import { shortId, idList } from "./ids";
 import { compact, openalexUrl } from "./shape";
-import { workFilterShape, buildWorkFilter, assertSemanticCompatible, type WorkFilterArgs } from "./filters";
-import { normalizeOql } from "./oql";
+import { workFilterShape, buildWorkFilter, assertSemanticCompatible, type WorkFilterArgs, retractedNote, RETRACTED_PER_QUERY_NOTE } from "./filters";
+import { normalizeOql, oqlExcludeRetracted, oqlMentionsRetracted } from "./oql";
 import {
   countAuthors, candidatesFromGroups, attributeEvidence, coauthorIds, currentlyAt, affiliatedWith, currentCountry,
   topicWorks, rankExperts, round3, oqlWhereClause, oqlWithYearFloor, type Candidate, type ExpertSort,
@@ -103,12 +103,20 @@ export function registerExpertTools(server: McpServer, deps: ExpertDeps) {
         let echo: Record<string, any> = {};
         let totalWorks: number;
         let filterUsed: string | null = null;
+        let retractedWorks = retractedNote(!!args.include_retracted);
         const sampleSort = sort === "recent" ? "publication_date:desc" : "cited_by_count:desc";
 
         if (args.oql !== undefined) {
-          const used = ["query", "mode", "search_in", ...Object.keys(expertFilterShape)].filter((k) => (args as any)[k] !== undefined);
+          const used = ["query", "mode", "search_in", ...Object.keys(expertFilterShape)].filter((k) => k !== "include_retracted" && (args as any)[k] !== undefined);
           if (used.length) return fail(`oql is a complete selection; put year, type, institution and other filters inside it instead of using: ${used.join(", ")}.`);
-          const q = normalizeOql(args.oql);
+          let q = normalizeOql(args.oql);
+          if (args.include_retracted) {
+            retractedWorks = oqlMentionsRetracted(q) ? RETRACTED_PER_QUERY_NOTE : retractedNote(true);
+          } else {
+            const r = oqlExcludeRetracted(q);
+            q = r.oql;
+            retractedWorks = r.applied ? retractedNote(false) : RETRACTED_PER_QUERY_NOTE;
+          }
           const parsed = oqlWhereClause(q);
           if ("error" in parsed) return fail(parsed.error);
           const [groups, sampleData, recent] = await Promise.all([
@@ -239,6 +247,7 @@ export function registerExpertTools(server: McpServer, deps: ExpertDeps) {
           basis,
           total_matching_works: totalWorks,
           filter: filterUsed,
+          retracted_works: retractedWorks,
           ...echo,
           recent_years: recentYears,
           recent_since: recentFloor,

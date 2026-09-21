@@ -6,12 +6,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { OpenAlexClient, OpenAlexError, type ListResponse } from "./openalex";
 import { normalizeWorkId, normalizeEntityId, shortId, idList, type EntityType } from "./ids";
-import { shapeWork, shapeEntity, serializeWithinBudget, compact } from "./shape";
+import { shapeWork, shapeEntity, serializeWithinBudget, compact, RETRACTION_WARNING } from "./shape";
 import {
   workFilterShape, buildWorkFilter, assertSemanticCompatible, GROUP_BY_FIELDS, type GroupByKey,
+  retractedNote, RETRACTED_PER_QUERY_NOTE,
 } from "./filters";
 import { titleCoverage, queryCoverage, extractYear, extractDoi, guessTitle, guessSurnames } from "./text";
-import { normalizeOql, oqlHasSearch, oqlHasGroupBy, oqlHasSample, oneLine, reproduceUrl, OQL_GROUP_DIMS } from "./oql";
+import { normalizeOql, oqlHasSearch, oqlHasGroupBy, oqlHasSample, oneLine, reproduceUrl, OQL_GROUP_DIMS, oqlExcludeRetracted, oqlMentionsRetracted } from "./oql";
 import OQL_DOC from "./docs/oql.md";
 import OQL_SPEC_DOC from "./docs/oql_spec.md";
 import API_QUICK_REF_DOC from "./docs/api_quick_reference.md";
@@ -35,7 +36,7 @@ export const DOCS: Record<string, { title: string; text: string; url: string }> 
 };
 
 export const SERVER_NAME = "openalex";
-export const SERVER_VERSION = "0.4.0";
+export const SERVER_VERSION = "0.5.0";
 
 const INSTRUCTIONS_BASE = `OpenAlex is a free, open index of the world's scholarly research: 250M+ works (papers, books, datasets, preprints) with citations, 100M+ author profiles, and every journal, institution, funder and topic they connect to. Data is CC0.
 
@@ -71,6 +72,8 @@ Duplicate profiles: add the duplicate's works to the claimed profile (search_wor
 The OQL reference is appended below, verbatim from help.openalex.org. The full OQL specification and the API quick reference are also available through the read_docs tool.
 
 Recipe for "find references for this passage" or "build a systematic search": split the passage into its claims; for each claim write an AND group of synonyms joined with or; join the groups with or (or with and if every claim must hold); add year/type/retracted filters; run with preview=true, look at the count and sample, tighten with exact phrases, extra terms or not-clauses; then run for real with sort=relevance and a larger limit. Give the user the canonical OQL with the results.
+
+Retractions: OpenAlex marks retracted works (is_retracted). Every tool that lists or counts works hides them by default and says so (retracted_works); pass include_retracted=true, or write your own retracted clause in OQL, to include them. get_work and resolve_references never hide: a retracted work comes back with is_retracted: true and a warning as its first fields. Profile-curation views (for_author, find_candidate_works) include retracted works because a profile should be complete. Never present a retracted work as valid evidence; when one appears, tell the user it was retracted.
 
 IDs: works W…, authors A…, sources S…, institutions I…, topics T…, funders F…, publishers P…. Any tool accepts the bare ID or the https://openalex.org/… URL. Link to works with openalex_url or https://doi.org/<doi>.
 
@@ -154,7 +157,7 @@ const queryEcho = (data: ListResponse) => {
   return oql ? { oql, reproduce_url: reproduceUrl(oql) } : {};
 };
 
-const PREVIEW_SELECT = ["id", "doi", "display_name", "publication_year", "type", "authorships", "primary_location", "cited_by_count", "relevance_score"];
+const PREVIEW_SELECT = ["id", "doi", "display_name", "publication_year", "type", "authorships", "primary_location", "cited_by_count", "is_retracted", "relevance_score"];
 
 const pct = (part: number, whole: number) => (whole > 0 ? Number(((100 * part) / whole).toFixed(1)) : null);
 
@@ -258,6 +261,8 @@ export function createServer(ctx: ServerContext): McpServer {
         const forAuthor = args.for_author ? shortId(args.for_author) : null;
         if (args.for_author && !(forAuthor && /^A\d+$/.test(forAuthor))) return fail(`for_author must be an OpenAlex author ID like A5023888391, got "${args.for_author}".`);
         const audit = forAuthor ? await auditContext(forAuthor, (args.page ?? 1) === 1 && !preview) : null;
+        // Retracted works are hidden by default; the profile audit view keeps them (a profile should be complete). Oxjob #1281.
+        const includeRetracted = args.include_retracted ?? !!forAuthor;
         const decorate = (shaped: any, w: any) => {
           if (!audit) return shaped;
           const pick = pickAuthorship(w.authorships ?? [], forAuthor, audit.name);
@@ -270,10 +275,18 @@ export function createServer(ctx: ServerContext): McpServer {
 
         // ---- OQL path ----
         if (args.oql !== undefined) {
-          const disallowed = usedStructured.filter((k) => k !== "sort" && k !== "page");
+          const disallowed = usedStructured.filter((k) => k !== "sort" && k !== "page" && k !== "include_retracted");
           if (disallowed.length) return fail(`oql is a complete query; put year, type and other filters inside it instead of using: ${disallowed.join(", ")}.`);
           const body: Record<string, any> = {};
           let q = normalizeOql(args.oql);
+          let retractedWorks: string;
+          if (includeRetracted) {
+            retractedWorks = oqlMentionsRetracted(q) ? RETRACTED_PER_QUERY_NOTE : retractedNote(true);
+          } else {
+            const r = oqlExcludeRetracted(q);
+            q = r.oql;
+            retractedWorks = r.applied ? retractedNote(false) : RETRACTED_PER_QUERY_NOTE;
+          }
           if (previewRandom && !oqlHasSample(q) && !oqlHasGroupBy(q)) q = `${q} sample ${previewLimit}`;
           body.oql = q;
           const hasSearch = oqlHasSearch(q);
@@ -299,13 +312,14 @@ export function createServer(ctx: ServerContext): McpServer {
             }
           }
           if (data.group_by && data.group_by.length) {
-            return ok(compact({ ...queryEcho(data), total_works: data.meta.count, groups: shapeGroups(data) }));
+            return ok(compact({ ...queryEcho(data), retracted_works: retractedWorks, total_works: data.meta.count, groups: shapeGroups(data) }));
           }
           const results = data.results.map((w) => decorate(shapeWork(w, { abstractChars: preview || args.include_abstracts === false ? 0 : 500, maxAuthors: preview ? 1 : 5 }), w));
           return ok(compact({
             preview: preview || null,
             sample_basis: preview ? (previewRandom ? `random ${results.length} of all matches` : `top ${results.length} by ${sortNote ? "cited_by_count" : sortKey}`) : null,
             sort_note: sortNote,
+            retracted_works: retractedWorks,
             ...queryEcho(data),
             ...pagingInfo(data.meta, results.length),
             profile: audit?.summary,
@@ -319,7 +333,7 @@ export function createServer(ctx: ServerContext): McpServer {
         if (!query && mode === "semantic") return fail("Semantic search needs a query.");
         if (mode === "semantic") assertSemanticCompatible(args);
         const sp = searchParams(query, mode, args.search_in ?? "title_and_abstract");
-        const filter = buildWorkFilter(args, sp.filters);
+        const filter = buildWorkFilter({ ...args, include_retracted: includeRetracted }, sp.filters);
         if (!query && !filter) return fail("Provide a query, an oql query, or at least one filter.");
         const sortKey = args.sort ?? (query ? "relevance" : "cited_by_count");
         const sort = sortKey === "relevance" ? (query ? "relevance_score:desc" : "cited_by_count:desc") : `${sortKey}:desc`;
@@ -348,6 +362,7 @@ export function createServer(ctx: ServerContext): McpServer {
           mode: query ? mode : null,
           search_in: query && mode !== "semantic" ? args.search_in ?? "title_and_abstract" : null,
           filter: filter ?? null,
+          retracted_works: retractedNote(includeRetracted),
           sort: previewRandom ? null : sort,
           results,
         }));
@@ -398,10 +413,12 @@ export function createServer(ctx: ServerContext): McpServer {
         if (author_id && !(forAuthor && /^A\d+$/.test(forAuthor))) return fail(`author_id must be an OpenAlex author ID like A5023888391, got "${author_id}".`);
         const audit = forAuthor ? await auditContext(forAuthor, false) : null;
         const annotate = (r: any, w: any) => {
-          if (!audit || !w) return r;
+          // A retracted match is the whole point of checking a bibliography: flag it right after the verdict (oxjob #1281).
+          const flagged = w?.is_retracted ? { input: r.input, match: r.match, retracted: true, retraction_warning: RETRACTION_WARNING, ...r } : r;
+          if (!audit || !w) return flagged;
           const pick = pickAuthorship(w.authorships ?? [], forAuthor, audit.name);
           const on = pick.this_authorship?.match === "attributed";
-          return compact({ ...r, on_profile: on, authorship_match: on ? undefined : pick.this_authorship, ambiguous_bylines: pick.ambiguous_bylines });
+          return compact({ ...flagged, on_profile: on, authorship_match: on ? undefined : pick.this_authorship, ambiguous_bylines: pick.ambiguous_bylines });
         };
         const resolveOne = async (ref: string) => {
           const input = ref.trim();
@@ -456,9 +473,13 @@ export function createServer(ctx: ServerContext): McpServer {
           }), match === "none" ? null : best.w);
         };
         const results = await Promise.all(references.map(resolveOne));
-        const counts = { exact: 0, likely: 0, uncertain: 0, none: 0 } as Record<string, number>;
-        for (const r of results) counts[r.match as string] = (counts[r.match as string] ?? 0) + 1;
-        return ok({ summary: counts, results });
+        const counts = { exact: 0, likely: 0, uncertain: 0, none: 0, retracted: 0 } as Record<string, number>;
+        for (const r of results) {
+          counts[r.match as string] = (counts[r.match as string] ?? 0) + 1;
+          if ((r as any).retracted) counts.retracted++;
+        }
+        const note = counts.retracted ? `${counts.retracted} reference${counts.retracted === 1 ? "" : "s"} resolve${counts.retracted === 1 ? "s" : ""} to a RETRACTED work; tell the user.` : undefined;
+        return ok(compact({ summary: counts, note, results }));
       })()
   );
 
@@ -497,7 +518,7 @@ export function createServer(ctx: ServerContext): McpServer {
           select: [...LIST_SELECT, ...(args.include_abstracts ? ["abstract_inverted_index"] : [])].join(","),
         });
         const results = data.results.map((w) => shapeWork(w, { abstractChars: args.include_abstracts ? 400 : 0 }));
-        return ok(compact({ work_id: wid, direction, ...queryEcho(data), ...pagingInfo(data.meta, results.length), results }));
+        return ok(compact({ work_id: wid, direction, retracted_works: retractedNote(!!args.include_retracted), ...queryEcho(data), ...pagingInfo(data.meta, results.length), results }));
       })()
   );
 
@@ -648,9 +669,17 @@ export function createServer(ctx: ServerContext): McpServer {
         const field = GROUP_BY_FIELDS[args.group_by as GroupByKey];
         const limit = args.limit ?? 25;
         if (args.oql !== undefined) {
-          const used = ["query", "mode", "search_in", ...Object.keys(workFilterShape)].filter((k) => (args as any)[k] !== undefined);
+          const used = ["query", "mode", "search_in", ...Object.keys(workFilterShape)].filter((k) => k !== "include_retracted" && (args as any)[k] !== undefined);
           if (used.length) return fail(`oql is a complete query; put filters inside it instead of using: ${used.join(", ")}.`);
           let q = normalizeOql(args.oql);
+          let retractedWorks: string;
+          if (args.include_retracted) {
+            retractedWorks = oqlMentionsRetracted(q) ? RETRACTED_PER_QUERY_NOTE : retractedNote(true);
+          } else {
+            const r = oqlExcludeRetracted(q);
+            q = r.oql;
+            retractedWorks = r.applied ? retractedNote(false) : RETRACTED_PER_QUERY_NOTE;
+          }
           if (!oqlHasGroupBy(q)) {
             const dim = OQL_GROUP_DIMS[args.group_by as string];
             if (!dim) return fail(`group_by "${args.group_by}" is not available with oql; use one of: ${Object.keys(OQL_GROUP_DIMS).join(", ")}.`);
@@ -659,7 +688,7 @@ export function createServer(ctx: ServerContext): McpServer {
           const data = await client.post<ListResponse>({ oql: q, per_page: limit });
           const groups = shapeGroups(data);
           if (args.group_by === "year") groups.sort((a: any, b: any) => Number(a.id) - Number(b.id));
-          return ok(compact({ group_by: args.group_by, ...queryEcho(data), total_works: data.meta.count, groups_returned: groups.length, groups }));
+          return ok(compact({ group_by: args.group_by, ...queryEcho(data), retracted_works: retractedWorks, total_works: data.meta.count, groups_returned: groups.length, groups }));
         }
         if (mode === "semantic") {
           if (!query) return fail("Semantic mode needs a query.");
@@ -671,7 +700,7 @@ export function createServer(ctx: ServerContext): McpServer {
           });
           const groups = countLocally(data.results, args.group_by as GroupByKey).slice(0, limit);
           return ok(compact({
-            group_by: args.group_by, query, mode, filter: filter ?? null,
+            group_by: args.group_by, query, mode, filter: filter ?? null, retracted_works: retractedNote(!!args.include_retracted),
             basis: `the ${data.results.length} most semantically relevant works (OpenAlex cannot aggregate semantic search over the full corpus)`,
             total_works: data.results.length, groups_returned: groups.length, groups,
           }));
@@ -681,7 +710,7 @@ export function createServer(ctx: ServerContext): McpServer {
         const data = await client.get<ListResponse>("/works", { ...sp.params, filter, group_by: field, per_page: limit });
         const groups = shapeGroups(data);
         if (args.group_by === "year") groups.sort((a: any, b: any) => Number(a.id) - Number(b.id));
-        return ok(compact({ group_by: args.group_by, query: query ?? null, filter: filter ?? null, ...queryEcho(data), total_works: data.meta.count, groups_returned: groups.length, groups }));
+        return ok(compact({ group_by: args.group_by, query: query ?? null, filter: filter ?? null, retracted_works: retractedNote(!!args.include_retracted), ...queryEcho(data), total_works: data.meta.count, groups_returned: groups.length, groups }));
       })()
   );
 
@@ -742,7 +771,7 @@ export function createServer(ctx: ServerContext): McpServer {
         const total = r.total.meta.count ?? 0;
         const trueCount = (d?: ListResponse) => d?.group_by?.find((x) => x.key_display_name === "true" || x.key === "1" || x.key === "true")?.count ?? 0;
 
-        const out: Record<string, any> = { query: query ?? null, filter: filter ?? null, ...queryEcho(r.total), total_works: total };
+        const out: Record<string, any> = { query: query ?? null, filter: filter ?? null, retracted_works: retractedNote(!!args.include_retracted), ...queryEcho(r.total), total_works: total };
         if (r.year) out.by_year = shapeGroups(r.year).map((x: any) => ({ year: Number(x.id), works: x.count })).sort((a: any, b: any) => a.year - b.year);
         if (r.type) out.by_type = shapeGroups(r.type).map((x: any) => ({ type: x.id, works: x.count, share_pct: pct(x.count, total) }));
         if (r.oa) {

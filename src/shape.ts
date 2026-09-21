@@ -62,6 +62,9 @@ function authorLine(a: any): string {
   return inst ? `${name} (${inst})` : name;
 }
 
+/** Leads every retracted record so the model cannot miss it (oxjob #1281). */
+export const RETRACTION_WARNING = "This work has been RETRACTED. Do not present it as valid evidence; if you mention it, say it was retracted.";
+
 export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
   const maxAuthors = opts.maxAuthors ?? 5;
   const authorships: any[] = Array.isArray(w.authorships) ? w.authorships : [];
@@ -70,7 +73,10 @@ export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
   const oa = w.open_access ?? {};
   const abstractText = abstractFromInvertedIndex(w.abstract_inverted_index);
 
+  // Retracted works lead with the flag (and, in full records, the warning) so it is the first thing read.
+  const retracted: Record<string, any> = w.is_retracted ? { is_retracted: true, ...(opts.full ? { warning: RETRACTION_WARNING } : {}) } : {};
   const base: Record<string, any> = {
+    ...retracted,
     id: shortId(w.id),
     doi: w.doi ? String(w.doi).replace(/^https?:\/\/doi\.org\//i, "") : null,
     title: w.display_name ?? w.title ?? null,
@@ -82,7 +88,6 @@ export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
     fwci: round(w.fwci),
     is_oa: typeof oa.is_oa === "boolean" ? oa.is_oa : null,
     oa_url: oa.oa_url ?? null,
-    is_retracted: w.is_retracted ? true : null,
     relevance_score: typeof w.relevance_score === "number" ? round(w.relevance_score, 3) : null,
     openalex_url: openalexUrl(w.id),
   };
