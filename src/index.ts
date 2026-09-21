@@ -26,6 +26,8 @@ export interface Env extends AuthEnv {
   MCP_PUBLIC_URL: string;
   /** "true" to register find_experts (staging only until oxjob #1274 v2). */
   FIND_EXPERTS?: string;
+  /** ChatGPT plugin-directory domain verification token (oxjob #1294); served verbatim at /.well-known/openai-apps-challenge. */
+  OPENAI_APPS_CHALLENGE?: string;
   ANALYTICS?: AnalyticsEngineDataset;
 }
 
@@ -66,6 +68,11 @@ const iconResponse = () => {
 };
 publicApp.get("/favicon.ico", () => iconResponse());
 publicApp.get("/icon-512.png", () => iconResponse());
+
+/** ChatGPT plugin directory: the OpenAI portal issues a token that must be served verbatim at this path (oxjob #1294). */
+publicApp.get("/.well-known/openai-apps-challenge", (c) =>
+  c.env.OPENAI_APPS_CHALLENGE ? c.text(c.env.OPENAI_APPS_CHALLENGE) : c.notFound()
+);
 
 publicApp.get("/health", (c) =>
   c.json({ ok: true, env: c.env.ENVIRONMENT, oauth: true, exchange_secret: Boolean(c.env.OAUTH_EXCHANGE_SECRET) })

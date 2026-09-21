@@ -40,7 +40,10 @@
         "MCP_PUBLIC_URL": "https://mcp.openalex.org/mcp",
         "OPENALEX_WEB_BASE": "https://openalex.org",
         "USERS_API_BASE": "https://user.openalex.org",
-        "FIND_EXPERTS": "false"
+        "FIND_EXPERTS": "false",
+        // ChatGPT plugin directory domain verification (oxjob #1294): paste the token from
+        // platform.openai.com/plugins here, deploy, then click "Verify domain" in the portal.
+        "OPENAI_APPS_CHALLENGE": ""
       },
       "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "9ecb8f9f356949a48e217271bbf968fe" }],
       "triggers": { "crons": ["17 3 * * *"] },
