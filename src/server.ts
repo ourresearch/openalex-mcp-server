@@ -283,14 +283,29 @@ export function createServer(ctx: ServerContext): McpServer {
           body.per_page = preview ? previewLimit : Math.min(args.limit ?? 15, 50);
           body.page = args.page ?? 1;
           body.select = (preview ? PREVIEW_SELECT : [...LIST_SELECT, ...(args.include_abstracts === false ? [] : ["abstract_inverted_index"])]).join(",");
-          const data = await client.post<ListResponse>(body);
+          // A query whose only search terms are quoted phrases compiles to *.search.exact, which the
+          // API does not count as a search clause for relevance sorting (oxjob #328, found by #1279).
+          let sortNote: string | undefined;
+          let data: ListResponse;
+          try {
+            data = await client.post<ListResponse>(body);
+          } catch (e: any) {
+            if (e instanceof OpenAlexError && e.status === 400 && body.sort === "relevance_score:desc" && /relevance_score.*requires a search clause/i.test(e.message)) {
+              body.sort = "cited_by_count:desc";
+              sortNote = "Exact-phrase (quoted) searches cannot be ranked by relevance; results are sorted by cited_by_count instead. Unquote a term to get relevance ranking.";
+              data = await client.post<ListResponse>(body);
+            } else {
+              throw e;
+            }
+          }
           if (data.group_by && data.group_by.length) {
             return ok(compact({ ...queryEcho(data), total_works: data.meta.count, groups: shapeGroups(data) }));
           }
           const results = data.results.map((w) => decorate(shapeWork(w, { abstractChars: preview || args.include_abstracts === false ? 0 : 500, maxAuthors: preview ? 1 : 5 }), w));
           return ok(compact({
             preview: preview || null,
-            sample_basis: preview ? (previewRandom ? `random ${results.length} of all matches` : `top ${results.length} by ${sortKey}`) : null,
+            sample_basis: preview ? (previewRandom ? `random ${results.length} of all matches` : `top ${results.length} by ${sortNote ? "cited_by_count" : sortKey}`) : null,
+            sort_note: sortNote,
             ...queryEcho(data),
             ...pagingInfo(data.meta, results.length),
             profile: audit?.summary,
