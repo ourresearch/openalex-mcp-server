@@ -493,10 +493,10 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
     {
       title: "List my curations",
       description:
-        "The corrections this account has submitted and their status: pending (waiting for the nightly refresh), applied (live), or timed_out (not seen live after a week; rechecked daily). " +
+        "The corrections this account has submitted and their status: pending (waiting for the nightly refresh), applied (live), superseded (a newer correction to the same item, by this user or someone else, replaced it, so it will never apply; superseded_by names that correction), or timed_out (not seen live after a week; rechecked daily). " +
         "Each row carries a plain-language description. Use it to report progress or to find a curation_id to cancel.",
       inputSchema: {
-        status: z.array(z.enum(["pending", "applied", "timed_out"])).optional().describe("Only these statuses. Default: all."),
+        status: z.array(z.enum(["pending", "applied", "superseded", "timed_out"])).optional().describe("Only these statuses. Default: all."),
         entity: z.enum(["works", "authors"]).optional().describe("works = add/remove work curations; authors = name and ORCID changes."),
         limit: z.number().int().min(1).max(100).optional().describe("Rows per page. Default 25."),
         page: z.number().int().min(1).max(1000).optional(),
@@ -516,7 +516,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
           page: args.page ?? 1,
         });
         const rows = data.results.map(shapeCurationRow);
-        const counts = { pending: 0, applied: 0, timed_out: 0 } as Record<string, number>;
+        const counts = { pending: 0, applied: 0, superseded: 0, timed_out: 0 } as Record<string, number>;
         for (const r of rows) counts[r.status] = (counts[r.status] ?? 0) + 1;
         return ok(compact({
           total: data.meta.total_count,

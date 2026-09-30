@@ -56,9 +56,11 @@ export interface CurationRow {
   previous_value?: string | null;
   action: "add" | "remove" | "replace";
   created: string | null;
-  status: "pending" | "applied" | "timed_out";
+  status: "pending" | "applied" | "superseded" | "timed_out";
   is_applied: boolean;
   applied_at: string | null;
+  /** The newer curation that replaced this one; set only when status is "superseded" (oxjob #1458). */
+  superseded_by?: string | null;
 }
 
 export interface CurationPayload {

@@ -90,6 +90,7 @@ export function shapeCurationRow(row: CurationRow) {
     previous_value: row.previous_value ?? undefined,
     created: row.created ? String(row.created).slice(0, 19) : undefined,
     applied_at: row.applied_at ? String(row.applied_at).slice(0, 19) : undefined,
+    superseded_by: row.superseded_by ?? undefined,
   };
 }
 
