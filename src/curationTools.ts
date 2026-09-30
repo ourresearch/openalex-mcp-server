@@ -493,7 +493,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
     {
       title: "List my curations",
       description:
-        "The corrections this account has submitted and their status: pending (waiting for the nightly refresh), applied (live), superseded (a newer correction to the same item, by this user or someone else, replaced it, so it will never apply; superseded_by names that correction), or timed_out (not seen live after a week; rechecked daily). " +
+        "The corrections this account has submitted and their status: pending (waiting for the nightly refresh), applied (live), superseded (a newer correction to the same item, by this user or someone else, superseded it, so it will never apply; superseded_by names that correction), or timed_out (not seen live after a week; rechecked daily). " +
         "Each row carries a plain-language description. Use it to report progress or to find a curation_id to cancel.",
       inputSchema: {
         status: z.array(z.enum(["pending", "applied", "superseded", "timed_out"])).optional().describe("Only these statuses. Default: all."),
