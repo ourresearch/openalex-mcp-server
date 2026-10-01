@@ -104,6 +104,7 @@ function shapeClaim(c: MeRecord["claim"]) {
     decision_note: c.decision_note,
     needs: c.decision === "needs_evidence" ? (FEEDBACK[c.feedback_code ?? ""] ?? FEEDBACK.cant_tell) : undefined,
     link_checked: c.decision === "needs_evidence" ? c.feedback_link : undefined,
+    verified_by: c.verified_by,
   });
 }
 
@@ -233,6 +234,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
         return ok(compact({
           auto_approved: r.auto_approved,
           decision,
+          claim_id: r.claim_id,
           author_id: aid,
           claim: shapeClaim(claim),
           next_step: decision === "approved"
