@@ -16,7 +16,7 @@ Authors are the big self-serve exception to the [ticket-based default](/access/f
 There are three ways to prove the profile is yours. The first two are instant.
 
 - **A university email on your account.** If any verified email on your account is from a university, a research institute or a government agency, your claim is approved right away. Your account can have several emails: keep your current one and add your university email in [Settings](https://openalex.org/settings). This is by far the easiest way.
-- **ORCID.** If the profile carries your ORCID iD, click **Sign in with ORCID** in the claim window. Your claim is approved right away.
+- **ORCID.** If the profile carries your ORCID iD, click **Link your ORCID** in the claim window and sign in to ORCID. Your claim is approved right away. Or link your ORCID in [Settings](https://openalex.org/settings/profile): if a profile carries your iD, we claim it for you.
 - **A link that shows your email.** Otherwise, send a link to a page that shows the email address of your OpenAlex account: your page on your university's or institute's website, or a paper or preprint that lists that email. A page that shows only your name is not enough, and neither is a page you could make yourself (a personal website, LinkedIn, ResearchGate). Anyone can type any name into an account; the email is the one thing we have checked.
 
 We check every link automatically, usually within a few minutes. Some claims pass with no link at all: when your email is public on the profile's ORCID record, or printed in one of the profile's papers. If we can't approve a claim, we email you what is missing and you can send a new link. Once approved, you own the profile and can curate it.
