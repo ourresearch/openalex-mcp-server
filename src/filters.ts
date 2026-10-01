@@ -4,6 +4,7 @@
  */
 import { z } from "zod";
 import { idList } from "./ids";
+import { keywordSlug } from "./keywordSearch";
 
 export const WORK_TYPES = [
   "article", "review", "preprint", "book", "book-chapter", "dissertation", "dataset",
@@ -35,6 +36,8 @@ export const workFilterShape = {
     .describe("OpenAlex source (journal/repository) IDs (e.g. S137773608)."),
   topic_ids: z.array(z.string()).optional()
     .describe("OpenAlex topic IDs (e.g. T10102)."),
+  keyword_ids: z.array(z.string()).optional()
+    .describe("OpenAlex keyword ids (e.g. microplastics, human-health), any of them (OR). Find them with find_keywords. Keywords widen a text search; they do not replace it."),
   funder_ids: z.array(z.string()).optional()
     .describe("OpenAlex funder IDs (e.g. F4320332161)."),
   publisher_ids: z.array(z.string()).optional()
@@ -78,6 +81,8 @@ export function buildWorkFilter(args: WorkFilterArgs, extra: string[] = []): str
   const i = joinIds(args.institution_ids); if (i) parts.push(`authorships.institutions.lineage:${i}`);
   const s = joinIds(args.source_ids); if (s) parts.push(`primary_location.source.id:${s}`);
   const t = joinIds(args.topic_ids); if (t) parts.push(`topics.id:${t}`);
+  const kw = (args.keyword_ids ?? []).map(keywordSlug).filter(Boolean);
+  if (kw.length) parts.push(`keywords.id:${kw.join("|")}`);
   const f = joinIds(args.funder_ids); if (f) parts.push(`funders.id:${f}`);
   const p = joinIds(args.publisher_ids); if (p) parts.push(`primary_location.source.host_organization_lineage:${p}`);
   if (args.countries?.length) parts.push(`authorships.institutions.country_code:${args.countries.map((c) => c.toUpperCase()).join("|")}`);

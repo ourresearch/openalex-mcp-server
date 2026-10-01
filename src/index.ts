@@ -26,6 +26,7 @@ export interface Env extends AuthEnv {
   MCP_PUBLIC_URL: string;
   /** "true" to register find_experts (staging only until oxjob #1274 v2). */
   FIND_EXPERTS?: string;
+  KEYWORD_SEARCH?: string;
   /** ChatGPT plugin-directory domain verification token (oxjob #1294); served verbatim at /.well-known/openai-apps-challenge. */
   OPENAI_APPS_CHALLENGE?: string;
   ANALYTICS?: AnalyticsEngineDataset;
@@ -208,7 +209,7 @@ async function handleMcp(c: any) {
       clientName: props.clientName,
       usersApiReady: Boolean(personalKey),
     },
-    features: { findExperts: env.FIND_EXPERTS === "true" },
+    features: { findExperts: env.FIND_EXPERTS === "true", keywordSearch: env.KEYWORD_SEARCH === "true" },
     onToolCall: (info) => {
       try {
         env.ANALYTICS?.writeDataPoint({

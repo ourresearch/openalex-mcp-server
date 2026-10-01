@@ -21,6 +21,7 @@ import AUTHOR_CURATION_DOC from "./docs/author_curation.md";
 import DOCS_MANIFEST from "./docs/manifest.json";
 import { registerCurationTools, type AccountContext, LATENCY_NOTE } from "./curationTools";
 import { registerExpertTools } from "./expertTools";
+import { registerKeywordTools, KEYWORD_RECIPE } from "./keywordTools";
 import { pickAuthorship, coauthorNames } from "./curation";
 import type { UsersApiClient } from "./users";
 import { UsersApiError } from "./users";
@@ -49,7 +50,7 @@ Tools:
 - get_entity: full profile for an author, institution, source, topic, funder or publisher. Free.
 - group_works: count works along one dimension (author, institution, country, source, year, topic, type, OA status…). Answers "who publishes most on X", "how has X grown", "which journals".
 - analyze_works: one-call profile of any set of works (an institution's output, a funder's portfolio, a topic): totals, open-access share, top-cited share, trend by year, and top fields, topics, institutions, countries, sources, funders and authors.
-
+{{KEYWORD_TOOLS}}
 Every works result includes the canonical OQL that produced it (and a reproduce_url), so users can rerun, share, or cite the exact query.
 
 Profile curation (the connected user's own OpenAlex author profile):
@@ -71,7 +72,7 @@ Duplicate profiles: add the duplicate's works to the claimed profile (search_wor
 
 The OQL reference is appended below, verbatim from help.openalex.org. The full OQL specification and the API quick reference are also available through the read_docs tool.
 
-Recipe for "find references for this passage" or "build a systematic search": split the passage into its claims; for each claim write an AND group of synonyms joined with or; join the groups with or (or with and if every claim must hold); add year/type/retracted filters; run with preview=true, look at the count and sample, tighten with exact phrases, extra terms or not-clauses; then run for real with sort=relevance and a larger limit. Give the user the canonical OQL with the results.
+{{SEARCH_RECIPE}}Recipe for "find references for this passage"{{OR_SYSTEMATIC}}: split the passage into its claims; for each claim write an AND group of synonyms joined with or; join the groups with or (or with and if every claim must hold); add year/type/retracted filters; run with preview=true, look at the count and sample, tighten with exact phrases, extra terms or not-clauses; then run for real with sort=relevance and a larger limit. Give the user the canonical OQL with the results.
 
 Retractions: OpenAlex marks retracted works (is_retracted). Every tool that lists or counts works hides them by default and says so (retracted_works); pass include_retracted=true, or write your own retracted clause in OQL, to include them. get_work and resolve_references never hide: a retracted work comes back with is_retracted: true and a warning as its first fields. Profile-curation views (for_author, find_candidate_works) include retracted works because a profile should be complete. Never present a retracted work as valid evidence; when one appears, tell the user it was retracted.
 
@@ -80,7 +81,20 @@ IDs: works W…, authors A…, sources S…, institutions I…, topics T…, fun
 ---
 `;
 
-export const SERVER_INSTRUCTIONS = INSTRUCTIONS_BASE + DOCS.oql.text;
+const KEYWORD_TOOL_LINES = `- find_keywords: the OpenAlex keywords for a topic (from a description and facet phrases), with how many works carry each and their top titles.
+- keyword_search: a thorough search: each facet matches on title/abstract text OR its keywords, facets ANDed; returns the OQL and counts for every part (text alone, what keywords add, per facet) plus a sample of keyword-only finds.
+`;
+
+/** Server instructions; the keyword-aware search recipe replaces the text-only one when the keyword tools are on (oxjob #1469). */
+export function serverInstructions(features: { keywordSearch?: boolean } = {}): string {
+  const kw = !!features.keywordSearch;
+  return (INSTRUCTIONS_BASE
+    .replace("{{KEYWORD_TOOLS}}\n", kw ? KEYWORD_TOOL_LINES + "\n" : "\n")
+    .replace("{{SEARCH_RECIPE}}", kw ? KEYWORD_RECIPE + "\n\n" : "")
+    .replace("{{OR_SYSTEMATIC}}", kw ? "" : ' or "build a systematic search"')) + DOCS.oql.text;
+}
+
+export const SERVER_INSTRUCTIONS = serverInstructions();
 
 export interface ServerContext {
   client: OpenAlexClient;
@@ -88,7 +102,8 @@ export interface ServerContext {
   users?: UsersApiClient | null;
   account?: AccountContext | null;
   /** Tools held back from the launch set (oxjob #1274: find_experts v1 stays off in production). */
-  features?: { findExperts?: boolean };
+  /** keywordSearch (oxjob #1469): find_keywords + keyword_search, on once keywords are fully in the works index (#1456). */
+  features?: { findExperts?: boolean; keywordSearch?: boolean };
   onToolCall?: (info: { tool: string; ok: boolean; ms: number; credits: number; status?: number }) => void;
 }
 
@@ -164,7 +179,7 @@ const pct = (part: number, whole: number) => (whole > 0 ? Number(((100 * part) /
 export function createServer(ctx: ServerContext): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION, title: "OpenAlex" },
-    { instructions: SERVER_INSTRUCTIONS, capabilities: { tools: {} } }
+    { instructions: serverInstructions(ctx.features), capabilities: { tools: {} } }
   );
   const { client } = ctx;
 
@@ -812,6 +827,7 @@ export function createServer(ctx: ServerContext): McpServer {
   // -------------------------------------------------------------------------
   // Documentation: resources + read_docs
   // -------------------------------------------------------------------------
+  if (ctx.features?.keywordSearch) registerKeywordTools(server, { client, run, ok, fail });
   if (ctx.features?.findExperts) registerExpertTools(server, { client, run, ok, fail, searchParams, queryEcho, modeSchema, searchInSchema });
   registerCurationTools(server, { client, users: ctx.users ?? null, account: ctx.account ?? null, run, ok, fail, listSelect: LIST_SELECT });
 
