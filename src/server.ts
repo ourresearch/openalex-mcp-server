@@ -54,7 +54,7 @@ Tools:
 Every works result includes the canonical OQL that produced it (and a reproduce_url), so users can rerun, share, or cite the exact query.
 
 Profile curation (the connected user's own OpenAlex author profile):
-- get_my_account: who is connected, the claimed profile, claim status, and whether a claim would be instant or reviewed.
+- get_my_account: who is connected, the claimed profile, claim status, and whether a claim would be instant or needs a link that shows the account email.
 - claim_author_profile: claim a profile for the account (one per account; confirm the profile with the user first).
 - search_works with for_author=<A id>: the audit view. Each work carries this_authorship (the byline, raw affiliations, raw ORCID) and coauthors, and page 1 carries a profile summary.
 - find_candidate_works: works probably theirs but missing from the profile, from bylines (the name ladder), ORCID, and same-name sibling profiles.
@@ -62,7 +62,7 @@ Profile curation (the connected user's own OpenAlex author profile):
 - submit_curations / list_my_curations: submit add_work, remove_work, set_display_name, set_full_name, set_orcid, remove_orcid, cancel; track status.
 
 Recipe for "make my profile accurate" / "fix my OpenAlex profile":
-1. get_my_account. No claimed profile: find it with search_entities (authors), show the user the candidates (name, institutions, works count, a few titles) and confirm; then claim_author_profile (collect evidence first when claim_eligibility is "review", and stop there: curation waits for approval).
+1. get_my_account. No claimed profile: find it with search_entities (authors), show the user the candidates (name, institutions, works count, a few titles) and confirm; then claim_author_profile. When claim_eligibility is "review", first suggest adding a university email to the account (instant); otherwise collect a link to a page that shows the account email. The claim is checked within minutes; curation waits for approval.
 2. search_works(author_ids=[id], for_author=id, limit=50) and page through; read the profile summary; note bylines, institutions and topics that do not fit the person.
 3. If the user gave a CV, bio sketch or publication list: read it yourself, extract DOIs or titles, and call resolve_references(author_id=id) in batches of 25. Matches with on_profile=false are add candidates (use authorship_match.raw_author_name); unmatched entries may not be in OpenAlex at all.
 4. find_candidate_works(author_id, name, orcid) for the display name, then for each alternate name the person publishes under.

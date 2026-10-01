@@ -80,6 +80,17 @@ function authorSummary(e: any) {
   });
 }
 
+/** Why a claim came back "needs_evidence" (users-api #1466 feedback codes), said for the user. */
+const FEEDBACK: Record<string, string> = {
+  no_link: "there was no link in what they sent",
+  unreachable: "we could not open the page (a login, a bot wall, or the site is down); send a page anyone can open",
+  email_not_found: "the page does not show their OpenAlex account email; a page with only their name is not enough",
+  self_made: "anyone can make that kind of page (personal website, LinkedIn, ResearchGate); send their institution's page or a paper that shows their email",
+  email_not_contact: "the email is on the page, but not as a researcher's contact address",
+  cant_tell: "we could not confirm the page ties their email to a university, institute or published paper; send a different page",
+};
+const FASTEST_FIX = "Fastest fix: add a university email to the account in Settings at openalex.org (they keep their current email); the claim is then approved right away.";
+
 function shapeClaim(c: MeRecord["claim"]) {
   if (!c) return null;
   return compact({
@@ -89,6 +100,9 @@ function shapeClaim(c: MeRecord["claim"]) {
     submitted_at: c.submitted_at ? String(c.submitted_at).slice(0, 19) : null,
     decided_at: c.decided_at ? String(c.decided_at).slice(0, 19) : null,
     decision_note: c.decision_note,
+    needs: c.decision === "needs_evidence" ? (FEEDBACK[c.feedback_code ?? ""] ?? FEEDBACK.cant_tell) : undefined,
+    link_checked: c.decision === "needs_evidence" ? c.feedback_link : undefined,
+    verified_by: c.verified_by,
   });
 }
 
@@ -106,7 +120,8 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
   const claimedAuthor = async (me: MeRecord): Promise<{ aid: string } | { error: string }> => {
     const aid = me.author_id ? authorShort(me.author_id) : null;
     if (aid && me.claim?.approved_at) return { aid };
-    if (me.claim && me.claim.decision === "pending") return { error: `Your claim on ${authorShort(me.claim.author_id)} is still under review; curation opens once it is approved.` };
+    if (me.claim && me.claim.decision === "pending") return { error: `Your claim on ${authorShort(me.claim.author_id)} is being checked (usually a few minutes); curation opens once it is approved.` };
+    if (me.claim && me.claim.decision === "needs_evidence") return { error: `Your claim on ${authorShort(me.claim.author_id)} needs one more thing: ${FEEDBACK[me.claim.feedback_code ?? ""] ?? FEEDBACK.cant_tell}. ${FASTEST_FIX} Or send a new link with claim_author_profile.` };
     if (me.claim && me.claim.decision === "rejected") return { error: `Your claim on ${authorShort(me.claim.author_id)} was declined${me.claim.decision_note ? ` (${me.claim.decision_note})` : ""}. Contact support@openalex.org to appeal.` };
     if (aid) return { aid };
     return { error: "This account has not claimed an author profile yet. Use claim_author_profile first." };
@@ -122,7 +137,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
       description:
         "Who is connected: name, email addresses (and which are verified), which API key this connection spends (personal or organization), " +
         "the author profile this account has claimed (with a compact summary: names, institutions, topics, works count), the claim's status, and claim_eligibility: " +
-        "\"instant\" means a claim from this account is approved immediately (a verified academic, institutional or government email), \"review\" means it queues for moderation and needs evidence. " +
+        "\"instant\" means a claim from this account is approved immediately (a verified academic, institutional or government email), \"review\" means the claim needs a link to a page that shows the account email (checked automatically within minutes). " +
         "Call this first for anything about the user's own profile.",
       inputSchema: {},
       annotations: { title: "Get my OpenAlex account", ...READ },
@@ -150,10 +165,12 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
           next_step: claimed
             ? "Profile claimed: audit it with search_works(author_ids=[id], for_author=id) and find_candidate_works."
             : me.claim?.decision === "pending"
-              ? "Claim under review; curation opens once approved."
-              : me.claim_eligibility === "review"
-                ? "No claimed profile. Find it with search_entities (authors), confirm with the user, collect evidence (a link to a page or paper showing both the profile name and the account email), then claim_author_profile."
-                : "No claimed profile. Find it with search_entities (authors), confirm with the user, then claim_author_profile.",
+              ? "Claim being checked (usually a few minutes); call get_my_account again shortly."
+              : me.claim?.decision === "needs_evidence"
+                ? `Claim needs one more thing: ${FEEDBACK[me.claim.feedback_code ?? ""] ?? FEEDBACK.cant_tell}. ${FASTEST_FIX} Or ask for a new link and call claim_author_profile again.`
+                : me.claim_eligibility === "review"
+                  ? `No claimed profile. Find it with search_entities (authors) and confirm with the user. ${FASTEST_FIX} Otherwise ask for a link to a public page that shows their account email (their page on their institution's website, or a paper or preprint that lists that email), then claim_author_profile.`
+                  : "No claimed profile. Find it with search_entities (authors), confirm with the user, then claim_author_profile.",
         }));
       })()
   );
@@ -166,13 +183,15 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
     {
       title: "Claim an author profile",
       description:
-        "Claim an OpenAlex author profile for the connected account so it can be curated. One claim per account, and it cannot be moved to another profile later, so confirm the profile with the user first " +
-        "(show its name, institutions, works count and a few titles from search_works). Accounts with a verified academic/institutional/government email are approved instantly (get_my_account reports claim_eligibility); " +
-        "otherwise the claim queues for review and evidence is required: ask the user for a link to a web page or paper that shows both the name on the profile and their account email (a departmental page, lab site, or author list). " +
-        "Claims can be reviewed at any time and a fraudulent claim is revoked with its edits reverted.",
+        "Claim an OpenAlex author profile for the connected account so it can be curated (one per account). Confirm the profile with the user first " +
+        "(show its name, institutions, works count and a few titles from search_works). Approved instantly if any verified email on the account is from a university, research institute or government agency " +
+        "(get_my_account reports claim_eligibility). Otherwise, first suggest the user add their university email in Settings at openalex.org (they keep their current email); that makes the claim instant. " +
+        "If the profile has their ORCID iD, they can sign in with ORCID on the profile page instead. If neither works, ask for a link to a public page that shows their OpenAlex account email: " +
+        "their page on their institution's website, or a paper or preprint that lists that email. A page with only their name is not enough. The claim is checked automatically within minutes; " +
+        "if it fails, the result says what is missing and the user can send a new link by calling this again.",
       inputSchema: {
         author_id: z.string().min(2).max(300).describe("OpenAlex author ID, e.g. A5023888391."),
-        evidence: z.string().max(2000).optional().describe("Evidence that the user is this author (a URL plus a sentence). Required when claim_eligibility is \"review\"; optional when \"instant\"."),
+        evidence: z.string().max(2000).optional().describe("A link (URL or DOI) to a public page that shows the user's OpenAlex account email. Required when claim_eligibility is \"review\"; not needed when \"instant\"."),
       },
       annotations: { title: "Claim an author profile", ...WRITE, idempotentHint: false },
     },
@@ -184,27 +203,43 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
         const me = await api.me();
         if (me.claim) {
           const cid = authorShort(me.claim.author_id);
-          if (cid === aid && (me.claim.decision === "approved" || me.author_id)) return ok({ already_claimed: true, author_id: aid, message: "This account already owns that profile. Go ahead and curate it." });
-          return fail(`This account already has a claim on ${cid} (status: ${me.claim.decision}). One claim per account; contact support@openalex.org to change it.`);
+          if (me.claim.decision === "approved" && me.author_id) {
+            if (cid === aid) return ok({ already_claimed: true, author_id: aid, message: "This account already owns that profile. Go ahead and curate it." });
+            return fail(`This account already owns ${cid}. One profile per account; contact support@openalex.org to change it.`);
+          }
+          if (me.claim.decision === "rejected") return fail(`This account's claim was closed by the OpenAlex team. The user should write to support@openalex.org.`);
+          // pending / needs_evidence: sending again replaces the claim (users-api #1466).
         }
         const status = await api.claimStatus(aid);
         if (status.claimed) return fail(`${aid} is already claimed by another account. If it is the user's profile, they should contact support@openalex.org.`);
-        if (status.pending) return fail(`${aid} already has a claim under review by someone. If it is the user's profile, they should contact support@openalex.org.`);
         const eligibility = me.claim_eligibility ?? "unknown";
         const text = (evidence ?? "").trim();
-        if (eligibility === "review" && text.length < 10) {
-          return fail("This account's email is not on a trusted academic domain, so the claim will be reviewed and needs evidence. Ask the user for a link to a page or paper that shows both the profile name and their account email, then call again with evidence.");
+        if (eligibility === "review" && !/(https?:\/\/|www\.|10\.\d{4,}\/|\.[a-z]{2,}\/)/i.test(text)) {
+          return fail(`This account has no university email, so the claim needs a link. ${FASTEST_FIX} Otherwise ask the user for a link to a public page that shows their OpenAlex account email (their page on their institution's website, or a paper that lists that email), then call again with it as evidence.`);
         }
         const sent = text || `Claimed through the OpenAlex connector${deps.account?.clientName ? ` (${deps.account.clientName})` : ""}; account email on a trusted domain.`;
         const r = await api.claimAuthor(me.id, aid, sent);
+        let claim: MeRecord["claim"] = null;
+        if (!r.auto_approved) {
+          // The verifier usually answers within a minute; wait up to ~45 s for it.
+          for (let i = 0; i < 9; i++) {
+            await new Promise((res) => setTimeout(res, 5000));
+            claim = (await api.me()).claim;
+            if (claim && claim.decision !== "pending") break;
+          }
+        }
+        const decision = r.auto_approved ? "approved" : claim?.decision ?? "pending";
         return ok(compact({
           auto_approved: r.auto_approved,
+          decision,
           claim_id: r.claim_id,
           author_id: aid,
-          message: r.message,
-          next_step: r.auto_approved
+          claim: shapeClaim(claim),
+          next_step: decision === "approved"
             ? "Approved. The account now owns this profile: audit it with search_works(author_ids=[id], for_author=id) and find_candidate_works, then submit_curations."
-            : "Queued for review (usually a few days). Curation tools will work once it is approved; the user can check back with get_my_account.",
+            : decision === "needs_evidence"
+              ? `Not approved yet: ${FEEDBACK[claim?.feedback_code ?? ""] ?? FEEDBACK.cant_tell}. ${FASTEST_FIX} Or ask for a different link and call claim_author_profile again.`
+              : "Still being checked. The user also gets the answer by email; check back with get_my_account in a minute.",
         }));
       })()
   );

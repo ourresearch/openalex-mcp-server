@@ -29,6 +29,10 @@ export interface ClaimRecord {
   decided_at: string | null;
   decided_by: string | null;
   decision_note: string | null;
+  /** #1466: why a needs_evidence claim didn't pass, and the link it refers to. */
+  feedback_code?: string | null;
+  feedback_link?: string | null;
+  verified_by?: string | null;
 }
 
 export interface MeRecord {
