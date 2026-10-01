@@ -2,6 +2,9 @@
 
 OpenAlex assembles [author](/data/authors/) profiles algorithmically: it takes the author names on hundreds of millions of works and decides which names refer to the same real person. Modern disambiguation is very good, but at this scale it's never perfect — works get attached to the wrong profile, one person ends up split across duplicates, names display wrong.
 
+> [!claude]
+> You can do everything on this page in conversation, with no API key: *"Make my OpenAlex author profile accurate"* with your CV attached. Set up once: [Using OpenAlex with an AI assistant](/how-to/ai-assistants/); the mechanics below still apply to what it submits.
+
 Authors are the big self-serve exception to the [ticket-based default](/access/fixing-errors/): **you can fix your own profile yourself, by claiming it.**
 
 ## Claim your profile
@@ -26,7 +29,7 @@ Every correction is a [curation](/data/curations/) — an auditable record of wh
 - **Remove a wrong name** — if a name variant on your profile isn't you, removing it detaches every work carrying that name.
 - **Change your display name** — the name shown on your profile.
 - **Change your match name** — the name used to match future works to you (API only).
-- **Set or correct your ORCID** (API only). This records the ORCID and makes it your match key for future works; it doesn't move existing works or merge profiles — see [ORCID](/data/authors/orcid/).
+- **Set or correct your ORCID** (API only). This records the ORCID and makes it your match key for future works; it doesn't move existing works or merge profiles. A wrong ORCID on one of your *papers* is the publisher's record and is corrected with them, not here; see [ORCID](/data/authors/orcid/) and [the how-to](/how-to/fixing-authors/#a-paper-shows-the-wrong-orcid-for-me-can-i-fix-it).
 
 Everything else on a profile — alternate names, institutional affiliations, topics, citation metrics — is *derived* from its works, so you don't (and can't) edit those directly: fix which works belong to you and the rest follows. That cuts both ways: removing a work or a name variant also removes whatever those works alone were contributing, such as an institution that appeared only on them. (Wrong institution showing on one of your works? That's an [affiliation-matching fix](/access/fixing-errors/affiliations/), not an author fix.) The full picture: [Authors § A profile is built from its works](/data/authors/#a-profile-is-built-from-its-works).
 

@@ -13,20 +13,20 @@
   },
   "api_quick_reference": {
     "url": "https://help.openalex.org/api/llm-quick-reference/",
-    "sha": "e78f54b252a6881a",
-    "fetched_at": "2026-09-20",
-    "bytes": 6549
+    "sha": "79f646cad022cf87",
+    "fetched_at": "2026-10-01",
+    "bytes": 6930
   },
   "fixing_authors": {
     "url": "https://help.openalex.org/access/fixing-errors/authors/",
-    "sha": "4761e968270322f4",
-    "fetched_at": "2026-09-20",
-    "bytes": 5896
+    "sha": "02c7f3eee1d9ebf0",
+    "fetched_at": "2026-10-01",
+    "bytes": 6369
   },
   "author_curation": {
     "url": "https://help.openalex.org/api/author-curation/",
-    "sha": "ec0914a2f4c8ff3a",
-    "fetched_at": "2026-09-20",
-    "bytes": 8902
+    "sha": "65cb1e51d3a526c1",
+    "fetched_at": "2026-10-01",
+    "bytes": 9508
   }
 }

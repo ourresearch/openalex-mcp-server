@@ -3,6 +3,9 @@
 OpenAlex assigns [authors](/data/authors/) to works automatically, but sometimes we get things wrong.
 Author curation lets you fix that: sign in, tell us what's wrong, and we'll make the change.
 
+> [!claude]
+> You can do all of this in conversation, no code: *"Remove the works on my OpenAlex profile that aren't mine, and add these three DOIs."* Claude claims the profile if needed, submits the curations and tracks them. Your own profile only. Set up once: [Using OpenAlex with an AI assistant](/how-to/ai-assistants/).
+
 This page covers the API mechanics; for the self-serve workflow (claiming your profile, split and merge, using AI agents), see [Fixing errors: Authors](/access/fixing-errors/authors/).
 
 ## What you can curate
@@ -132,6 +135,8 @@ Three things to know about the `value`:
 - **`property` is the flat `orcid`**, not `ids.orcid` — ORCID is a top-level author property despite appearing under the `ids` display category.
 
 Like the other author-profile curations, this one is available to the owner of a claimed profile (and to site curators and organization owners/curators). Setting an ORCID does **not** trigger any automatic merging of profiles that share it.
+
+Setting or removing the primary ORCID also updates [`observed_orcids`](/data/authors/#observed_orcids): the ORCID appears in or drops out of that list right along with `orcid`. The list itself isn't directly curatable; it otherwise reflects only what the profile's works carry.
 
 A successful request returns `201` with the saved curation:
 
