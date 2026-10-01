@@ -23,6 +23,8 @@ export interface KeywordDeps {
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } as const;
 const MAX_KEYWORDS = 30;
+/** A facet that keeps at least this share of what the other facets match is not narrowing anything. */
+const LOOSE_FACET = 0.85;
 
 /** Run async jobs with bounded concurrency, keeping order. */
 async function pool<T, R>(items: T[], n: number, fn: (x: T) => Promise<R>): Promise<R[]> {
@@ -38,11 +40,11 @@ async function pool<T, R>(items: T[], n: number, fn: (x: T) => Promise<R>): Prom
 }
 
 export const KEYWORD_RECIPE = `Recipe for "do a thorough search", "find everything on X", "build a systematic search" (keyword-aware; use it whenever the user wants recall, not just a few good papers):
-1. Split the topic into its facets, the parts that must all hold (e.g. "microplastics" and "human health"). For each facet write the phrase plus the synonyms, spellings and abbreviations a careful searcher would try.
+1. Split the topic into its facets, the parts that must all hold (e.g. "microplastics" and "human health"). For each facet write the phrase plus the synonyms, spellings and abbreviations a careful searcher would try: phrases that mean the facet, not single generic words (human, patients, blood) that appear in almost any abstract.
 2. find_keywords(description=<the user's topic in a sentence>, phrases=<each facet's main phrase and a synonym or two>). It returns OpenAlex keywords with how many works carry each and their most-cited titles.
 3. For each facet keep the keywords that mean that facet (read the top titles; drop broader or different-sense ones). Every facet needs its own keyword: a keyword for only one facet, OR'd in, pulls in that whole field. A facet with no fitting keyword stays text-only.
 4. keyword_search(facets=[{label, text, keyword_ids}, …], plus filters such as open_access_only, from_year, types). Each facet matches on its text OR its keywords; facets are ANDed. Keywords widen the text search, never replace it (about 11% of works have no keywords).
-5. Report the counts it returns: the title/abstract search alone, what the keywords add, the combined total, and per facet. Skim the random sample of keyword-only additions; if many are off topic, drop or swap the keyword that let them in and rerun.
+5. Report the counts it returns: the title/abstract search alone, what the keywords add, the combined total, and per facet. Skim the random sample of keyword-only additions; if many are off topic, see which keywords bring them in (added_per_keyword), drop or swap a keyword only when its additions are mostly off topic, and rerun. Never drop a facet's core keyword (the one named like the facet) over a few strays. Act on the warnings: a facet that keeps nearly everything the other facets match is too generic.
 6. Hand back the combined OQL and its reproduce_url, then show results with search_works(oql=<combined>, sort=cited_by_count or relevance).`;
 
 export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
@@ -170,13 +172,33 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
           return d.meta.count ?? 0;
         };
         const { queries, perFacet } = built;
+        // Keyword ids that don't exist match nothing, silently; catch them before counting.
+        const allKw = [...new Set(built.facets.flatMap((f) => f.keywords))];
+        const known = new Set<string>();
+        for (let i = 0; i < allKw.length; i += 50) {
+          const d = await client.get<ListResponse>("/keywords", { filter: `id:${allKw.slice(i, i + 50).join("|")}`, per_page: 50, select: "id" });
+          for (const k of d.results) known.add(keywordSlug(String((k as any).id)));
+        }
+        const unknown = allKw.filter((k) => !known.has(k));
+        if (unknown.length) return fail(`Not OpenAlex keyword ids: ${unknown.join(", ")}. Use ids that find_keywords returned (it lists real ids only), or drop them.`);
         // The combined query first: an OQL error surfaces once, with its fix-it, before the fan-out.
         const combined = await count(queries.combined);
         const [textOnly, added] = await Promise.all([count(queries.text_only), count(queries.added_by_keywords)]);
         const facetCounts = await pool(perFacet, 3, async (p) => {
-          const [t, k, knt] = await Promise.all([count(p.text), count(p.keyword), count(p.keyword_not_text)]);
-          return compact({ facet: p.label, text: t, keyword: k, keyword_not_text: knt, either: t !== null && knt !== null ? t + knt : null });
+          const [t, k, knt, others] = await Promise.all([count(p.text), count(p.keyword), count(p.keyword_not_text), count(p.others)]);
+          return {
+            facet: p.label, text: t, keyword: k, keyword_not_text: knt, either: t !== null && knt !== null ? t + knt : null,
+            // Share of what the other facets match that this facet keeps: near 100% means it narrows nothing.
+            keeps_of_others: others && combined !== null ? `${Math.round((100 * combined) / others)}%` : null,
+            keeps: others && combined !== null ? combined / others : null,
+          };
         });
+        // What each keyword brings in: additions carrying it (a work can carry several, so these overlap).
+        const perKeyword = added ? await pool(allKw, 6, async (k) => ({ keyword: k, added: await count(built.addedWith(k)) })) : [];
+        const warnings = [...built.warnings];
+        for (const f of facetCounts) {
+          if ((f.keeps ?? 0) >= LOOSE_FACET) warnings.push(`"${f.facet}" keeps ${f.keeps_of_others} of the works the other facets match, so it hardly narrows the search. Its text is probably too generic (single words like human, patients, blood, stress): use phrases that mean the facet.`);
+        }
         const n = args.sample_size ?? 8;
         let sample: any[] | undefined;
         if (n > 0 && queries.added_by_keywords && added) {
@@ -205,11 +227,12 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
             added_by_keywords: added,
             keywords_add: share,
           }),
-          per_facet: facetCounts,
+          per_facet: facetCounts.map(({ keeps, ...f }) => compact(f)),
+          added_per_keyword: perKeyword.length ? perKeyword.sort((a, b) => (b.added ?? 0) - (a.added ?? 0)) : undefined,
           added_sample: sample,
           added_sample_basis: sample ? `random ${sample.length} of the ${added} works found only through keywords` : undefined,
           queries: compact({ text_only: queries.text_only, added_by_keywords: queries.added_by_keywords }),
-          warnings: built.warnings.length ? built.warnings : undefined,
+          warnings: warnings.length ? warnings : undefined,
           next: "Show results with search_works(oql=<oql>), and give the user the oql and reproduce_url.",
         }));
       })()

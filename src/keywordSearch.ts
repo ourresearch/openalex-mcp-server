@@ -32,11 +32,20 @@ export function keywordSlug(input: string): string {
   return input.trim().replace(/^https?:\/\/(?:api\.)?openalex\.org\//i, "").replace(/^keywords\//i, "").trim().toLowerCase();
 }
 
-const SLUG_RE = /^[a-z0-9][a-z0-9\-_.%]*$/;
+// Ids are lower-case slugs, some with non-ASCII letters or dashes (work\u2013life-balance); reject only what can't be one.
+const SLUG_RE = /^[^\s()"|,]+$/;
+
+/**
+ * Quote bare wildcard terms (telework* → "telework*"): OQL runs wildcards on exact text and rejects them
+ * unquoted, and agents write them bare often enough to cost a round trip each time (#1469 e2e).
+ */
+export function quoteWildcards(text: string): string {
+  return text.split('"').map((seg, i) => (i % 2 ? seg : seg.replace(/(^|[\s(])([\p{L}\p{N}][\p{L}\p{N}\-']*\*)(?=$|[\s)])/gu, '$1"$2"'))).join('"');
+}
 
 export function cleanFacets(facets: Facet[]): Array<{ label: string; text: string | null; keywords: string[] }> {
   return facets.map((f, i) => {
-    const text = f.text?.trim() || null;
+    const text = f.text?.trim() ? quoteWildcards(f.text.trim()) : null;
     const keywords = [...new Set((f.keyword_ids ?? []).map(keywordSlug).filter(Boolean))];
     const bad = keywords.filter((k) => !SLUG_RE.test(k));
     if (bad.length) throw new Error(`Facet ${i + 1}: not keyword ids: ${bad.join(", ")}. Use the ids find_keywords returns, e.g. human-health.`);
@@ -78,7 +87,8 @@ const where = (clauses: string[]) => `works where ${clauses.join(" and ")}`;
  * - combined: every facet as (text or keyword), ANDed, plus filters. This is the search to hand back.
  * - text_only: the same search with the keyword halves removed (what a title/abstract search finds).
  * - added_by_keywords: works in combined but not in text_only (found only because of keywords).
- * - per facet (under the filters only): text, keyword, and keyword-not-text.
+ * - per facet (under the filters only): text, keyword, and keyword-not-text; with two or more facets,
+ *   also every other facet without this one, so the caller can tell whether this facet narrows anything.
  */
 export function buildKeywordSearch(facets: Facet[], filters: SearchFilters) {
   const fs = cleanFacets(facets);
@@ -88,12 +98,15 @@ export function buildKeywordSearch(facets: Facet[], filters: SearchFilters) {
   const hasText = textFacets.length === fs.length;
   const textBody = hasText ? [...fs.map((f) => textClause(f)!), ...fc] : null;
   const anyKeywords = fs.some((f) => f.keywords.length);
+  const notText = textBody ? `not (${fs.map((f) => textClause(f)!).join(" and ")})` : null;
   const queries = {
     combined: where(combinedBody),
     text_only: textBody ? where(textBody) : null,
     // The not-clause goes before the filters: after `retracted is (false)` the parser reads it as a second retracted value.
-    added_by_keywords: textBody && anyKeywords ? where([...fs.map(facetClause), `not (${fs.map((f) => textClause(f)!).join(" and ")})`, ...fc]) : null,
+    added_by_keywords: notText && anyKeywords ? where([...fs.map(facetClause), notText, ...fc]) : null,
   };
+  /** Additions that carry one given keyword (how much each keyword brings in). */
+  const addedWith = (keyword: string) => (notText ? where([...fs.map(facetClause), notText, `keyword is (${keyword})`, ...fc]) : null);
   const perFacet = fs.map((f) => {
     const t = textClause(f);
     const k = keywordClause(f);
@@ -102,6 +115,7 @@ export function buildKeywordSearch(facets: Facet[], filters: SearchFilters) {
       text: t ? where([t, ...fc]) : null,
       keyword: k ? where([k, ...fc]) : null,
       keyword_not_text: t && k ? where([k, `not (${t})`, ...fc]) : null,
+      others: fs.length > 1 ? where([...fs.filter((g) => g !== f).map(facetClause), ...fc]) : null,
     };
   });
   const warnings: string[] = [];
@@ -109,5 +123,5 @@ export function buildKeywordSearch(facets: Facet[], filters: SearchFilters) {
   if (anyKeywords && noKw.length) warnings.push(`No keyword for: ${noKw.join(", ")}. That facet matches on text only; look for a keyword with find_keywords if one fits.`);
   const noText = fs.filter((f) => !f.text).map((f) => f.label);
   if (noText.length) warnings.push(`No text for: ${noText.join(", ")}. About 11% of works have no keywords, so add the facet's phrase and synonyms as text too.`);
-  return { facets: fs, queries, perFacet, warnings };
+  return { facets: fs, queries, perFacet, addedWith, warnings };
 }

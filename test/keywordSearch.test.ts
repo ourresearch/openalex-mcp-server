@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildKeywordSearch, keywordSlug, filterClauses } from "../src/keywordSearch";
+import { buildKeywordSearch, keywordSlug, filterClauses, quoteWildcards } from "../src/keywordSearch";
 import { buildWorkFilter } from "../src/filters";
 
 const micro = { label: "microplastics", text: "microplastic or microplastics", keyword_ids: ["https://openalex.org/keywords/microplastics"] };
@@ -34,6 +34,7 @@ describe("buildKeywordSearch", () => {
       text: "works where title/abstract has (microplastic or microplastics) and year >= (2015) and year <= (2020) and retracted is (false)",
       keyword: "works where keyword is (microplastics) and year >= (2015) and year <= (2020) and retracted is (false)",
       keyword_not_text: "works where keyword is (microplastics) and not (title/abstract has (microplastic or microplastics)) and year >= (2015) and year <= (2020) and retracted is (false)",
+      others: null,
     });
   });
 
@@ -53,6 +54,26 @@ describe("buildKeywordSearch", () => {
   it("rejects empty facets and non-ids", () => {
     expect(() => buildKeywordSearch([{ label: "x" }], {})).toThrow(/needs text, keyword_ids, or both/);
     expect(() => buildKeywordSearch([{ text: "a", keyword_ids: ["human health"] }], {})).toThrow(/not keyword ids/);
+  });
+});
+
+describe("quoteWildcards", () => {
+  it("quotes bare wildcard terms and leaves quoted ones alone", () => {
+    expect(quoteWildcards('"remote work*" or telework* or (telecommut* and WFH) or "home office"')).toBe('"remote work*" or "telework*" or ("telecommut*" and WFH) or "home office"');
+    expect(quoteWildcards("well-being or depress*")).toBe('well-being or "depress*"');
+    expect(quoteWildcards("microplastic or microplastics")).toBe("microplastic or microplastics");
+  });
+  it("is applied to facet text", () => {
+    const { queries } = buildKeywordSearch([{ text: "telework*", keyword_ids: ["work–life-balance"] }], {});
+    expect(queries.combined).toBe('works where (title/abstract has ("telework*") or keyword is (work–life-balance)) and retracted is (false)');
+  });
+});
+
+describe("others (does a facet narrow anything?)", () => {
+  it("is every other facet, under the filters", () => {
+    const { perFacet } = buildKeywordSearch([micro, health], { open_access_only: true });
+    expect(perFacet[0]!.others).toBe('works where (title/abstract has ("human health") or keyword is (human-health)) and open access is (true) and retracted is (false)');
+    expect(buildKeywordSearch([micro], {}).perFacet[0]!.others).toBeNull();
   });
 });
 
