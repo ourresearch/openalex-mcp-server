@@ -44,7 +44,7 @@ export const KEYWORD_RECIPE = `Recipe for "do a thorough search", "find everythi
 2. find_keywords(description=<the user's topic in a sentence>, phrases=<each facet's main phrase and a synonym or two>). It returns OpenAlex keywords with how many works carry each and their most-cited titles.
 3. For each facet keep the keywords that mean that facet (read the top titles; drop broader or different-sense ones). Every facet needs its own keyword: a keyword for only one facet, OR'd in, pulls in that whole field. A facet with no fitting keyword stays text-only.
 4. keyword_search(facets=[{label, text, keyword_ids}, …], plus filters such as open_access_only, from_year, types). Each facet matches on its text OR its keywords; facets are ANDed. Keywords widen the text search, never replace it (about 11% of works have no keywords).
-5. Report the counts it returns: the title/abstract search alone, what the keywords add, the combined total, and per facet. Skim the random sample of keyword-only additions; if many are off topic, see which keywords bring them in (added_per_keyword), drop or swap a keyword only when its additions are mostly off topic, and rerun. Never drop a facet's core keyword (the one named like the facet) over a few strays. Act on the warnings: a facet that keeps nearly everything the other facets match is too generic.
+5. Report the counts it returns: the title/abstract search alone, what the keywords add, the combined total, and per facet. Read both random samples (the whole search, and the keyword-only additions) and say roughly how many look on topic. If the whole search is loose, tighten the facets' text (phrases, not single generic words) and rerun; offer the user a broad and a strict version when the trade-off is real. For the additions: if many are off topic, see which keywords bring them in (added_per_keyword), drop or swap a keyword only when its additions are mostly off topic, and rerun. Never drop a facet's core keyword (the one named like the facet) over a few strays. Act on the warnings: a facet that keeps nearly everything the other facets match is too generic.
 6. Hand back the combined OQL and its reproduce_url, then show results with search_works(oql=<combined>, sort=cited_by_count or relevance).`;
 
 export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
@@ -141,7 +141,7 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
       description:
         "Build and measure a thorough search: each facet matches on its title/abstract text OR its keywords, and all facets must match. " +
         "Returns the combined OQL with a reproduce_url, and counts for every part: the text-only search, what the keywords add, the combined total, and each facet's text, keyword and keyword-only counts, " +
-        "plus a random sample of the works found only through keywords so you can check they are on topic. " +
+        "plus random samples of the whole search and of the works found only through keywords, so you can check precision. " +
         "Filters (open access, years, types, language, any OQL condition) apply to every count. " +
         "Use after find_keywords; then list the results with search_works(oql=<combined oql>). " +
         "Every facet should have text; give a facet keyword_ids only when a keyword really means it.",
@@ -154,7 +154,7 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
         language: z.string().length(2).optional().describe("ISO-639-1 language code, e.g. \"en\". Note that keywords are what find works in other languages."),
         extra_oql: z.string().max(2000).optional().describe("Any further OQL condition ANDed onto every count, e.g. country is (BR) or \"cited by count >= (10)\"."),
         include_retracted: z.boolean().optional().describe("Include retracted works. Default false."),
-        sample_size: z.number().int().min(0).max(25).optional().describe("Random works to show from the keyword-only additions. Default 8."),
+        sample_size: z.number().int().min(0).max(25).optional().describe("Random works to show from the keyword-only additions (up to 8 are also drawn from the whole search). Default 8."),
       },
       annotations: { title: "Keyword-aware search", ...READ_ONLY },
     },
@@ -200,14 +200,13 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
           if ((f.keeps ?? 0) >= LOOSE_FACET) warnings.push(`"${f.facet}" keeps ${f.keeps_of_others} of the works the other facets match, so it hardly narrows the search. Its text is probably too generic (single words like human, patients, blood, stress): use phrases that mean the facet.`);
         }
         const n = args.sample_size ?? 8;
-        let sample: any[] | undefined;
-        if (n > 0 && queries.added_by_keywords && added) {
+        const randomWorks = async (oql: string, size: number) => {
           const d = await client.post<ListResponse>({
-            oql: `${queries.added_by_keywords} sample ${n}`,
-            per_page: n,
+            oql: `${oql} sample ${size}`,
+            per_page: size,
             select: "id,display_name,publication_year,language,primary_topic,abstract_inverted_index",
           });
-          sample = d.results.map((w: any) => {
+          return d.results.map((w: any) => {
             const abs = abstractFromInvertedIndex(w.abstract_inverted_index);
             return compact({
               id: shortId(w.id), title: w.display_name ?? null, year: w.publication_year ?? null,
@@ -216,7 +215,13 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
               abstract: abs ? truncate(abs, 220) : "(no abstract)",
             });
           });
-        }
+        };
+        // Two random draws: what the keywords add, and the whole search (judged in #1469, the text side was
+        // the weaker one when facets used generic words, so the caller needs to see both).
+        const [sample, overall] = await Promise.all([
+          n > 0 && queries.added_by_keywords && added ? randomWorks(queries.added_by_keywords, n) : Promise.resolve(undefined),
+          n > 0 && combined ? randomWorks(queries.combined, Math.min(n, 8)) : Promise.resolve(undefined),
+        ]);
         const share = textOnly && added !== null ? `${added >= 0 ? "+" : ""}${Math.round((100 * added) / textOnly)}%` : null;
         return ok(compact({
           oql: queries.combined,
@@ -231,6 +236,8 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
           added_per_keyword: perKeyword.length ? perKeyword.sort((a, b) => (b.added ?? 0) - (a.added ?? 0)) : undefined,
           added_sample: sample,
           added_sample_basis: sample ? `random ${sample.length} of the ${added} works found only through keywords` : undefined,
+          overall_sample: overall,
+          overall_sample_basis: overall ? `random ${overall.length} of all ${combined} works; if many are off topic, tighten the facets' text` : undefined,
           queries: compact({ text_only: queries.text_only, added_by_keywords: queries.added_by_keywords }),
           warnings: warnings.length ? warnings : undefined,
           next: "Show results with search_works(oql=<oql>), and give the user the oql and reproduce_url.",
