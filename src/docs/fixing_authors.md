@@ -10,15 +10,16 @@ Authors are the big self-serve exception to the [ticket-based default](/access/f
 ## Claim your profile
 
 1. Sign in at [openalex.org](https://openalex.org) (create a free account if you don't have one).
-2. Go to your author page — search for your name and open the best match.
+2. Go to your author page: search for your name and open the best match.
 3. Click **Claim** near the top of the page.
 
-What happens next depends on the email address on your account:
+There are three ways to prove the profile is yours. The first two are instant.
 
-- **Academic or institutional email** (a university, research institute, or government domain): your claim is approved on the spot, with no waiting period, and you can start curating right away. If you signed up with a personal address, add and verify your institutional one in your account settings before claiming; any verified address on the account counts.
-- **Any other email** (Gmail, a company domain, a personal domain): your claim goes into a review queue. To get it through, give us evidence that you're the person behind these works: a link to a page or paper that shows both the name on the profile and your account email, such as a departmental page, a lab site, or a paper's author list. Reviews usually take a few days. We don't need proof that you wrote any particular work, only that you're a real scholar who is who you say you are.
+- **A university email on your account.** If any verified email on your account is from a university, a research institute or a government agency, your claim is approved right away. Your account can have several emails: keep your current one and add your university email in [Settings](https://openalex.org/settings). This is by far the easiest way.
+- **ORCID.** If the profile carries your ORCID iD, click **Sign in with ORCID** in the claim window. Your claim is approved right away.
+- **A link that shows your email.** Otherwise, send a link to a page that shows the email address of your OpenAlex account: your page on your university's or institute's website, or a paper or preprint that lists that email. A page that shows only your name is not enough, and neither is a page you could make yourself (a personal website, LinkedIn, ResearchGate). Anyone can type any name into an account; the email is the one thing we have checked.
 
-The claim form asks for evidence in both cases; with an institutional address a sentence is enough, since the address itself is the proof. Either way, claims can be reviewed at any time, and a claim that turns out to be fraudulent is revoked and its edits reverted. The bar is deliberately low, Wikipedia-style: every curation is recorded and reversible, so we'd rather make claiming easy and undo the rare bad edit than make everyone wait. Once approved, you own the profile and can curate it.
+We check every link automatically, usually within a few minutes. Some claims pass with no link at all: when your email is public on the profile's ORCID record, or printed in one of the profile's papers. If we can't approve a claim, we email you what is missing and you can send a new link. Once approved, you own the profile and can curate it.
 
 ## What you can fix
 
