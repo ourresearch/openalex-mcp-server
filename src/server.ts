@@ -39,7 +39,7 @@ export const DOCS: Record<string, { title: string; text: string; url: string }> 
 export const SERVER_NAME = "openalex";
 export const SERVER_VERSION = "0.5.0";
 
-const INSTRUCTIONS_BASE = `OpenAlex is a free, open index of the world's scholarly research: 250M+ works (papers, books, datasets, preprints) with citations, 100M+ author profiles, and every journal, institution, funder and topic they connect to. Data is CC0.
+const INSTRUCTIONS_BASE = `OpenAlex is a free, open index of the world's scholarly research: 250M+ works (papers, books, datasets, preprints) with citations, about 100 million author profiles, and every journal, institution, funder and topic they connect to. Data is CC0.
 
 Tools:
 - search_works: find papers. Either fill the structured parameters (query + filters) or pass an OQL query for anything complex. preview=true returns just the count and a sample so a query can be tuned cheaply before running it.
@@ -852,7 +852,7 @@ export function createServer(ctx: ServerContext): McpServer {
         topic: z.enum(Object.keys(DOCS) as [string, ...string[]]).describe("Which page."),
         section: z.string().max(100).optional().describe("Optional heading text; returns only that section (case-insensitive substring match on headings)."),
       },
-      annotations: { title: "Read OpenAlex documentation", ...READ_ONLY },
+      annotations: { title: "Read OpenAlex documentation", ...READ_ONLY, openWorldHint: false },
     },
     async ({ topic, section }) =>
       run("read_docs", async () => {

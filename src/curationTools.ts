@@ -38,6 +38,8 @@ export interface CurationDeps {
 
 const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: true } as const;
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } as const;
+/** Reads confined to the connected user's own account (OpenAI plugin guidelines: a bounded private account may use openWorldHint false; #1294). */
+const READ_OWN = { ...READ, openWorldHint: false } as const;
 
 export const LATENCY_NOTE = "Curations apply on the nightly data refresh and are live within about two days; track them with list_my_curations. Do not re-check in minutes and conclude they failed.";
 const RECONNECT = "This connection cannot reach OpenAlex accounts: it was made before profile curation existed and runs on an organization key. Ask the user to reconnect the OpenAlex connector (disconnect and connect again), then retry.";
@@ -140,7 +142,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
         "\"instant\" means a claim from this account is approved immediately (a verified academic, institutional or government email), \"review\" means the claim needs a link to a page that shows the account email (checked automatically within minutes). " +
         "Call this first for anything about the user's own profile.",
       inputSchema: {},
-      annotations: { title: "Get my OpenAlex account", ...READ },
+      annotations: { title: "Get my OpenAlex account", ...READ_OWN },
     },
     async () =>
       run("get_my_account", async () => {
@@ -452,7 +454,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
         items: z.array(itemSchema).min(1).max(MAX_ITEMS),
         author_id: z.string().min(2).max(300).optional().describe("The claimed profile (A…). Default: the account's claimed author."),
       },
-      annotations: { title: "Submit profile corrections", ...WRITE, idempotentHint: true },
+      annotations: { title: "Submit profile corrections", ...WRITE, destructiveHint: true, idempotentHint: true },
     },
     async ({ items, author_id }) =>
       run("submit_curations", async () => {
@@ -536,7 +538,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
         limit: z.number().int().min(1).max(100).optional().describe("Rows per page. Default 25."),
         page: z.number().int().min(1).max(1000).optional(),
       },
-      annotations: { title: "List my curations", ...READ },
+      annotations: { title: "List my curations", ...READ_OWN },
     },
     async (args) =>
       run("list_my_curations", async () => {
