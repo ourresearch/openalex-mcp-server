@@ -302,7 +302,12 @@ export function createServer(ctx: ServerContext): McpServer {
             q = r.oql;
             retractedWorks = r.applied ? retractedNote(false) : RETRACTED_PER_QUERY_NOTE;
           }
-          if (previewRandom && !oqlHasSample(q) && !oqlHasGroupBy(q)) q = `${q} sample ${previewLimit}`;
+          // With `sample N` the API's count is N, so a random preview asks for the real total separately.
+          let totalCount: Promise<ListResponse> | undefined;
+          if (previewRandom && !oqlHasSample(q) && !oqlHasGroupBy(q)) {
+            totalCount = client.post<ListResponse>({ oql: q, per_page: 1, select: "id" });
+            q = `${q} sample ${previewLimit}`;
+          }
           body.oql = q;
           const hasSearch = oqlHasSearch(q);
           const sortKey = args.sort ?? (hasSearch ? "relevance" : "cited_by_count");
@@ -329,6 +334,7 @@ export function createServer(ctx: ServerContext): McpServer {
           if (data.group_by && data.group_by.length) {
             return ok(compact({ ...queryEcho(data), retracted_works: retractedWorks, total_works: data.meta.count, groups: shapeGroups(data) }));
           }
+          if (totalCount) data.meta.count = (await totalCount).meta.count;
           const results = data.results.map((w) => decorate(shapeWork(w, { abstractChars: preview || args.include_abstracts === false ? 0 : 500, maxAuthors: preview ? 1 : 5 }), w));
           return ok(compact({
             preview: preview || null,
@@ -359,13 +365,16 @@ export function createServer(ctx: ServerContext): McpServer {
           page: args.page ?? 1,
           select: (preview ? PREVIEW_SELECT : [...LIST_SELECT, ...(args.include_abstracts === false ? [] : ["abstract_inverted_index"])]).join(","),
         };
+        let totalCount: Promise<ListResponse> | undefined;
         if (previewRandom && mode !== "semantic") {
+          totalCount = client.get<ListResponse>("/works", { ...params, per_page: 1, page: 1, select: "id" });
           params.sample = previewLimit;
           params.seed = Math.floor(Math.random() * 1e9);
         } else if (!(mode === "semantic" && sortKey === "relevance")) {
           params.sort = sort;
         }
         const data = await client.get<ListResponse>("/works", params);
+        if (totalCount) data.meta.count = (await totalCount).meta.count;
         const results = data.results.map((w) => decorate(shapeWork(w, { abstractChars: preview || args.include_abstracts === false ? 0 : 500, maxAuthors: preview ? 1 : 5 }), w));
         return ok(compact({
           preview: preview || null,
