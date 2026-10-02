@@ -126,7 +126,7 @@ export function registerAlertTools(server: McpServer, deps: AlertDeps) {
         "Email the user new works that match a search, daily, weekly or monthly (saved as a saved search with an alert, visible on openalex.org under My alerts). " +
         "Build the search with search_works first and pass its OQL (or an api.openalex.org works URL). The first email covers works added from now on, and an email goes out only when there are new works. " +
         "Returns the alert and the newest works the search matches today: show the user a few so they know what will arrive. " +
-        "Refusals come back with a code: works_collection_cannot_alert, semantic_search_cannot_alert, search_is_empty, alert_requires_works_search, collection_not_found_or_not_shared, saved_search_exists (the user already saved this search: change that one with update_alert).",
+        "Refusals come back with a code: works_collection_cannot_alert, collection_type_mismatch (the message names the right field), semantic_search_cannot_alert, search_is_empty, alert_requires_works_search, collection_not_found_or_not_shared, saved_search_exists (the user already saved this search, maybe without an alert: turn it on with update_alert on the existing id).",
       inputSchema: {
         name: z.string().min(1).max(400).describe("What the user asked for, in their words; it is the email's subject line."),
         oql: z.string().min(1).max(8000).optional().describe("The search as OQL, e.g. the oql search_works returned. Give oql or url."),
