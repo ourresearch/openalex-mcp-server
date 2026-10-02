@@ -67,6 +67,20 @@ export interface CurationRow {
   superseded_by?: string | null;
 }
 
+/** A saved search and its alert, as /me/saved-searches returns it (oxjob #1509). */
+export interface SavedSearchRecord {
+  id: string;
+  name: string;
+  description: string;
+  entity_type: string | null;
+  url: string;
+  api_url: string;
+  alert: { frequency: "daily" | "weekly" | "monthly"; last_sent_at: string | null; next_check_at: string } | null;
+  cannot_alert: { code: string; message: string } | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CurationPayload {
   entity: "works" | "authors";
   entity_id: string;
@@ -131,7 +145,26 @@ export class UsersApiClient {
     return this.request("DELETE", `/curations/${encodeURIComponent(id)}`);
   }
 
-  private async request<T = any>(method: "GET" | "POST" | "DELETE", path: string, body?: any, okStatuses?: number[]): Promise<T> {
+  // Saved searches and their alerts (oxjob #1509; help.openalex.org/api/alerts).
+  listSavedSearches(params: { has_alert?: string; page?: number; per_page?: number }): Promise<{ meta: { count: number; page: number; per_page: number }; results: SavedSearchRecord[] }> {
+    const url = new URL(this.baseUrl + "/me/saved-searches");
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
+    return this.request("GET", url.pathname + url.search);
+  }
+
+  createSavedSearch(body: { name: string; url: string; description?: string; alert?: { frequency: string } | null }): Promise<SavedSearchRecord> {
+    return this.request("POST", "/me/saved-searches", body, [201]);
+  }
+
+  updateSavedSearch(id: string, body: { name?: string; url?: string; description?: string; alert?: { frequency: string } | null }): Promise<SavedSearchRecord> {
+    return this.request("PATCH", `/me/saved-searches/${encodeURIComponent(id)}`, body);
+  }
+
+  deleteSavedSearch(id: string): Promise<null> {
+    return this.request("DELETE", `/me/saved-searches/${encodeURIComponent(id)}`, undefined, [204]);
+  }
+
+  private async request<T = any>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: any, okStatuses?: number[]): Promise<T> {
     let res: Response;
     try {
       res = await fetch(this.baseUrl + path, {

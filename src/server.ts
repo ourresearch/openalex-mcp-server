@@ -22,6 +22,7 @@ import DOCS_MANIFEST from "./docs/manifest.json";
 import { registerCurationTools, type AccountContext, LATENCY_NOTE } from "./curationTools";
 import { registerExpertTools } from "./expertTools";
 import { registerKeywordTools, KEYWORD_RECIPE } from "./keywordTools";
+import { registerAlertTools, ALERT_TOOL_LINES } from "./alertTools";
 import { pickAuthorship, coauthorNames } from "./curation";
 import type { UsersApiClient } from "./users";
 import { UsersApiError } from "./users";
@@ -51,6 +52,7 @@ Tools:
 - group_works: count works along one dimension (author, institution, country, source, year, topic, type, OA status…). Answers "who publishes most on X", "how has X grown", "which journals".
 - analyze_works: one-call profile of any set of works (an institution's output, a funder's portfolio, a topic): totals, open-access share, top-cited share, trend by year, and top fields, topics, institutions, countries, sources, funders and authors.
 {{KEYWORD_TOOLS}}
+{{ALERT_TOOLS}}
 Every works result includes the canonical OQL that produced it (and a reproduce_url), so users can rerun, share, or cite the exact query.
 
 Profile curation (the connected user's own OpenAlex author profile):
@@ -86,12 +88,13 @@ const KEYWORD_TOOL_LINES = `- find_keywords: the OpenAlex keywords for a topic (
 `;
 
 /** Server instructions; the keyword-aware search recipe replaces the text-only one when the keyword tools are on (oxjob #1469). */
-export function serverInstructions(features: { keywordSearch?: boolean } = {}): string {
+export function serverInstructions(features: { keywordSearch?: boolean; alertTools?: boolean } = {}): string {
   const kw = !!features.keywordSearch;
   return (INSTRUCTIONS_BASE
     .replace("{{KEYWORD_TOOLS}}\n", kw ? KEYWORD_TOOL_LINES + "\n" : "\n")
     .replace("{{SEARCH_RECIPE}}", kw ? KEYWORD_RECIPE + "\n\n" : "")
-    .replace("{{OR_SYSTEMATIC}}", kw ? "" : ' or "build a systematic search"')) + DOCS.oql.text;
+    .replace("{{OR_SYSTEMATIC}}", kw ? "" : ' or "build a systematic search"')
+    .replace("{{ALERT_TOOLS}}\n", features.alertTools ? ALERT_TOOL_LINES + "\n" : "")) + DOCS.oql.text;
 }
 
 export const SERVER_INSTRUCTIONS = serverInstructions();
@@ -103,7 +106,8 @@ export interface ServerContext {
   account?: AccountContext | null;
   /** Tools held back from the launch set (oxjob #1274: find_experts v1 stays off in production). */
   /** keywordSearch (oxjob #1469): find_keywords + keyword_search, on once keywords are fully in the works index (#1456). */
-  features?: { findExperts?: boolean; keywordSearch?: boolean };
+  /** alertTools (oxjob #1509): list/create/update/delete_alert, on once users-api serves /me/saved-searches. */
+  features?: { findExperts?: boolean; keywordSearch?: boolean; alertTools?: boolean };
   onToolCall?: (info: { tool: string; ok: boolean; ms: number; credits: number; status?: number }) => void;
 }
 
@@ -839,6 +843,7 @@ export function createServer(ctx: ServerContext): McpServer {
   if (ctx.features?.keywordSearch) registerKeywordTools(server, { client, run, ok, fail });
   if (ctx.features?.findExperts) registerExpertTools(server, { client, run, ok, fail, searchParams, queryEcho, modeSchema, searchInSchema });
   registerCurationTools(server, { client, users: ctx.users ?? null, account: ctx.account ?? null, run, ok, fail, listSelect: LIST_SELECT });
+  if (ctx.features?.alertTools) registerAlertTools(server, { client, users: ctx.users ?? null, account: ctx.account ?? null, run, ok, fail });
 
   for (const [key, doc] of Object.entries(DOCS)) {
     server.registerResource(
