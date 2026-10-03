@@ -20,8 +20,8 @@
     "FIND_EXPERTS": "true",
     // find_keywords + keyword_search (oxjob #1469): production waits for keywords to be fully in the works index (#1456).
     "KEYWORD_SEARCH": "true",
-    // list/create/update/delete_alert (oxjob #1509): on once users-api serves /me/saved-searches.
-    "ALERT_TOOLS": "false"
+    // list/create/update/delete_alert (oxjob #1509): users-api serves /me/saved-searches (v555); staging has them on.
+    "ALERT_TOOLS": "true"
   },
   // OAuth state (clients, grants, tokens; props encrypted) lives in KV.
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "e3a7ccaccec5489982e0f3a399fe9ba4" }],
@@ -46,7 +46,7 @@
         "USERS_API_BASE": "https://user.openalex.org",
         "FIND_EXPERTS": "false",
         "KEYWORD_SEARCH": "true",
-        // Alert tools (oxjob #1509): off until users-api ships /me/saved-searches AND the ChatGPT plugin is approved (#1294).
+        // Alert tools (oxjob #1509): users-api serves them (v555); off until the ChatGPT plugin is approved (#1294).
         "ALERT_TOOLS": "false",
         // ChatGPT plugin directory domain verification (oxjob #1294): paste the token from
         // platform.openai.com/plugins here, deploy, then click "Verify domain" in the portal.
