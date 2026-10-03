@@ -168,6 +168,58 @@ for (const [name, args, check] of calls) {
     console.log(`FAIL ${name} ${JSON.stringify(args).slice(0, 70)}: ${e?.message ?? e}`);
   }
 }
+// Alert tools (oxjob #1509): create, list, change, turn off, delete on the smoke user's own
+// account, then a refusal. Writes to the real users-api; the alert is deleted at the end.
+if (listed.has("create_alert")) {
+  const callJson = async (name: string, args: Record<string, any>) => {
+    const res: any = await client.callTool({ name, arguments: args });
+    const text = res.content?.[0]?.text ?? "";
+    try { return JSON.parse(text); } catch { return { error: text }; }
+  };
+  const step = async (label: string, fn: () => Promise<void>) => {
+    try { await fn(); console.log(`ok   alerts: ${label}`); }
+    catch (e: any) { failures++; console.log(`FAIL alerts: ${label}: ${e?.message ?? e}`); }
+  };
+  const oql = 'works where title-abstract has ("coral bleaching") and year >= (2025)';
+  let id: string | undefined;
+  await step("create_alert from OQL, with a preview", async () => {
+    let r = await callJson("create_alert", { name: "Smoke test: coral bleaching", oql, frequency: "monthly" });
+    const stale = /existing id: (\w+)/.exec(r.error ?? "")?.[1];
+    if (stale) {  // left over from a failed run
+      await callJson("delete_alert", { id: stale });
+      r = await callJson("create_alert", { name: "Smoke test: coral bleaching", oql, frequency: "monthly" });
+    }
+    if (!r.alert?.id || r.alert.frequency !== "monthly" || !r.alert.api_url || !r.matching_works_today || !r.newest?.length) throw new Error(JSON.stringify(r).slice(0, 300));
+    id = r.alert.id;
+  });
+  await step("list_my_alerts shows it", async () => {
+    const r = await callJson("list_my_alerts", {});
+    if (!r.results?.some((a: any) => a.id === id)) throw new Error(JSON.stringify(r).slice(0, 300));
+  });
+  await step("update_alert renames and goes weekly", async () => {
+    const r = await callJson("update_alert", { id, name: "Smoke test: coral bleaching (renamed)", frequency: "weekly" });
+    if (r.alert?.frequency !== "weekly" || !/renamed/.test(r.alert?.name)) throw new Error(JSON.stringify(r).slice(0, 300));
+  });
+  await step("update_alert off keeps the saved search", async () => {
+    const r = await callJson("update_alert", { id, frequency: "off" });
+    if (r.alert?.frequency !== "off") throw new Error(JSON.stringify(r).slice(0, 300));
+    const l = await callJson("list_my_alerts", { include_saved_searches: true });
+    if (!l.results?.some((a: any) => a.id === id && a.frequency === "off")) throw new Error("not listed as a saved search");
+  });
+  await step("delete_alert", async () => {
+    const r = await callJson("delete_alert", { id });
+    if (r.error) throw new Error(r.error);
+    const l = await callJson("list_my_alerts", { include_saved_searches: true });
+    if (l.results?.some((a: any) => a.id === id)) throw new Error("still listed after delete");
+    id = undefined;
+  });
+  await step("create_alert refuses a non-works search with a code", async () => {
+    const r = await callJson("create_alert", { name: "Smoke test: authors", url: "https://api.openalex.org/authors?filter=display_name.search:doudna" });
+    if (!/^[a-z_]+: /.test(r.error ?? "")) throw new Error("expected a coded refusal, got " + JSON.stringify(r).slice(0, 300));
+  });
+  if (id) await callJson("delete_alert", { id });
+}
+
 await client.close();
 console.log(failures ? `\n${failures} failure(s)` : "\nall good");
 process.exit(failures ? 1 : 0);
