@@ -45,8 +45,8 @@ Collections: the user's named lists of entities of any one type, usable as a fil
 
 ```
 POST   /collections                         {"display_name", "entity_type": "works", "member_ids": ["W123", ...]} (OpenAlex IDs only)
-GET    /collections                         the user's own; filter=entity_type:sources, search=, sort=updated_date:desc, select=, cursor=*
-GET    /collections?member_ids=W1,W2        which of the user's collections hold them
+GET    /collections                         public ones (OpenAlex's, e.g. country groups) + the user's own; filter=access:public | can_edit:true | entity_type:countries, search= (name+description), sort=, group_by=, cursor=*
+GET    /collections?filter=can_edit:true&member_ids=W1,W2   which of the user's collections hold them
 PATCH  /collections/{id}                    {"access": "shared_by_link"} (or display_name, description)
 POST   /collections/{id}/members            {"member_ids": [...]}
 DELETE /collections/{id}/members?member_ids=W1,W2
