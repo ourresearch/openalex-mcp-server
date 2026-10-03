@@ -12,7 +12,9 @@ import {
   retractedNote, RETRACTED_PER_QUERY_NOTE,
 } from "./filters";
 import { titleCoverage, queryCoverage, extractYear, extractDoi, guessTitle, guessSurnames } from "./text";
-import { normalizeOql, oqlHasSearch, oqlHasGroupBy, oqlHasSample, oneLine, reproduceUrl, OQL_GROUP_DIMS, oqlExcludeRetracted, oqlMentionsRetracted, splitOqlSort } from "./oql";
+import { oqlHasSearch, oqlHasGroupBy, oqlHasSample, OQL_GROUP_DIMS, oqlIsPipeline, oqlHasCalculate, oqlAddSample, oqlAddGroupBy, prepareOql, queryEcho } from "./oql";
+import { registerCalculateTools, PIPELINE_GUIDE } from "./calculateTools";
+import { shapeCalculation, calculationResult } from "./calculate";
 import OQL_DOC from "./docs/oql.md";
 import OQL_SPEC_DOC from "./docs/oql_spec.md";
 import API_QUICK_REF_DOC from "./docs/api_quick_reference.md";
@@ -50,6 +52,8 @@ Tools:
 - get_entity: full profile for an author, institution, source, topic, funder or publisher. Free.
 - group_works: count works along one dimension (author, institution, country, source, year, topic, type, OA status…). Answers "who publishes most on X", "how has X grown", "which journals".
 - analyze_works: one-call profile of any set of works (an institution's output, a funder's portfolio, a topic): totals, open-access share, top-cited share, trend by year, and top fields, topics, institutions, countries, sources, funders and authors.
+- calculate_works: an OQL calculation (get works where ...; then group those works by ...; then calculate ...): split a set of works by up to three fields, named values, searches, conditions or bins, and calculate counts, means, medians, sums, percents and shares, with a total row for the whole set. Answers "compare MIT, Stanford and Harvard on CRISPR output and impact", "open-access share by year for Kenya", "authors with more than 10 kelp papers and an h-index above 20".
+- check_oql: free check of an OQL query before running it: valid or not, every limit with its fix, the time estimate and the price.
 {{KEYWORD_TOOLS}}
 Every works result includes the canonical OQL that produced it (and a reproduce_url), so users can rerun, share, or cite the exact query.
 
@@ -73,6 +77,8 @@ Duplicate profiles: add the duplicate's works to the claimed profile (search_wor
 The OQL reference is appended below, verbatim from help.openalex.org. The full OQL specification and the API quick reference are also available through the read_docs tool.
 
 {{SEARCH_RECIPE}}Recipe for "find references for this passage"{{OR_SYSTEMATIC}}: split the passage into its claims; for each claim write an AND group of synonyms joined with or; join the groups with or (or with and if every claim must hold); add year/type/retracted filters; run with preview=true, look at the count and sample, tighten with exact phrases, extra terms or not-clauses; then run for real with sort=relevance and a larger limit. Give the user the canonical OQL with the results.
+
+${PIPELINE_GUIDE}
 
 Retractions: OpenAlex marks retracted works (is_retracted). Every tool that lists or counts works hides them by default and says so (retracted_works); pass include_retracted=true, or write your own retracted clause in OQL, to include them. get_work and resolve_references never hide: a retracted work comes back with is_retracted: true and a warning as its first fields. Profile-curation views (for_author, find_candidate_works) include retracted works because a profile should be complete. Never present a retracted work as valid evidence; when one appears, tell the user it was retracted.
 
@@ -167,12 +173,6 @@ function shapeGroups(data: ListResponse) {
     compact({ id: groupKey(g.key) ?? g.key, name: g.key_display_name ?? g.key, count: g.count })
   );
 }
-
-/** Canonical OQL echo from a list response. */
-const queryEcho = (data: ListResponse) => {
-  const oql = oneLine((data.meta as any)?.x_query?.oql);
-  return oql ? { oql, reproduce_url: reproduceUrl(oql) } : {};
-};
 
 const PREVIEW_SELECT = ["id", "doi", "display_name", "publication_year", "type", "authorships", "primary_location", "cited_by_count", "is_retracted", "relevance_score", "rerank_score"];
 
@@ -304,23 +304,26 @@ export function createServer(ctx: ServerContext): McpServer {
           const disallowed = usedStructured.filter((k) => k !== "sort" && k !== "page" && k !== "include_retracted");
           if (disallowed.length) return fail(`oql is a complete query; put year, type and other filters inside it instead of using: ${disallowed.join(", ")}.`);
           const body: Record<string, any> = {};
-          const sortSplit = splitOqlSort(normalizeOql(args.oql));
-          let q = sortSplit.oql;
+          const prep = prepareOql(args.oql, includeRetracted);
+          const sortSplit = prep.sort;
+          let q = prep.oql;
+          const retractedWorks = prep.retractedWorks;
           const oqlSortNote = sortSplit.stripped ? "Sorting is not part of OQL; the trailing \"sort by …\" was removed" + (sortSplit.sort && args.sort === undefined ? ` and applied as sort=${sortSplit.sort}.` : ". Use the sort parameter instead.") : undefined;
           if (sortSplit.sort && args.sort === undefined) (args as any).sort = sortSplit.sort;
-          let retractedWorks: string;
-          if (includeRetracted) {
-            retractedWorks = oqlMentionsRetracted(q) ? RETRACTED_PER_QUERY_NOTE : retractedNote(true);
-          } else {
-            const r = oqlExcludeRetracted(q);
-            q = r.oql;
-            retractedWorks = r.applied ? retractedNote(false) : RETRACTED_PER_QUERY_NOTE;
-          }
           // With `sample N` the API's count is N, so a random preview asks for the real total separately.
           let totalCount: Promise<ListResponse> | undefined;
+          // A pipeline that splits or calculates returns groups, not works: same answer as calculate_works (#1537).
+          if (oqlIsPipeline(q) && (oqlHasGroupBy(q) || oqlHasCalculate(q))) {
+            const data = await client.post<ListResponse>({ oql: q, per_page: Math.min(args.limit ?? 50, 200), page: args.page ?? 1 });
+            return calculationResult(compact({
+              note: "This query calculates over groups of works, so it returns groups; calculate_works is the tool for these (paging, sort by a column) and check_oql checks them for free.",
+              retracted_works: retractedWorks,
+              ...shapeCalculation(data, { page: args.page ?? 1, sortBy: sortSplit.by, ascending: sortSplit.ascending }),
+            }));
+          }
           if (previewRandom && !oqlHasSample(q) && !oqlHasGroupBy(q)) {
             totalCount = client.post<ListResponse>({ oql: q, per_page: 1, select: "id" });
-            q = `${q} sample ${previewLimit}`;
+            q = oqlAddSample(q, previewLimit);
           }
           body.oql = q;
           const hasSearch = oqlHasSearch(q);
@@ -728,21 +731,20 @@ export function createServer(ctx: ServerContext): McpServer {
         if (args.oql !== undefined) {
           const used = ["query", "mode", "search_in", ...Object.keys(workFilterShape)].filter((k) => k !== "include_retracted" && (args as any)[k] !== undefined);
           if (used.length) return fail(`oql is a complete query; put filters inside it instead of using: ${used.join(", ")}.`);
-          let q = normalizeOql(args.oql);
-          let retractedWorks: string;
-          if (args.include_retracted) {
-            retractedWorks = oqlMentionsRetracted(q) ? RETRACTED_PER_QUERY_NOTE : retractedNote(true);
-          } else {
-            const r = oqlExcludeRetracted(q);
-            q = r.oql;
-            retractedWorks = r.applied ? retractedNote(false) : RETRACTED_PER_QUERY_NOTE;
-          }
+          const { oql: prepared, retractedWorks } = prepareOql(args.oql, !!args.include_retracted);
+          let q = prepared;
           if (!oqlHasGroupBy(q)) {
             const dim = OQL_GROUP_DIMS[args.group_by as string];
             if (!dim) return fail(`group_by "${args.group_by}" is not available with oql; use one of: ${Object.keys(OQL_GROUP_DIMS).join(", ")}.`);
-            q = `${q} group by ${dim}`;
+            q = oqlAddGroupBy(q, dim);
           }
           const data = await client.post<ListResponse>({ oql: q, per_page: limit });
+          // A calculation (the pipeline engine answers with meta.measures) keeps its columns and total row (#1537).
+          if ((data.meta as any)?.measures) {
+            const out = shapeCalculation(data);
+            if (args.group_by === "year") out.groups?.sort((a: any, b: any) => Number(a.id) - Number(b.id));
+            return calculationResult(compact({ group_by: args.group_by, retracted_works: retractedWorks, ...out }));
+          }
           const groups = shapeGroups(data);
           if (args.group_by === "year") groups.sort((a: any, b: any) => Number(a.id) - Number(b.id));
           return ok(compact({ group_by: args.group_by, ...queryEcho(data), retracted_works: retractedWorks, total_works: data.meta.count, groups_returned: groups.length, groups }));
@@ -869,6 +871,7 @@ export function createServer(ctx: ServerContext): McpServer {
   // -------------------------------------------------------------------------
   // Documentation: resources + read_docs
   // -------------------------------------------------------------------------
+  registerCalculateTools(server, { client, run, ok, fail });
   if (ctx.features?.keywordSearch) registerKeywordTools(server, { client, run, ok, fail });
   if (ctx.features?.findExperts) registerExpertTools(server, { client, run, ok, fail, searchParams, queryEcho, modeSchema, searchInSchema });
   registerCurationTools(server, { client, users: ctx.users ?? null, account: ctx.account ?? null, run, ok, fail, listSelect: LIST_SELECT });

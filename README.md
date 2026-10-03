@@ -37,6 +37,8 @@ All tools are read-only.
 | `search_entities` | Find authors, institutions, sources (journals), topics, funders and publishers by name and/or filters: researchers at an institution working on a topic, open-access journals in a field under a given APC, companies in a country. |
 | `get_entity` | Full profile for an author, institution, source, topic, funder or publisher. Free. |
 | `group_works` | Count works by author, institution, institution type, country, source, publisher, funder, year, type, topic, subfield, field, domain, keyword, OA status, top-10%/top-1% cited, language or SDG. |
+| `calculate_works` | An OQL calculation: `get works where …; then group those works by …; then calculate …`. Splits a set of works by up to three fields, named values, searches, conditions or bins, and returns each group's count, mean/median/sum/min/max, percents and share, plus a total row for the whole set, the price and the canonical OQL. |
+| `check_oql` | Free check of an OQL query before running it: valid or not, every limit with its fix, the time estimate and the price. |
 | `analyze_works` | One-call profile of any set of works (an institution's output, a funder's portfolio, a topic): totals, open-access share, top-cited share, trend by year, top fields, topics, institutions, countries, sources, funders and authors, and international and industry collaboration shares. |
 
 Every works query, structured or OQL, comes back with the canonical OQL that ran and a URL that reruns it, so a search can be shared, cited in a methods section, or continued by hand in the OQL tab on openalex.org.
