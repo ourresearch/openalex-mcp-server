@@ -39,13 +39,13 @@ async function pool<T, R>(items: T[], n: number, fn: (x: T) => Promise<R>): Prom
   return out;
 }
 
-export const KEYWORD_RECIPE = `Recipe for "do a thorough search", "find everything on X", "build a systematic search" (keyword-aware; use it whenever the user wants recall, not just a few good papers). search_works already matches the keywords a phrase in the query names; this recipe adds keywords chosen by meaning (other wordings the query doesn't contain) and measures what each part adds:
+export const KEYWORD_RECIPE = `Recipe for "do a thorough search", "find everything on X", "build a systematic search" (use it whenever the user wants recall, not just a few good papers). search_works already matches titles, abstracts and the keywords a phrase in the query names, and reranks its top results; this recipe adds keywords chosen by meaning (wordings the user's phrases don't contain) and measures what each part adds:
 1. Split the topic into its facets, the parts that must all hold (e.g. "microplastics" and "human health"). For each facet write the phrase plus the synonyms, spellings and abbreviations a careful searcher would try: phrases that mean the facet, not single generic words (human, patients, blood) that appear in almost any abstract.
 2. find_keywords(description=<the user's topic in a sentence>, phrases=<each facet's main phrase and a synonym or two>). It returns OpenAlex keywords with how many works carry each and their most-cited titles.
-3. For each facet keep the keywords that mean that facet (read the top titles; drop broader or different-sense ones). Every facet needs its own keyword: a keyword for only one facet, OR'd in, pulls in that whole field. A facet with no fitting keyword stays text-only.
-4. keyword_search(facets=[{label, text, keyword_ids}, …], plus filters such as open_access_only, from_year, types). Each facet matches on its text OR its keywords; facets are ANDed. Keywords widen the text search, never replace it (about 11% of works have no keywords).
-5. Report the counts it returns: the title/abstract search alone, what the keywords add, the combined total, and per facet. Read both random samples (the whole search, and the keyword-only additions) and say roughly how many look on topic. If the whole search is loose, tighten the facets' text (phrases, not single generic words) and rerun; offer the user a broad and a strict version when the trade-off is real. For the additions: if many are off topic, see which keywords bring them in (added_per_keyword), drop or swap a keyword only when its additions are mostly off topic, and rerun. Never drop a facet's core keyword (the one named like the facet) over a few strays. Act on the warnings: a facet that keeps nearly everything the other facets match is too generic.
-6. Hand back the combined OQL and its reproduce_url, then show results with search_works(oql=<combined>, sort=cited_by_count or relevance).`;
+3. For each facet keep the keywords that mean that facet (read the top titles; drop broader or different-sense ones). A keyword whose name or synonym is already a phrase in the facet's text is matched anyway; the ones worth adding mean the facet under other names. Every facet needs its own keyword: a keyword for only one facet, OR'd in, pulls in that whole field. A facet with no fitting keyword keeps just its text.
+4. keyword_search(facets=[{label, text, keyword_ids}, …], plus filters such as open_access_only, from_year, types). Each facet matches on its text (title, abstract and the keywords the text names) OR its chosen keywords; facets are ANDed. Keywords widen the text search, never replace it (about 11% of works have no keywords).
+5. Report the counts it returns: the search alone (what search_works finds for the facets' text), what the chosen keywords add, the combined total, and per facet. Read both random samples (the whole search, and the keyword-only additions) and say roughly how many look on topic. If the whole search is loose, tighten the facets' text (phrases, not single generic words) and rerun; offer the user a broad and a strict version when the trade-off is real. For the additions: if many are off topic, see which keywords bring them in (added_per_keyword), drop or swap a keyword only when its additions are mostly off topic, and rerun. Never drop a facet's core keyword (the one named like the facet) over a few strays. Act on the warnings: a facet that keeps nearly everything the other facets match is too generic.
+6. Hand back the combined OQL and its reproduce_url, then show results with search_works(oql=<combined>): sorted by relevance (the default; reranked, so the first page holds the most on-topic works) or by cited_by_count (the most cited).`;
 
 export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
   const { client, run, ok, fail } = deps;
@@ -76,6 +76,7 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
       description:
         "Find the OpenAlex keywords for a topic, the first step of a thorough (high-recall) search. " +
         "OpenAlex tags works with keywords (e.g. microplastics, human-health, antimicrobial-resistance) that also catch works using other wordings, other languages, or no abstract at all. " +
+        "search_works and keyword_search already match the keywords that the search's own phrases name; use this to find keywords that mean a facet under other names. " +
         "Give the topic as a sentence (description) and, for better coverage, each facet's main phrase and synonyms (phrases). " +
         "Returns candidate keywords with a match score, how many works carry each, and their three most-cited titles, so you can keep the ones that mean each facet and drop the rest. " +
         "Then pass them to keyword_search. Costs about $0.01 (one /text/keywords call) plus a few cheap lookups.",
@@ -130,7 +131,7 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
   // -------------------------------------------------------------------------
   const facetSchema = z.object({
     label: z.string().max(100).optional().describe("Short name for the facet, e.g. \"microplastics\"."),
-    text: z.string().max(2000).optional().describe("Title/abstract search for the facet: OQL text inside `title/abstract has (…)`. Synonyms joined with or, \"quoted phrases\", wildcards only inside quotes, e.g. microplastic or microplastics or \"nanoplastic*\"."),
+    text: z.string().max(2000).optional().describe("Search text for the facet, matched over title, abstract and the keywords it names: OQL text inside `title/abstract/keywords has (…)`. Synonyms joined with or, \"quoted phrases\", wildcards only inside quotes, e.g. microplastic or microplastics or \"nanoplastic*\"."),
     keyword_ids: z.array(z.string().max(200)).max(15).optional().describe("Keyword ids from find_keywords that mean this facet, e.g. [\"microplastics\"]. Any of them matches."),
   });
 
@@ -139,8 +140,8 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
     {
       title: "Keyword-aware search",
       description:
-        "Build and measure a thorough search: each facet matches on its title/abstract text OR its keywords, and all facets must match. " +
-        "Returns the combined OQL with a reproduce_url, and counts for every part: the text-only search, what the keywords add, the combined total, and each facet's text, keyword and keyword-only counts, " +
+        "Build and measure a thorough search: each facet matches on its text (over titles, abstracts and the keywords the text names) OR on the keywords you chose for it, and all facets must match. " +
+        "Returns the combined OQL with a reproduce_url, and counts for every part: the search alone (what search_works finds for the facets' text), what the chosen keywords add, the combined total, and each facet's text, keyword and keyword-only counts, " +
         "plus random samples of the whole search and of the works found only through keywords, so you can check precision. " +
         "Filters (open access, years, types, language, any OQL condition) apply to every count. " +
         "Use after find_keywords; then list the results with search_works(oql=<combined oql>). " +
@@ -228,19 +229,20 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
           reproduce_url: reproduceUrl(queries.combined),
           counts: compact({
             combined,
-            text_only: textOnly,
+            search_alone: textOnly,
             added_by_keywords: added,
             keywords_add: share,
           }),
+          counts_note: "search_alone = the facets' text over title, abstract and the keywords it names (what search_works finds); added_by_keywords = works found only through the keywords you chose.",
           per_facet: facetCounts.map(({ keeps, ...f }) => compact(f)),
           added_per_keyword: perKeyword.length ? perKeyword.sort((a, b) => (b.added ?? 0) - (a.added ?? 0)) : undefined,
           added_sample: sample,
-          added_sample_basis: sample ? `random ${sample.length} of the ${added} works found only through keywords` : undefined,
+          added_sample_basis: sample ? `random ${sample.length} of the ${added} works found only through the chosen keywords` : undefined,
           overall_sample: overall,
           overall_sample_basis: overall ? `random ${overall.length} of all ${combined} works; if many are off topic, tighten the facets' text` : undefined,
-          queries: compact({ text_only: queries.text_only, added_by_keywords: queries.added_by_keywords }),
+          queries: compact({ search_alone: queries.text_only, added_by_keywords: queries.added_by_keywords }),
           warnings: warnings.length ? warnings : undefined,
-          next: "Show results with search_works(oql=<oql>), and give the user the oql and reproduce_url.",
+          next: "Show results with search_works(oql=<oql>) (relevance order is reranked: the most on-topic works first), and give the user the oql and reproduce_url.",
         }));
       })()
   );

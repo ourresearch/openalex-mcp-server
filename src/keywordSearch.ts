@@ -2,7 +2,8 @@
  * Keyword-aware systematic search (oxjob #1469). Pure helpers, unit-tested.
  *
  * A topic is split into facets ("microplastics", "human health"). Each facet matches a work when its
- * title/abstract text matches OR the work carries one of the facet's keywords; the facets are ANDed.
+ * text matches over title, abstract and the keywords the text itself names (the API's title/abstract/keywords
+ * search, oxjob #1521) OR the work carries one of the keywords chosen for the facet; the facets are ANDed.
  * Keywords only ever widen a facet's text search, never replace it (about 11% of works have no keywords),
  * and every facet needs its own keyword: OR'ing a keyword for just one facet pulls in that whole field
  * (#1322 agent trial: 4% and 18% on topic).
@@ -10,7 +11,7 @@
 
 export interface Facet {
   label?: string;
-  /** Inside of `title/abstract has (...)`: synonyms joined with or, "quoted phrases", "wildcard*" quoted. */
+  /** Inside of `title/abstract/keywords has (...)`: synonyms joined with or, "quoted phrases", "wildcard*" quoted. */
   text?: string;
   /** Keyword ids (slugs like human-health, or https://openalex.org/keywords/... URLs). */
   keyword_ids?: string[];
@@ -56,7 +57,7 @@ export function cleanFacets(facets: Facet[]): Array<{ label: string; text: strin
 
 type CleanFacet = ReturnType<typeof cleanFacets>[number];
 
-export const textClause = (f: CleanFacet) => (f.text ? `title/abstract has (${f.text})` : null);
+export const textClause = (f: CleanFacet) => (f.text ? `title/abstract/keywords has (${f.text})` : null);
 export const keywordClause = (f: CleanFacet) => (f.keywords.length ? `keyword is (${f.keywords.join(" or ")})` : null);
 
 /** The facet's full clause: text or keyword, whichever it has. */
@@ -85,8 +86,9 @@ const where = (clauses: string[]) => `works where ${clauses.join(" and ")}`;
 /**
  * The queries a keyword-aware search reports on.
  * - combined: every facet as (text or keyword), ANDed, plus filters. This is the search to hand back.
- * - text_only: the same search with the keyword halves removed (what a title/abstract search finds).
- * - added_by_keywords: works in combined but not in text_only (found only because of keywords).
+ * - text_only: the same search with the chosen keywords removed: the facets' text over title, abstract and the
+ *   keywords that text names, i.e. what search_works finds for it. Reported as `search_alone`.
+ * - added_by_keywords: works in combined but not in text_only (found only because of the chosen keywords).
  * - per facet (under the filters only): text, keyword, and keyword-not-text; with two or more facets,
  *   also every other facet without this one, so the caller can tell whether this facet narrows anything.
  */

@@ -89,6 +89,7 @@ export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
     is_oa: typeof oa.is_oa === "boolean" ? oa.is_oa : null,
     oa_url: oa.oa_url ?? null,
     relevance_score: typeof w.relevance_score === "number" ? round(w.relevance_score, 3) : null,
+    rerank_score: typeof w.rerank_score === "number" ? round(w.rerank_score, 3) : null,
     openalex_url: openalexUrl(w.id),
   };
 

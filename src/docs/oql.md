@@ -46,7 +46,7 @@ works where institution is (I136199984) or funder is (F4320332161 [National Inst
 
 ## Searching
 
-Search a text field with **`has`**. The fields: `title`, `abstract`, `title/abstract` (both at once), `full text`, `raw affiliation`, `byline`.
+Search a text field with **`has`**. The fields: `title`, `abstract`, `title/abstract` (both at once), `title/abstract/keywords` (title and abstract, plus works tagged with a [keyword](/api/searching/#keywords-in-search) a phrase in your search names; openalex.org's default), `full text` (title, abstract and full text, plus keywords), `raw affiliation`, `byline`.
 
 The one rule to internalize: **bare words are stemmed, quotes mean exact.** `title has (cancer)` also matches *cancers* and *cancerous* — the everyday default, good recall. `title has ("cat")` matches only *cat*, never *cats*.
 

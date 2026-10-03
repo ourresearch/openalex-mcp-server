@@ -45,3 +45,15 @@ describe("retraction default in OQL (oxjob #1281)", () => {
     expect(oqlExcludeRetracted("authors where works count >= (10)")).toEqual({ oql: "authors where works count >= (10)", applied: false });
   });
 });
+
+import { splitOqlSort } from "../src/oql";
+describe("splitOqlSort (#1521)", () => {
+  it("moves a trailing sort by into the sort parameter", () => {
+    expect(splitOqlSort("works where title has (kelp) and retracted is (false) sort by cited by count desc"))
+      .toEqual({ oql: "works where title has (kelp) and retracted is (false)", sort: "cited_by_count", stripped: true });
+    expect(splitOqlSort("works where title has (kelp) sort by relevance").sort).toBe("relevance");
+  });
+  it("leaves queries without a sort alone", () => {
+    expect(splitOqlSort("works where title has (sort by) and year >= (2020)")).toEqual({ oql: "works where title has (sort by) and year >= (2020)", stripped: false });
+  });
+});

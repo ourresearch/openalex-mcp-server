@@ -10,6 +10,22 @@ export function normalizeOql(input: string, entity = "works"): string {
   return `${entity} where ${s}`;
 }
 
+/**
+ * Agents often end an OQL query with `sort by cited by count desc`, but sorting is not part of OQL (it's a view
+ * parameter), and the parser then misreads the tail as extra values of the last clause ("retracted got more than
+ * one value", #1521 e2e). Split it off: returns the query without it and the sort it named, if recognizable.
+ */
+const SORT_WORDS: Record<string, "relevance" | "cited_by_count" | "publication_date" | "fwci"> = {
+  "relevance": "relevance", "relevance score": "relevance", "cited by count": "cited_by_count", "citations": "cited_by_count",
+  "cited_by_count": "cited_by_count", "citation count": "cited_by_count", "publication date": "publication_date",
+  "date": "publication_date", "publication_date": "publication_date", "year": "publication_date", "fwci": "fwci",
+};
+export function splitOqlSort(oql: string): { oql: string; sort?: "relevance" | "cited_by_count" | "publication_date" | "fwci"; stripped: boolean } {
+  const m = oql.match(/^([\s\S]*?)\s+sort(?:ed)? by\s+([a-z_ ]+?)(?:\s+(?:desc|descending|asc|ascending))?\s*$/i);
+  if (!m) return { oql, stripped: false };
+  return { oql: m[1]!.trim(), sort: SORT_WORDS[m[2]!.trim().toLowerCase()], stripped: true };
+}
+
 /** Does the query contain a text-search clause (so relevance sorting is meaningful)? */
 export function oqlHasSearch(oql: string): boolean {
   return /\bhas\b|\bis similar to\b/i.test(oql);

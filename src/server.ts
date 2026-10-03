@@ -12,7 +12,7 @@ import {
   retractedNote, RETRACTED_PER_QUERY_NOTE,
 } from "./filters";
 import { titleCoverage, queryCoverage, extractYear, extractDoi, guessTitle, guessSurnames } from "./text";
-import { normalizeOql, oqlHasSearch, oqlHasGroupBy, oqlHasSample, oneLine, reproduceUrl, OQL_GROUP_DIMS, oqlExcludeRetracted, oqlMentionsRetracted } from "./oql";
+import { normalizeOql, oqlHasSearch, oqlHasGroupBy, oqlHasSample, oneLine, reproduceUrl, OQL_GROUP_DIMS, oqlExcludeRetracted, oqlMentionsRetracted, splitOqlSort } from "./oql";
 import OQL_DOC from "./docs/oql.md";
 import OQL_SPEC_DOC from "./docs/oql_spec.md";
 import API_QUICK_REF_DOC from "./docs/api_quick_reference.md";
@@ -82,7 +82,7 @@ IDs: works W…, authors A…, sources S…, institutions I…, topics T…, fun
 `;
 
 const KEYWORD_TOOL_LINES = `- find_keywords: the OpenAlex keywords for a topic (from a description and facet phrases), with how many works carry each and their top titles.
-- keyword_search: a thorough search: each facet matches on title/abstract text OR its keywords, facets ANDed; returns the OQL and counts for every part (text alone, what keywords add, per facet) plus a sample of keyword-only finds.
+- keyword_search: a thorough search: each facet matches on its text (titles, abstracts and the keywords the text names) OR keywords chosen for it, facets ANDed; returns the OQL and counts for every part (the search alone, what the chosen keywords add, per facet) plus a sample of keyword-only finds.
 `;
 
 /** Server instructions; the keyword-aware search recipe replaces the text-only one when the keyword tools are on (oxjob #1469). */
@@ -150,7 +150,7 @@ const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: 
 
 const LIST_SELECT = [
   "id", "doi", "display_name", "publication_year", "type", "authorships", "primary_location",
-  "open_access", "cited_by_count", "fwci", "primary_topic", "is_retracted", "relevance_score",
+  "open_access", "cited_by_count", "fwci", "primary_topic", "is_retracted", "relevance_score", "rerank_score",
 ];
 
 const pagingInfo = (meta: ListResponse["meta"], returned: number) => {
@@ -174,7 +174,13 @@ const queryEcho = (data: ListResponse) => {
   return oql ? { oql, reproduce_url: reproduceUrl(oql) } : {};
 };
 
-const PREVIEW_SELECT = ["id", "doi", "display_name", "publication_year", "type", "authorships", "primary_location", "cited_by_count", "is_retracted", "relevance_score"];
+const PREVIEW_SELECT = ["id", "doi", "display_name", "publication_year", "type", "authorships", "primary_location", "cited_by_count", "is_retracted", "relevance_score", "rerank_score"];
+
+/** rerank=true (oxjob #1521): the API reorders the top 100 of a relevance-sorted works search by how well each
+ * work answers the query. On by default here; reported back as `reranked`. A 400 naming rerank (e.g. an OQL query
+ * whose only search is semantic) retries once without it. */
+const RERANK_NOTE = "Relevance order is reranked: the top 100 are reordered by how well each work answers the query (rerank_score = the model's probability that it's a relevant result); result 101 onward keeps the normal relevance order.";
+const isRerankError = (e: any) => e instanceof OpenAlexError && e.status === 400 && /rerank/i.test(e.message ?? "");
 
 const pct = (part: number, whole: number) => (whole > 0 ? Number(((100 * part) / whole).toFixed(1)) : null);
 
@@ -248,6 +254,7 @@ export function createServer(ctx: ServerContext): McpServer {
         "Search OpenAlex for scholarly works (papers, preprints, books, datasets). " +
         "mode=\"keyword\" (default) supports Boolean syntax: AND, OR, NOT, \"quoted phrases\", parentheses. " +
         "By default it searches titles, abstracts and keywords: a phrase in the query that names an OpenAlex keyword also matches works carrying that keyword (search_in to change). " +
+        "Relevance-sorted results are reranked by default: the top 100 are reordered by how well each work answers the query, so the first results are the most on-topic ones and rerank_score says how sure the reranker is (rerank=false to turn it off). " +
         "mode=\"semantic\" matches by meaning and is best for descriptive or long queries (up to 2,000 characters; max 50 results; no min_citations/countries filters). " +
         "mode=\"exact\" matches words without stemming. " +
         "Omit query to list works by filters alone (e.g. everything by an author, institution or funder). " +
@@ -265,6 +272,7 @@ export function createServer(ctx: ServerContext): McpServer {
         search_in: searchInSchema,
         sort: z.enum(["relevance", "cited_by_count", "publication_date", "fwci"]).optional()
           .describe("Sort order, descending. Default: relevance when there is a query, otherwise cited_by_count."),
+        rerank: z.boolean().optional().describe("Relevance-sorted searches are reranked by default: the top 100 results are reordered by how well each work answers the query, so the first page holds the most on-topic works. Result 101 onward keeps the normal relevance order, and pages never repeat or skip a work. Costs twice a plain search. false = plain relevance order. Ignored for other sorts and semantic mode."),
         limit: z.number().int().min(1).max(50).optional().describe("Results per page, 1-50. Default 15."),
         page: z.number().int().min(1).max(200).optional().describe("Page number. Default 1."),
         include_abstracts: z.boolean().optional().describe("Include a truncated abstract per result. Default true."),
@@ -296,7 +304,10 @@ export function createServer(ctx: ServerContext): McpServer {
           const disallowed = usedStructured.filter((k) => k !== "sort" && k !== "page" && k !== "include_retracted");
           if (disallowed.length) return fail(`oql is a complete query; put year, type and other filters inside it instead of using: ${disallowed.join(", ")}.`);
           const body: Record<string, any> = {};
-          let q = normalizeOql(args.oql);
+          const sortSplit = splitOqlSort(normalizeOql(args.oql));
+          let q = sortSplit.oql;
+          const oqlSortNote = sortSplit.stripped ? "Sorting is not part of OQL; the trailing \"sort by …\" was removed" + (sortSplit.sort && args.sort === undefined ? ` and applied as sort=${sortSplit.sort}.` : ". Use the sort parameter instead.") : undefined;
+          if (sortSplit.sort && args.sort === undefined) (args as any).sort = sortSplit.sort;
           let retractedWorks: string;
           if (includeRetracted) {
             retractedWorks = oqlMentionsRetracted(q) ? RETRACTED_PER_QUERY_NOTE : retractedNote(true);
@@ -316,6 +327,7 @@ export function createServer(ctx: ServerContext): McpServer {
           const sortKey = args.sort ?? (hasSearch ? "relevance" : "cited_by_count");
           const sampled = previewRandom;
           if (!sampled) body.sort = sortKey === "relevance" ? (hasSearch ? "relevance_score:desc" : "cited_by_count:desc") : `${sortKey}:desc`;
+          if (body.sort === "relevance_score:desc" && args.rerank !== false && !oqlHasGroupBy(q)) body.rerank = true;
           body.per_page = preview ? previewLimit : Math.min(args.limit ?? 15, 50);
           body.page = args.page ?? 1;
           body.select = (preview ? PREVIEW_SELECT : [...LIST_SELECT, ...(args.include_abstracts === false ? [] : ["abstract_inverted_index"])]).join(",");
@@ -328,7 +340,11 @@ export function createServer(ctx: ServerContext): McpServer {
           } catch (e: any) {
             if (e instanceof OpenAlexError && e.status === 400 && body.sort === "relevance_score:desc" && /relevance_score.*requires a search clause/i.test(e.message)) {
               body.sort = "cited_by_count:desc";
+              delete body.rerank;
               sortNote = "Exact-phrase (quoted) searches cannot be ranked by relevance; results are sorted by cited_by_count instead. Unquote a term to get relevance ranking.";
+              data = await client.post<ListResponse>(body);
+            } else if (body.rerank && isRerankError(e)) {
+              delete body.rerank;
               data = await client.post<ListResponse>(body);
             } else {
               throw e;
@@ -339,10 +355,13 @@ export function createServer(ctx: ServerContext): McpServer {
           }
           if (totalCount) data.meta.count = (await totalCount).meta.count;
           const results = data.results.map((w) => decorate(shapeWork(w, { abstractChars: preview || args.include_abstracts === false ? 0 : 500, maxAuthors: preview ? 1 : 5 }), w));
+          const reranked = (data.meta as any)?.reranked === true;
           return ok(compact({
             preview: preview || null,
-            sample_basis: preview ? (previewRandom ? `random ${results.length} of all matches` : `top ${results.length} by ${sortNote ? "cited_by_count" : sortKey}`) : null,
-            sort_note: sortNote,
+            sample_basis: preview ? (previewRandom ? `random ${results.length} of all matches` : `top ${results.length} by ${sortNote ? "cited_by_count" : sortKey}${reranked ? " (reranked)" : ""}`) : null,
+            sort_note: [sortNote, oqlSortNote].filter(Boolean).join(" ") || undefined,
+            reranked: body.rerank ? reranked : undefined,
+            rerank_note: reranked && (args.page ?? 1) === 1 ? RERANK_NOTE : undefined,
             retracted_works: retractedWorks,
             ...queryEcho(data),
             ...pagingInfo(data.meta, results.length),
@@ -375,13 +394,24 @@ export function createServer(ctx: ServerContext): McpServer {
           params.seed = Math.floor(Math.random() * 1e9);
         } else if (!(mode === "semantic" && sortKey === "relevance")) {
           params.sort = sort;
+          if (sort === "relevance_score:desc" && mode !== "semantic" && args.rerank !== false) params.rerank = "true";
         }
-        const data = await client.get<ListResponse>("/works", params);
+        let data: ListResponse;
+        try {
+          data = await client.get<ListResponse>("/works", params);
+        } catch (e: any) {
+          if (!(params.rerank && isRerankError(e))) throw e;
+          delete params.rerank;
+          data = await client.get<ListResponse>("/works", params);
+        }
+        const reranked = (data.meta as any)?.reranked === true;
         if (totalCount) data.meta.count = (await totalCount).meta.count;
         const results = data.results.map((w) => decorate(shapeWork(w, { abstractChars: preview || args.include_abstracts === false ? 0 : 500, maxAuthors: preview ? 1 : 5 }), w));
         return ok(compact({
           preview: preview || null,
-          sample_basis: preview ? (previewRandom ? `random ${results.length} of all matches` : `top ${results.length} by ${sortKey}`) : null,
+          sample_basis: preview ? (previewRandom ? `random ${results.length} of all matches` : `top ${results.length} by ${sortKey}${reranked ? " (reranked)" : ""}`) : null,
+          reranked: params.rerank ? reranked : undefined,
+          rerank_note: reranked && (args.page ?? 1) === 1 ? RERANK_NOTE : undefined,
           ...queryEcho(data),
           ...pagingInfo(data.meta, results.length),
           profile: audit?.summary,
