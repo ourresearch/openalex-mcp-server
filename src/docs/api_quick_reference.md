@@ -41,6 +41,28 @@ content.openalex.org/works/{id}.pdf - Download PDFs ($0.01 each)
 /text/keywords?title=...&abstract=... - OpenAlex keywords (and /text/topics) for any text; use them to pick keywords.id filters ($0.01 each)
 ```
 
+Collections: the user's named lists of IDs, usable as a filter value (the user's own personal key, no credits; see [Collections](/api/collections/)):
+
+```
+POST   /collections                         {"display_name", "entity_type": "works", "member_ids": ["W123", ...]}
+GET    /collections                         the user's own; ?member_ids=W1,W2 finds which hold them
+PATCH  /collections/{id}                    {"access": "shared_by_link"} (or display_name, description)
+POST   /collections/{id}/members            {"member_ids": [...]}
+DELETE /collections/{id}/members?member_ids=W1,W2
+GET    /works?filter=collection:col_xxx     works in a works collection; authorships.author.id:col_xxx etc. for other types
+```
+
+Email alerts for new works (the user's own personal key, no credits; see [Alerts](/api/alerts/)):
+
+```
+POST   /saved-searches        {"name", "url": "https://api.openalex.org/works?filter=...", "alert": {"frequency": "weekly"}}
+GET    /saved-searches?has_alert=true
+PATCH  /saved-searches/{id}   {"alert": {"frequency": "monthly"}} or {"alert": null}
+DELETE /saved-searches/{id}
+```
+
+Errors on both are `{"error", "code", "message"}`; branch on `code`.
+
 ## Critical: Two-Step ID Lookup
 
 > **Warning:**
