@@ -17,7 +17,7 @@ import {
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 type Mode = "keyword" | "semantic" | "exact";
-type SearchIn = "title_and_abstract" | "fulltext" | "title";
+type SearchIn = "title_abstract_keywords" | "title_and_abstract" | "fulltext" | "title";
 
 export interface ExpertDeps {
   client: OpenAlexClient;
@@ -147,7 +147,7 @@ export function registerExpertTools(server: McpServer, deps: ExpertDeps) {
             basis = `the authors of the ${sample.length} most semantically relevant works only (OpenAlex cannot aggregate semantic search over the full corpus)`;
             notes.push("Semantic mode sees only the top 50 works, so matching_works are partial and people outside those works are missed. For a census, rerun in keyword mode with a Boolean query built from this description.");
           } else {
-            const sp = searchParams(query, mode, (args.search_in as SearchIn) ?? "title_and_abstract");
+            const sp = searchParams(query, mode, (args.search_in as SearchIn) ?? "title_abstract_keywords");
             const extra = [...sp.filters];
             if (country) extra.push(`authorships.institutions.country_code:${country}`);
             const filter = buildWorkFilter(filterArgs, extra);

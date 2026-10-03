@@ -39,7 +39,7 @@ async function pool<T, R>(items: T[], n: number, fn: (x: T) => Promise<R>): Prom
   return out;
 }
 
-export const KEYWORD_RECIPE = `Recipe for "do a thorough search", "find everything on X", "build a systematic search" (keyword-aware; use it whenever the user wants recall, not just a few good papers):
+export const KEYWORD_RECIPE = `Recipe for "do a thorough search", "find everything on X", "build a systematic search" (keyword-aware; use it whenever the user wants recall, not just a few good papers). search_works already matches the keywords a phrase in the query names; this recipe adds keywords chosen by meaning (other wordings the query doesn't contain) and measures what each part adds:
 1. Split the topic into its facets, the parts that must all hold (e.g. "microplastics" and "human health"). For each facet write the phrase plus the synonyms, spellings and abbreviations a careful searcher would try: phrases that mean the facet, not single generic words (human, patients, blood) that appear in almost any abstract.
 2. find_keywords(description=<the user's topic in a sentence>, phrases=<each facet's main phrase and a synonym or two>). It returns OpenAlex keywords with how many works carry each and their most-cited titles.
 3. For each facet keep the keywords that mean that facet (read the top titles; drop broader or different-sense ones). Every facet needs its own keyword: a keyword for only one facet, OR'd in, pulls in that whole field. A facet with no fitting keyword stays text-only.

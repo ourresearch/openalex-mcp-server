@@ -42,7 +42,7 @@ export const SERVER_VERSION = "0.5.0";
 const INSTRUCTIONS_BASE = `OpenAlex is a free, open index of the world's scholarly research: 250M+ works (papers, books, datasets, preprints) with citations, about 100 million author profiles, and every journal, institution, funder and topic they connect to. Data is CC0.
 
 Tools:
-- search_works: find papers. Either fill the structured parameters (query + filters) or pass an OQL query for anything complex. preview=true returns just the count and a sample so a query can be tuned cheaply before running it.
+- search_works: find papers. Either fill the structured parameters (query + filters) or pass an OQL query for anything complex. By default a query matches titles, abstracts and the keywords its phrases name. preview=true returns just the count and a sample so a query can be tuned cheaply before running it.
 - get_work: full record for one paper by OpenAlex ID, DOI, PMID or PMCID. Free.
 - resolve_references: check a list of citations (DOIs, PMIDs, or free-text references) against OpenAlex; reports whether each exists and what it matched. Use it to verify bibliographies.
 - list_citations: papers citing a work, the works it references, or related works.
@@ -117,7 +117,7 @@ const fail = (message: string): ToolResult => ({
   isError: true,
 });
 
-const SEARCH_IN = ["title_and_abstract", "fulltext", "title"] as const;
+const SEARCH_IN = ["title_abstract_keywords", "title_and_abstract", "fulltext", "title"] as const;
 type SearchIn = (typeof SEARCH_IN)[number];
 type Mode = "keyword" | "semantic" | "exact";
 
@@ -133,14 +133,16 @@ function searchParams(query: string | undefined, mode: Mode, searchIn: SearchIn)
   } else {
     // Commas delimit filters in the OpenAlex filter syntax, so they can't appear inside a value.
     const q = query.replace(/,/g, " ").replace(/\s+/g, " ").trim();
-    const field = searchIn === "title" ? "title.search" : "title_and_abstract.search";
+    const field = searchIn === "title" ? "title.search"
+      : searchIn === "title_and_abstract" ? "title_and_abstract.search"
+      : "title_abstract_keywords.search";
     filters.push(`${field}${mode === "exact" ? ".exact" : ""}:${q}`);
   }
   return { filters, params };
 }
 
 const searchInSchema = z.enum(SEARCH_IN).optional().describe(
-  "Where keyword/exact queries match. title_and_abstract (default) is precise and best for topic searches; fulltext also matches the body text of ~100M works (broader, more noise; large reviews that merely mention a term will rank high); title matches titles only. Ignored for semantic mode."
+  "Where keyword/exact queries match. title_abstract_keywords (default, what openalex.org searches) matches title and abstract text, and also works tagged with a keyword that a phrase in the query names (catches other wordings, other languages and works with no abstract; every other word must still be in the text); title_and_abstract matches the text only; fulltext also matches the body text of ~100M works, plus keywords (broader, more noise; large reviews that merely mention a term will rank high); title matches titles only. Ignored for semantic mode."
 );
 const modeSchema = z.enum(["keyword", "semantic", "exact"]).optional().describe("Search mode. Default keyword.");
 
@@ -245,6 +247,7 @@ export function createServer(ctx: ServerContext): McpServer {
       description:
         "Search OpenAlex for scholarly works (papers, preprints, books, datasets). " +
         "mode=\"keyword\" (default) supports Boolean syntax: AND, OR, NOT, \"quoted phrases\", parentheses. " +
+        "By default it searches titles, abstracts and keywords: a phrase in the query that names an OpenAlex keyword also matches works carrying that keyword (search_in to change). " +
         "mode=\"semantic\" matches by meaning and is best for descriptive or long queries (up to 2,000 characters; max 50 results; no min_citations/countries filters). " +
         "mode=\"exact\" matches words without stemming. " +
         "Omit query to list works by filters alone (e.g. everything by an author, institution or funder). " +
@@ -253,7 +256,7 @@ export function createServer(ctx: ServerContext): McpServer {
         "Every response includes the canonical OQL and a reproduce_url. " +
         "Returns compact records: title, year, authors (first 5), venue, citations, FWCI, open-access link, primary topic, truncated abstract. Use get_work for a full record.",
       inputSchema: {
-        oql: z.string().max(20000).optional().describe("An OQL query, e.g. works where title/abstract has ((vaping or \"vape*\" or \"electronic cigarette*\") and (youth or \"adolescen*\")) and year >= (2018). A bare where-clause is accepted. Mutually exclusive with query and the structured filters."),
+        oql: z.string().max(20000).optional().describe("An OQL query, e.g. works where title/abstract/keywords has ((vaping or \"vape*\" or \"electronic cigarette*\") and (youth or \"adolescen*\")) and year >= (2018). A bare where-clause is accepted. Mutually exclusive with query and the structured filters."),
         preview: z.boolean().optional().describe("Return only total_results, canonical OQL and a sample of preview_limit works (no abstracts). Use while tuning a query."),
         preview_limit: z.number().int().min(1).max(25).optional().describe("Sample size for preview. Default 10."),
         preview_sample: z.enum(["top", "random"]).optional().describe("Preview sample: top = highest-ranked (default); random = a random draw from the whole result set, better for judging precision."),
@@ -353,7 +356,7 @@ export function createServer(ctx: ServerContext): McpServer {
         const query = args.query?.trim();
         if (!query && mode === "semantic") return fail("Semantic search needs a query.");
         if (mode === "semantic") assertSemanticCompatible(args);
-        const sp = searchParams(query, mode, args.search_in ?? "title_and_abstract");
+        const sp = searchParams(query, mode, args.search_in ?? "title_abstract_keywords");
         const filter = buildWorkFilter({ ...args, include_retracted: includeRetracted }, sp.filters);
         if (!query && !filter) return fail("Provide a query, an oql query, or at least one filter.");
         const sortKey = args.sort ?? (query ? "relevance" : "cited_by_count");
@@ -384,7 +387,7 @@ export function createServer(ctx: ServerContext): McpServer {
           profile: audit?.summary,
           query: query ?? null,
           mode: query ? mode : null,
-          search_in: query && mode !== "semantic" ? args.search_in ?? "title_and_abstract" : null,
+          search_in: query && mode !== "semantic" ? args.search_in ?? "title_abstract_keywords" : null,
           filter: filter ?? null,
           retracted_works: retractedNote(includeRetracted),
           sort: previewRandom ? null : sort,
@@ -729,7 +732,7 @@ export function createServer(ctx: ServerContext): McpServer {
             total_works: data.results.length, groups_returned: groups.length, groups,
           }));
         }
-        const sp = searchParams(query, mode, args.search_in ?? "title_and_abstract");
+        const sp = searchParams(query, mode, args.search_in ?? "title_abstract_keywords");
         const filter = buildWorkFilter(args, sp.filters);
         const data = await client.get<ListResponse>("/works", { ...sp.params, filter, group_by: field, per_page: limit });
         const groups = shapeGroups(data);
@@ -765,7 +768,7 @@ export function createServer(ctx: ServerContext): McpServer {
     async (args) =>
       run("analyze_works", async () => {
         const query = args.query?.trim();
-        const sp = searchParams(query, "keyword", args.search_in ?? "title_and_abstract");
+        const sp = searchParams(query, "keyword", args.search_in ?? "title_abstract_keywords");
         const filter = buildWorkFilter(args, sp.filters);
         if (!query && !filter) return fail("Provide a query or at least one filter.");
         const want = new Set<Section>(args.sections?.length ? args.sections : [...SECTIONS]);
