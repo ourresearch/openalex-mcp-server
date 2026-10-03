@@ -41,11 +41,12 @@ content.openalex.org/works/{id}.pdf - Download PDFs ($0.01 each)
 /text/keywords?title=...&abstract=... - OpenAlex keywords (and /text/topics) for any text; use them to pick keywords.id filters ($0.01 each)
 ```
 
-Collections: the user's named lists of IDs, usable as a filter value (the user's own personal key, no credits; see [Collections](/api/collections/)):
+Collections: the user's named lists of entities of any one type, usable as a filter value (the user's own personal key, no credits; see [Collections](/api/collections/) and [recipes](/how-to/collections/)). A collection's `id` is `https://openalex.org/collections/col_xxx`; the short `col_xxx` works anywhere:
 
 ```
-POST   /collections                         {"display_name", "entity_type": "works", "member_ids": ["W123", ...]}
-GET    /collections                         the user's own; ?member_ids=W1,W2 finds which hold them
+POST   /collections                         {"display_name", "entity_type": "works", "member_ids": ["W123", ...]} (OpenAlex IDs only)
+GET    /collections                         the user's own; filter=entity_type:sources, search=, sort=updated_date:desc, select=, cursor=*
+GET    /collections?member_ids=W1,W2        which of the user's collections hold them
 PATCH  /collections/{id}                    {"access": "shared_by_link"} (or display_name, description)
 POST   /collections/{id}/members            {"member_ids": [...]}
 DELETE /collections/{id}/members?member_ids=W1,W2
