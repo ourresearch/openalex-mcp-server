@@ -39,7 +39,9 @@ export class OpenAlexError extends Error {
     public readonly status: number,
     public readonly retryAfterSeconds?: number,
     /** Worth one automatic retry. */
-    public readonly transient = false
+    public readonly transient = false,
+    /** The API's JSON error body, when it sent one. */
+    public readonly body?: any
   ) {
     super(message);
     this.name = "OpenAlexError";
@@ -111,6 +113,20 @@ export class OpenAlexClient {
     }
   }
 
+  /**
+   * The free OQL check (GET /query/oql/<q>, #1533): parse, canonical text, validation, and for queries the
+   * new executor runs, a `check` block with limits, time estimate and price. A refused query comes back as
+   * HTTP 400 with the same body, so it is returned here rather than thrown.
+   */
+  async checkOql<T = any>(oql: string): Promise<T> {
+    try {
+      return await this.getOnce<T>("/query/oql/" + encodeURIComponent(oql));
+    } catch (e) {
+      if (e instanceof OpenAlexError && e.status === 400 && e.body && typeof e.body === "object") return e.body as T;
+      throw e;
+    }
+  }
+
   private async getOnce<T = any>(path: string, params: Params = {}): Promise<T> {
     return this.request<T>(this.buildUrl(path, params), { method: "GET" });
   }
@@ -177,9 +193,11 @@ export class OpenAlexClient {
           const where = typeof e.position === "number" ? ` (at character ${e.position})` : "";
           return `${e.message}${where}`;
         });
-        throw new OpenAlexError(`Query is not valid OQL${lines.length > 1 ? ":" : ":"} ${lines.join(" | ")}`, 400);
+        throw new OpenAlexError(`Query is not valid OQL${lines.length > 1 ? ":" : ":"} ${lines.join(" | ")}`, 400, undefined, false, body);
       }
-      throw new OpenAlexError(`OpenAlex rejected the query: ${trimFieldList(apiMessage ?? "bad request")}`, 400);
+      // The pipeline engine refuses with {error, message, fix} (too many groups, too slow; #1530).
+      const fix = typeof body?.fix === "string" && body.fix ? ` Fix: ${body.fix}` : "";
+      throw new OpenAlexError(`OpenAlex rejected the query: ${trimFieldList(apiMessage ?? "bad request")}${fix}`, 400, undefined, false, body);
     }
     if (res.status === 401 || res.status === 403) {
       if (!this.unauthorizedFired) {
