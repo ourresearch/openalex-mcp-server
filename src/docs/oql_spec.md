@@ -248,7 +248,7 @@ works where institution is (not I33213144 and not I97018004)
 - **Search values are the exception:** for a `has ( … )`
   search group, a **maximal run of bare connective-free words is ONE value node**
   (stemmed, adjacency-boosted), not a distributed AND of per-word leaves —
-  `title/abstract has (mental health)` is a single
+  `title-abstract has (mental health)` is a single
   `{title_and_abstract.search: "mental health"}` leaf. The engine adjacency-boosts
   the whole run (`match_phrase`), so splitting it would silently change ranking;
   recall is unaffected (cross-field AND). Explicit `and`/`or`/`not` still build
@@ -398,7 +398,8 @@ works where title has FOO and (bar or baz)             ✓ (any case accepted on
 - **`&` is an accepted input synonym for `and`** (`a & b` ≡ `a and b`, in both the
   clause body and inside a `has ( … )` search group). It is **input-only**: the
   canonical render always spells out `and`, never `&`. (Mirrors the long-standing
-  `title & abstract` field-name spelling, which canonicalizes to `title/abstract`.)
+  `title & abstract` field-name spelling, which canonicalizes to `title-abstract`; so do
+  `title/abstract` and `title/abstract/keywords`, the canonical words before 2026-10-03.)
 - **Mixed and/or at one grouping level resolves by the standard precedence
   `NOT > AND > OR`** — it is **not** an error. `AND` binds tighter than
   `OR`, so `a and b or c` = `(a and b) or c` and `a or b and c` = `a or (b and c)`.
@@ -530,7 +531,7 @@ vs semantic) and **inline value micro-syntax** (phrase / proximity / wildcard); 
 
 | Axis | OQL surface | OQO encoding |
 |---|---|---|
-| field scope | the field name (`title`, `title/abstract`, `title/abstract/keywords`, `abstract`, `full text`, `raw affiliation`, `byline`) | column prefix (`display_name.search`, `title_and_abstract.search`, `title_abstract_keywords.search`, `fulltext.search`, …) |
+| field scope | the field name (`title`, `title-abstract`, `title-abstract-keywords`, `abstract`, `full text`, `raw affiliation`, `byline`) | column prefix (`display_name.search`, `title_and_abstract.search`, `title_abstract_keywords.search`, `fulltext.search`, …) |
 | stemming | **default ON**; quotes turn it OFF | column suffix `.search` (stemmed) vs `.search.exact` |
 | stemmed phrase | `stemmed "…"` | `.search` with a quoted value |
 | semantic | `is similar to ("…")` | column suffix `.search.semantic` (2-phase) |
@@ -715,8 +716,11 @@ model clean for the editor and downstream tooling.
 - **OQO:** `operator: "in collection"`, `value: <col_id>`, on a leaf. One collection per
   clause; union several via `or` clauses.
 - **Same-type** (the Collection is of the queried entity, e.g. works on `/works`): the subject
-  is the entity itself and the OQO uses `column_id: collection`, mirroring the dedicated
-  `filter=collection:<col_id>` API param.
+  is the entity itself, named by its singular display name (`works where work is in
+  collection (col_x)`, `locations where location is in collection (col_x)`, `authors where
+  author is in collection (col_x)`), and the OQO uses `column_id: collection`, mirroring the
+  dedicated `filter=collection:<col_id>` API param. `work is in collection` is accepted input
+  on every entity.
 - **Cross-type** (the Collection is of a *referenced* entity, e.g. a set of authors/countries):
   the OQO keeps the referenced entity's `column_id` (e.g. `authorships.countries`) and renders
   to the bare `filter=<field>:<col_id>` URL surface. `col_…` ids are always preserved verbatim

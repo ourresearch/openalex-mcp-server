@@ -26,6 +26,6 @@ await call({ query: "CRISPR off-target", institution_ids: ["I97018004"], from_ye
 await call({ query: "Off-target effects of CRISPR-Cas9 genome editing and methods to detect and reduce them.", mode: "semantic", limit: 5 });
 await call({ query: "CRISPR off-target", from_year: 2021, exclude_coauthors_of: ["A5067184382"], exclude_institution_ids: ["I95457486"], limit: 5, sort: "h_index" });
 await call({ topic_ids: ["T10102"], country: "CA", limit: 5 });
-await call({ oql: 'works where title/abstract has ((vaping or "e-cigarette*") and "adolescen*") and year >= (2018)', limit: 5 });
+await call({ oql: 'works where title-abstract has ((vaping or "e-cigarette*") and "adolescen*") and year >= (2018)', limit: 5 });
 await call({ oql: "works where year is (2020)", query: "x" });
 await client.close();

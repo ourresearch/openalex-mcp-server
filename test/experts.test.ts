@@ -66,7 +66,7 @@ describe("experts helpers: scope, topics, oql", () => {
     expect(topicWorks(author, new Set())).toBeNull();
   });
   it("extracts a where-clause and refuses trailing clauses", () => {
-    expect(oqlWhereClause('works where title/abstract has (x) and year >= (2020)')).toEqual({ clause: "title/abstract has (x) and year >= (2020)" });
+    expect(oqlWhereClause('works where title-abstract has (x) and year >= (2020)')).toEqual({ clause: "title-abstract has (x) and year >= (2020)" });
     expect(oqlWhereClause("works where title has (x) group by author")).toHaveProperty("error");
     expect(oqlWhereClause("authors where name has (x)")).toHaveProperty("error");
     expect(oqlWithYearFloor("title has (x) or title has (y)", 2024)).toBe("works where (title has (x) or title has (y)) and year >= (2024)");

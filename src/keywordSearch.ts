@@ -2,7 +2,7 @@
  * Keyword-aware systematic search (oxjob #1469). Pure helpers, unit-tested.
  *
  * A topic is split into facets ("microplastics", "human health"). Each facet matches a work when its
- * text matches over title, abstract and the keywords the text itself names (the API's title/abstract/keywords
+ * text matches over title, abstract and the keywords the text itself names (the API's title-abstract-keywords
  * search, oxjob #1521) OR the work carries one of the keywords chosen for the facet; the facets are ANDed.
  * Keywords only ever widen a facet's text search, never replace it (about 11% of works have no keywords),
  * and every facet needs its own keyword: OR'ing a keyword for just one facet pulls in that whole field
@@ -11,7 +11,7 @@
 
 export interface Facet {
   label?: string;
-  /** Inside of `title/abstract/keywords has (...)`: synonyms joined with or, "quoted phrases", "wildcard*" quoted. */
+  /** Inside of `title-abstract-keywords has (...)`: synonyms joined with or, "quoted phrases", "wildcard*" quoted. */
   text?: string;
   /** Keyword ids (slugs like human-health, or https://openalex.org/keywords/... URLs). */
   keyword_ids?: string[];
@@ -57,7 +57,7 @@ export function cleanFacets(facets: Facet[]): Array<{ label: string; text: strin
 
 type CleanFacet = ReturnType<typeof cleanFacets>[number];
 
-export const textClause = (f: CleanFacet) => (f.text ? `title/abstract/keywords has (${f.text})` : null);
+export const textClause = (f: CleanFacet) => (f.text ? `title-abstract-keywords has (${f.text})` : null);
 export const keywordClause = (f: CleanFacet) => (f.keywords.length ? `keyword is (${f.keywords.join(" or ")})` : null);
 
 /** The facet's full clause: text or keyword, whichever it has. */

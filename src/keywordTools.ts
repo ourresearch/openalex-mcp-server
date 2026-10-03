@@ -131,7 +131,7 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
   // -------------------------------------------------------------------------
   const facetSchema = z.object({
     label: z.string().max(100).optional().describe("Short name for the facet, e.g. \"microplastics\"."),
-    text: z.string().max(2000).optional().describe("Search text for the facet, matched over title, abstract and the keywords it names: OQL text inside `title/abstract/keywords has (…)`. Synonyms joined with or, \"quoted phrases\", wildcards only inside quotes, e.g. microplastic or microplastics or \"nanoplastic*\"."),
+    text: z.string().max(2000).optional().describe("Search text for the facet, matched over title, abstract and the keywords it names: OQL text inside `title-abstract-keywords has (…)`. Synonyms joined with or, \"quoted phrases\", wildcards only inside quotes, e.g. microplastic or microplastics or \"nanoplastic*\"."),
     keyword_ids: z.array(z.string().max(200)).max(15).optional().describe("Keyword ids from find_keywords that mean this facet, e.g. [\"microplastics\"]. Any of them matches."),
   });
 

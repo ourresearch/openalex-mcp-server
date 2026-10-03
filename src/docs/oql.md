@@ -46,7 +46,7 @@ works where institution is (I136199984) or funder is (F4320332161 [National Inst
 
 ## Searching
 
-Search a text field with **`has`**. The fields: `title`, `abstract`, `title/abstract` (both at once), `title/abstract/keywords` (title and abstract, plus works tagged with a [keyword](/api/searching/#keywords-in-search) a phrase in your search names; openalex.org's default), `full text` (title, abstract and full text, plus keywords), `raw affiliation`, `byline`.
+Search a text field with **`has`**. The fields: `title`, `abstract`, `title-abstract` (both at once), `title-abstract-keywords` (title and abstract, plus works tagged with a [keyword](/api/searching/#keywords-in-search) a phrase in your search names; openalex.org's default), `full text` (title, abstract and full text, plus keywords), `raw affiliation`, `byline`. (Until October 2026 `title-abstract` and `title-abstract-keywords` were spelled `title/abstract` and `title/abstract/keywords`; those spellings still work and echo back with hyphens.)
 
 The one rule to internalize: **bare words are stemmed, quotes mean exact.** `title has (cancer)` also matches *cancers* and *cancerous* — the everyday default, good recall. `title has ("cat")` matches only *cat*, never *cats*.
 
@@ -58,17 +58,17 @@ The one rule to internalize: **bare words are stemmed, quotes mean exact.** `tit
 | `works where title has (stemmed "genome editing")` | the bridge: exact-adjacent phrase that *keeps* stemming |
 | `works where title has ("psoriat*")` | wildcard — **must be quoted**; `*` = any chars, `?` = exactly one (`"wom?n"`); neither may start a word, and `*` needs at least 3 characters before it |
 | `works where title has (within 3 ("smart", "phone"))` | proximity — terms within N words, any order |
-| `works where title/abstract is similar to ("ocean acidification effects on coral reefs")` | semantic search — by meaning, not keywords |
+| `works where title-abstract is similar to ("ocean acidification effects on coral reefs")` | semantic search — by meaning, not keywords |
 
 ## Boolean logic
 
 Join filters with `and` / `or`, and group with parentheses. `and` binds tighter than `or`, so `a and b or c` means `(a and b) or c` — but the canonical form always adds the parentheses back so nothing is left to guess:
 
 ```
-works where title/abstract has ((vape or vaping) and (health or harm))
+works where title-abstract has ((vape or vaping) and (health or harm))
 
-works where (year < (2000) and title/abstract has ("global warming"))
-  or (title/abstract has ("climate change") and year > (2020))
+works where (year < (2000) and title-abstract has ("global warming"))
+  or (title-abstract has ("climate change") and year > (2020))
 ```
 
 This nesting — and OR across *different* fields (`institution is … or funder is …`) — is what the classic URL syntax can't express.

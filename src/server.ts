@@ -263,7 +263,7 @@ export function createServer(ctx: ServerContext): McpServer {
         "Every response includes the canonical OQL and a reproduce_url. " +
         "Returns compact records: title, year, authors (first 5), venue, citations, FWCI, open-access link, primary topic, truncated abstract. Use get_work for a full record.",
       inputSchema: {
-        oql: z.string().max(20000).optional().describe("An OQL query, e.g. works where title/abstract/keywords has ((vaping or \"vape*\" or \"electronic cigarette*\") and (youth or \"adolescen*\")) and year >= (2018). A bare where-clause is accepted. Mutually exclusive with query and the structured filters."),
+        oql: z.string().max(20000).optional().describe("An OQL query, e.g. works where title-abstract-keywords has ((vaping or \"vape*\" or \"electronic cigarette*\") and (youth or \"adolescen*\")) and year >= (2018). A bare where-clause is accepted. Mutually exclusive with query and the structured filters."),
         preview: z.boolean().optional().describe("Return only total_results, canonical OQL and a sample of preview_limit works (no abstracts). Use while tuning a query."),
         preview_limit: z.number().int().min(1).max(25).optional().describe("Sample size for preview. Default 10."),
         preview_sample: z.enum(["top", "random"]).optional().describe("Preview sample: top = highest-ranked (default); random = a random draw from the whole result set, better for judging precision."),

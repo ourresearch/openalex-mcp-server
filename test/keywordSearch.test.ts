@@ -17,30 +17,30 @@ describe("buildKeywordSearch", () => {
   it("ORs text and keywords within a facet and ANDs the facets", () => {
     const { queries } = buildKeywordSearch([micro, health], {});
     expect(queries.combined).toBe(
-      'works where (title/abstract/keywords has (microplastic or microplastics) or keyword is (microplastics)) and (title/abstract/keywords has ("human health") or keyword is (human-health)) and retracted is (false)'
+      'works where (title-abstract-keywords has (microplastic or microplastics) or keyword is (microplastics)) and (title-abstract-keywords has ("human health") or keyword is (human-health)) and retracted is (false)'
     );
-    expect(queries.text_only).toBe('works where title/abstract/keywords has (microplastic or microplastics) and title/abstract/keywords has ("human health") and retracted is (false)');
+    expect(queries.text_only).toBe('works where title-abstract-keywords has (microplastic or microplastics) and title-abstract-keywords has ("human health") and retracted is (false)');
   });
 
   it("puts the not-clause before the filters (after retracted is (false) the parser reads it as a second value)", () => {
     const { queries } = buildKeywordSearch([micro, health], { open_access_only: true });
-    expect(queries.added_by_keywords).toMatch(/\) and not \(title\/abstract\/keywords has \(microplastic or microplastics\) and title\/abstract\/keywords has \("human health"\)\) and open access is \(true\) and retracted is \(false\)$/);
+    expect(queries.added_by_keywords).toMatch(/\) and not \(title-abstract-keywords has \(microplastic or microplastics\) and title-abstract-keywords has \("human health"\)\) and open access is \(true\) and retracted is \(false\)$/);
   });
 
   it("per facet: text, keyword and keyword-not-text", () => {
     const { perFacet } = buildKeywordSearch([micro], { from_year: 2015, to_year: 2020 });
     expect(perFacet[0]).toEqual({
       label: "microplastics",
-      text: "works where title/abstract/keywords has (microplastic or microplastics) and year >= (2015) and year <= (2020) and retracted is (false)",
+      text: "works where title-abstract-keywords has (microplastic or microplastics) and year >= (2015) and year <= (2020) and retracted is (false)",
       keyword: "works where keyword is (microplastics) and year >= (2015) and year <= (2020) and retracted is (false)",
-      keyword_not_text: "works where keyword is (microplastics) and not (title/abstract/keywords has (microplastic or microplastics)) and year >= (2015) and year <= (2020) and retracted is (false)",
+      keyword_not_text: "works where keyword is (microplastics) and not (title-abstract-keywords has (microplastic or microplastics)) and year >= (2015) and year <= (2020) and retracted is (false)",
       others: null,
     });
   });
 
   it("a text-only facet stays text-only and is flagged", () => {
     const r = buildKeywordSearch([micro, { text: '"human health"' }], {});
-    expect(r.queries.combined).toContain('and title/abstract/keywords has ("human health")');
+    expect(r.queries.combined).toContain('and title-abstract-keywords has ("human health")');
     expect(r.warnings.join(" ")).toMatch(/No keyword for: "human health"/);
   });
 
@@ -65,14 +65,14 @@ describe("quoteWildcards", () => {
   });
   it("is applied to facet text", () => {
     const { queries } = buildKeywordSearch([{ text: "telework*", keyword_ids: ["work–life-balance"] }], {});
-    expect(queries.combined).toBe('works where (title/abstract/keywords has ("telework*") or keyword is (work–life-balance)) and retracted is (false)');
+    expect(queries.combined).toBe('works where (title-abstract-keywords has ("telework*") or keyword is (work–life-balance)) and retracted is (false)');
   });
 });
 
 describe("others (does a facet narrow anything?)", () => {
   it("is every other facet, under the filters", () => {
     const { perFacet } = buildKeywordSearch([micro, health], { open_access_only: true });
-    expect(perFacet[0]!.others).toBe('works where (title/abstract/keywords has ("human health") or keyword is (human-health)) and open access is (true) and retracted is (false)');
+    expect(perFacet[0]!.others).toBe('works where (title-abstract-keywords has ("human health") or keyword is (human-health)) and open access is (true) and retracted is (false)');
     expect(buildKeywordSearch([micro], {}).perFacet[0]!.others).toBeNull();
   });
 });
