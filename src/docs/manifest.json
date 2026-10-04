@@ -1,15 +1,15 @@
 {
   "oql": {
     "url": "https://help.openalex.org/access/oql/",
-    "sha": "d7b032e72ee92b16",
-    "fetched_at": "2026-10-03",
-    "bytes": 7503
+    "sha": "b28064b7c9fa09ec",
+    "fetched_at": "2026-10-04",
+    "bytes": 14281
   },
   "oql_spec": {
     "url": "https://help.openalex.org/access/oql-spec/",
-    "sha": "16a3689ec41e3440",
-    "fetched_at": "2026-10-03",
-    "bytes": 61321
+    "sha": "0d9e324aeafb7a43",
+    "fetched_at": "2026-10-04",
+    "bytes": 67881
   },
   "api_quick_reference": {
     "url": "https://help.openalex.org/api/llm-quick-reference/",

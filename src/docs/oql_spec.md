@@ -55,6 +55,10 @@ This invariant is the spec's runnable contract — see [Conformance](#conformanc
 
 ## Statement shape
 
+The canonical form is the [step form](#steps-the-pipeline-language) (`get works where ...;
+then group those works by ...; then calculate ...`). The classic statement below is still
+accepted on input, and is what the [condition rules](#conditions) are written against:
+
 ```
 <entity> [ where <conditions> ] [ group by <dims> ] [ sample <n> [ seed <s> ] ]
 ```
@@ -68,12 +72,12 @@ This invariant is the spec's runnable contract — see [Conformance](#conformanc
   its own keyword — no separating punctuation. A leading `;` is still
   accepted on **input** for back-compat, but the canonical form never emits one.
 
-OQL covers exactly **filtering plus grouping**. Result-display
+OQL covers **filtering, splitting into groups, and calculating** (the step form). Result-display
 concerns — **sort order** and **column projection** — are deliberately **not** part
 of the OQL surface, and not part of the OQO either: they travel as
 sibling request params on the execute surface (`?sort=` / `?select=`), driven by
-the GUI's own controls. There is deliberately **no HAVING-style syntax** for
-filtering on group aggregates ([Out of scope](#out-of-scope)).
+the GUI's own controls. Filtering groups by their numbers is a step-form
+[group filter](#steps-the-pipeline-language) (`where count of those works > (10)`).
 
 ### Canonical formatting
 
@@ -432,6 +436,10 @@ works where title has FOO and (bar or baz)             ✓ (any case accepted on
 
 ### Negation
 
+> In the canonical [step form](#steps-the-pipeline-language), filters negate on the verb
+> (`type is not (review)`) and searches use capital `NOT`; the value-level `not` described
+> here stays accepted on input.
+
 ```
 works where title has covid and abstract has not pediatric
 ```
@@ -769,7 +777,7 @@ noun-subject cousin.)
 ## Directives
 
 ```
-works where year >= 1976 group by topic, year              (multi-dim: spec-level; the live API currently executes a single dimension)
+works where year >= 1976 group by topic, year              (canonicalizes to two splits: then group those works by topic; then group those works again by year)
 works where … stemmed "genome editing" … sample 500
 ```
 
@@ -781,6 +789,75 @@ order* and *column projection* are view concerns, not query language. They trave
 as sibling request params on the execute surface (`?sort=` / `?select=`, or POST
 body siblings), populated by the GUI's own sort/column controls — OQL and OQO
 never read or emit them. (They are additive to re-introduce in a future version.)
+
+## Steps: the pipeline language
+
+The canonical form of every query is a series of **steps** joined by `; then`, each
+starting with a verb and doing one thing:
+
+```
+get <entity> [ where <conditions> ]
+  [ ; then sample (<n>) of those <entity> [ with seed (<s>) ] ]
+  [ ; then group those <entity> [again] by <split> [ where <group filter> ] ]   ×0-3
+  [ ; then group those <entity> [again] into <split> [ where <group filter> ] ]
+  [ ; then calculate <measure> [, <measure>]* ]                               last
+```
+
+- **Start:** `get <entity> where ...` is the classic statement with the verb `get`. The
+  bare-entity start (`works where ...`) and the classic `group by` / `sample`
+  [directives](#directives) stay accepted forever and canonicalize to steps.
+- **`those <entity>`** names what the query holds (the plural entity); a different noun is
+  `OQL_WRONG_SET`. Optional on input. **`again`** is on every split after the first in the
+  canonical form; optional on input.
+- **Splits** (the OQO's `group_by`, outermost first; up to 3, `OQL_TOO_MANY_SPLITS`):
+  - `by <field>`: one group per value. A yes/no field gives `true` / `false` groups,
+    labeled `<field>` / `not <field>`. A decimal field can't split by value
+    (`OQL_DECIMAL_NEEDS_BINS`).
+  - `by <field> in (<v>, <v>, ...)`: one group per listed value, in order, empty ones
+    included; or `in (col_...)`, the members of one collection. Up to 100
+    (`OQL_LIST_TOO_LONG`).
+  - `by <search field> search in ((<search>), (<search>), ...)`: one group per portable
+    search string; up to 100, at most 5 AND/OR/NOT each (`OQL_SEARCH_TOO_COMPLEX`).
+  - `into ((<conditions>), (<conditions>), ...)`: one group per condition, in order; up
+    to 100; no empty group (the total row is the baseline).
+  - `into <number field> bins at (<e1>, <e2>, ...)` (increasing edges; integer labels
+    `0`, `1-9`, `100+`, decimal labels `under 0.5`, `0.5-1`, `2+`) or `bins of (<w>)`.
+- **Group filters** (`where` after a split): a boolean of
+  - **measure conditions** on each group's works: `<measure> [of those <entity>] <op>
+    (<number>)`, e.g. `count of those works > (10)`, `mean FWCI of those works >= (2)`;
+  - **the group's own fields** (when the groups are entities): `h-index > (20)`,
+    `last known institution is (I...)`; `that <noun> is [not] in (<ids or col_...>)`;
+    `co-author is [not] (A...)` (author groups), `collaborator is [not] (I...)`
+    (institution groups). Fields a group doesn't have: `OQL_BAD_GROUP_FILTER`.
+
+  Measures and own fields combine with `and`; an `or` mixing the two kinds is refused at
+  execution.
+- **`calculate`** is always the last step (`OQL_STEP_AFTER_CALCULATE`): `count`; `mean`,
+  `median`, `sum`, `min`, `max` of a number field (`min`/`max` also of a date); `percent`
+  of a yes/no field; `percent of those <entity>` (each group's share of its parent set);
+  after a split by entities, their own number fields (`h-index`), shown beside each group.
+  A bare works field (`calculate authors count`) is `OQL_BAD_MEASURE` with the fix
+  `mean authors count`.
+- **Walks** (`get each author of those works`) are not supported yet: `OQL_WALK_NOT_YET`.
+
+**Results.** Every grouped result has one row per group (nested groups under their
+parents) with one column per measure, plus a **total row** for the whole starting set with
+the same measures and the same later splits.
+
+**Negation and search in the canonical form.** Filters negate on the verb: `type is not
+(review)`, `institution is not (I1 or I2)`, `topic is not in (col_x)`. A search renders as
+one portable string with capital operators: `title-abstract has ((asthma OR wheeze) NOT
+(child OR pediatric))`. Lowercase connectives and value-level `not` ([Negation](#negation))
+stay accepted on input.
+
+**Layout.** A query that fits 80 columns renders on one line; otherwise each step on its
+own line, every line but the last ending in `;`, and a long group filter one condition per
+line (`  where ...` / `  and ...`).
+
+**Limits and time** (checked by the free `GET /query/oql/<q>` before anything runs): up to
+3 splits; 100 items per list; 5 operators per listed search; a nested split up to 10,000
+groups per split and 65,536 combined groups; about 10 seconds a query (refused when the
+plan is estimated over 10 s; cancelled at 15 s).
 
 ## Diagnostics
 
@@ -811,7 +888,8 @@ the [corpus](#the-case-corpus) asserts its code.
 | `OQL_UNBALANCED_PARENS` | missing `)` | add `)` |
 | `OQL_BAD_SAMPLE` / `OQL_BAD_PROXIMITY` / `OQL_SEMANTIC_NEEDS_TEXT` / `OQL_TRAILING_TOKENS` | malformed directive/clause | — |
 
-(The engine's diagnostics registry is the authoritative code list.)
+(The step form's codes are listed under [Steps](#steps-the-pipeline-language). The engine's
+diagnostics registry is the authoritative code list.)
 
 ## Attributes and values
 
@@ -904,11 +982,10 @@ entity/boolean/set cases. You can browse it in the
 
 ## Out of scope
 
-- **HAVING-style filtering on group aggregates.** OQL must not promise what the
-  engine can't execute; group ranking by an aggregate metric is roadmap, not
-  language.
-- **Multi-dimensional `group by`** is expressible in the spec but currently
-  single-dimension in the live API.
+- **Walks** from one entity to another (`get each author of those works`) are not
+  supported yet (`OQL_WALK_NOT_YET`).
+- **Sorting and column choice** are view parameters, not query language
+  (`?sort=` / `?select=`).
 - **Acronym / name resolution** and **set-references** are not query-language
   features.
 
@@ -936,7 +1013,7 @@ The grammar below is **derived from the OQL implementation** in W3C-EBNF notatio
 /* OQL (OpenAlex Query Language) v2.2 -- reference grammar (W3C-EBNF). */
 /* Derived from the implementation and machine-checked against it. */
 
-query        ::= entity ( 'where' conditions )? directive*
+query        ::= 'get'? entity ( 'where' conditions )? ( directive | step )*
 
 entity       ::= word
 
@@ -945,6 +1022,42 @@ directive    ::= groupBy | sample | ';'
 groupBy      ::= 'group' 'by' word ( ',' word )*
 
 sample       ::= 'sample' NUMBER ( 'seed' NUMBER )?
+
+/* The pipeline language. Canonical form:
+   `get works where ...; then group those works by ...; then group those works
+   again by ...; then calculate ...`. A calculation is always the last step; up to
+   three splits; `those <entity>` must name what the query holds; `again` is
+   optional on input and always rendered on every split after the first. */
+step         ::= ';'? 'then' ( split | calculation | sampleStep )
+
+split        ::= 'group' those? 'again'? ( 'by' splitBy | 'into' splitInto )
+                 ( 'where' conditions )?   /* a group filter: measureClause, the
+                                              group's own fields, thatClause */
+
+those        ::= 'those' word+
+
+splitBy      ::= field ( 'search'? 'in' '(' searchItem ( ',' searchItem )* ')'
+                       | 'in' '(' scalar ( ',' scalar )* ')'
+                       | bins )?
+
+splitInto    ::= '(' '(' conditions ')' ( ',' '(' conditions ')' )* ')'
+               | field bins
+
+searchItem   ::= '(' searchExpr ')'     /* up to 5 AND/OR/NOT; up to 100 items */
+
+bins         ::= 'bins' ( 'at' '(' NUMBER ( ',' NUMBER )* ')' | 'of' '(' NUMBER ')' )
+
+calculation  ::= 'calculate' measure ( ( ',' | 'and' ) measure )*
+
+measure      ::= 'count' ( 'of' those )?
+               | ( 'mean' | 'median' | 'sum' | 'min' | 'max' ) field ( 'of' those )?
+               | 'percent' ( 'of' those | field ( 'of' those )? )
+
+measureClause ::= measure ( '>' | '>=' | '<' | '<=' | 'is' 'not'? ) '(' NUMBER ')'
+
+thatClause   ::= 'that' word+ 'is' 'not'? ( 'in' '(' scalar ( ',' scalar )* ')' | valueGroup )
+
+sampleStep   ::= 'sample' '(' NUMBER ')' ( 'of' those )? ( 'with'? 'seed' '(' scalar ')' )?
 
 /* The `where` body is a boolean of clauses joined by infix `and`/`or`; a 2+
    body renders as the implicit-AND list `a and b`, and explicit groups use

@@ -22,26 +22,9 @@ export interface CalculateDeps {
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } as const;
 
-/** The pipeline language for models, condensed from #1530's one-page guide (work/oql_guide_rung1.md). Goes into the server instructions. */
-export const PIPELINE_GUIDE = `Calculations (calculate_works, check_oql) use OQL's pipeline form: steps joined by "; then", each doing one thing.
-- Start: get works where <conditions> (same conditions as any OQL query).
-- Split: then group those works by <field> (year, type, open access status, language, country, institution, institution type, author, source, source type, publisher, funder, topic, subfield, field, domain, keyword, SDG, license, or a yes/no field). Split again with then group those works again by <field>; up to 3 splits.
-- Split by named values: group those works by institution in (I63966007, I97018004, I136199984): one group each, in that order, empty ones included (up to 100).
-- Split by searches: group those works by title-abstract search in (("machine learning"), ("edge AI" NOT cloud)) (up to 100; at most 5 AND/OR/NOT each).
-- Split by conditions, to compare sets: group those works into ((institution is (I99464096)), (country is (BE))); periods too: into ((year >= (2016) and year <= (2019)), (year >= (2021))).
-- Bins: group those works into citation count bins at (1, 10, 100) gives 0, 1-9, 10-99, 100+; into FWCI bins of (0.5) gives equal widths. A decimal (FWCI) can only be split into bins.
-- Filter the groups with where: by author where count of those works > (10) and h-index > (20) (a calculation tests each group's works; any other field belongs to the group itself; put a count filter first or the query may be too slow); that author is not in (col_abc123); co-author is not (A5023888391) on author groups, collaborator is not (I63966007) on institution groups.
-- Calculate, always last: then calculate count, mean FWCI, median citation count, sum APC paid, min date, max date, percent open access, percent of those works (each group's share of the set it came from). After a split by entities, a field of the groups themselves sits beside each group: group those works by author; then calculate count, h-index. A field of the works always needs a calculation (mean authors count, never authors count).
-- Every grouped result has a total row for the whole starting set, with the same calculations and inner splits. Start from the widest set you want to compare against (the world, a country) and don't add an "everything else" group: the total row is the baseline.
-- Not in the language yet: sorting or top N (rows come back by count; calculate_works' sort orders a page by a column), walking to related things (each author of those works), whole queries inside in (...). To list things with their own fields (journals by 2-year mean citedness, authors by h-index), start from those things and stop: get authors where last known institution is (I136199984) and h-index > (50).
-- Values go in parentheses; entities by OpenAlex ID (resolve names with search_entities first), countries by two-letter code, types by slug. Write every value out, no "...".
-- Limits: 3 splits; 100 items in a list, search list or condition split; 10,000 groups per nested split (one split pages through any number); about 10 seconds a query. A query over a limit fails with a message naming the limit and the fix.
-- check_oql is free: check a new calculation first, fix it from the message, then run it with calculate_works.
-Examples:
-- MIT's papers by open access status: get works where institution is (I63966007); then group those works by open access status; then calculate count, mean FWCI
-- KU Leuven and Belgium against the world since 2016, by SDG: get works where year >= (2016); then group those works into ((institution is (I99464096)), (country is (BE))); then group those works again by SDG; then calculate count, percent of those works
-- Kelp authors with more than 10 kelp papers and an h-index above 20: get works where title-abstract has (kelp); then group those works by author where count of those works > (10) and h-index > (20); then calculate count, mean FWCI
-- CRISPR's headline numbers: get works where topic is (T10878); then calculate count, mean FWCI, percent open access, median citation count`;
+/** Pointer to the pipeline sections of the OQL reference (help.openalex.org/access/oql/, appended to the server instructions), plus what only these tools add. */
+export const PIPELINE_GUIDE = `Calculations: write the pipeline form from the OQL reference below (The shape, Splitting into groups, Calculating) and run it with calculate_works. Check a new query with check_oql first (free: each limit with its fix, the time, the price), fix it from the message, then run it. Resolve names to IDs with search_entities first.
+Sorting and top N are not in OQL: calculate_works' sort orders a page by a column. To list authors, sources or institutions by their own fields (h-index, 2-year mean citedness), start from them and stop: get authors where last known institution is (I136199984) and h-index > (50).`;
 
 const LIST_KINDS: EntityKind[] = ["authors", "institutions", "sources", "topics", "funders", "publishers"];
 
@@ -56,7 +39,7 @@ export function registerCalculateTools(server: McpServer, deps: CalculateDeps): 
         "Run an OQL calculation and get the calculated groups: split a set of works by one to three fields, named values, searches, conditions or bins, and calculate count, mean/median/sum/min/max of a number, percent of a yes/no field, or each group's share. " +
         "Write it as a pipeline: get works where <conditions>; then group those works by <field>; then calculate <measures>, e.g. " +
         "get works where topic is (T10878); then group those works by institution in (I63966007, I97018004, I136199984); then calculate count, mean FWCI, percent open access. " +
-        "The full pipeline guide is in the server instructions. Check a new query with check_oql first (free: limits with fixes, time estimate, price). " +
+        "The full guide is the OQL reference in the server instructions (read_docs topic oql). Check a new query with check_oql first (free: limits with fixes, time estimate, price). " +
         "Returns one row per group, keyed by the OQL words of each calculation (count, mean FWCI, ...), nested splits under groups, the total row for the whole starting set, groups_count and next_page, the price, the canonical OQL and a reproduce_url. " +
         "A query with no split or calculation gets then calculate count; a query that starts from authors, institutions, sources, topics, funders or publishers with no split lists them with their own fields. Retracted works are left out unless include_retracted=true or the query says otherwise.",
       inputSchema: {
