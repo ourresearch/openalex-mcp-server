@@ -38,6 +38,12 @@ await client.connect(transport);
 const { tools } = await client.listTools();
 console.log(`connected to ${url}; ${tools.length} tools`);
 let failures = 0;
+// The OQL overview (help.openalex.org/access/oql/, the pipeline guide) rides in the instructions, with the calculations pointer.
+const instructions = client.getInstructions() ?? "";
+for (const must of ["## Splitting into groups", "## Calculating", "Calculations: write the pipeline form"]) {
+  if (!instructions.includes(must)) { console.log(`FAIL instructions: missing "${must}"`); failures++; }
+}
+console.log(`instructions: ${instructions.length} chars`);
 for (const t of tools) {
   const problems: string[] = [];
   if (!t.title && !t.annotations?.title) problems.push("missing title");
