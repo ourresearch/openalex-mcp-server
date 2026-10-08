@@ -1,7 +1,7 @@
 /**
  * OQL calculations (oxjob #1537, on #1530's pipeline engine): calculate_works runs a pipeline query
  * (`get works where ...; then group those works by ...; then calculate ...`) and returns the calculated groups,
- * the total row and the price; check_oql runs the API's free check (validity, every limit with its fix,
+ * the summary and the price; check_oql runs the API's free check (validity, every limit with its fix,
  * the time estimate, the price).
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -40,7 +40,7 @@ export function registerCalculateTools(server: McpServer, deps: CalculateDeps): 
         "Write it as a pipeline: get works where <conditions>; then group those works by <field>; then calculate <measures>, e.g. " +
         "get works where topic is (T10878); then group those works by institution in (I63966007, I97018004, I136199984); then calculate count, mean FWCI, percent open access. " +
         "The full guide is the OQL reference in the server instructions (read_docs topic oql). Check a new query with check_oql first (free: limits with fixes, time estimate, price). " +
-        "Returns one row per group, keyed by the OQL words of each calculation (count, mean FWCI, ...), nested splits under groups, the total row for the whole starting set, groups_count and next_page, the price, the canonical OQL and a reproduce_url. " +
+        "Returns one row per group, keyed by the OQL words of each calculation (count, mean FWCI, ...), nested splits under groups, the summary (summary.all for the whole starting set; with two or more splits, summary.splits with each split's groups on their own, computed from the works: read these, never sum or average group rows), groups_count and next_page, the price, the canonical OQL and a reproduce_url. " +
         "A query with no split or calculation gets then calculate count; a query that starts from authors, institutions, sources, topics, funders or publishers with no split lists them with their own fields. Retracted works are left out unless include_retracted=true or the query says otherwise.",
       inputSchema: {
         oql: z.string().max(20000).describe("A pipeline OQL query, e.g. get works where country is (KE) and year >= (2015); then group those works by year; then calculate percent open access."),

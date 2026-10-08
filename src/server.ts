@@ -53,7 +53,7 @@ Tools:
 - get_entity: full profile for an author, institution, source, topic, funder or publisher. Free.
 - group_works: count works along one dimension (author, institution, country, source, year, topic, type, OA status…). Answers "who publishes most on X", "how has X grown", "which journals".
 - analyze_works: one-call profile of any set of works (an institution's output, a funder's portfolio, a topic): totals, open-access share, top-cited share, trend by year, and top fields, topics, institutions, countries, sources, funders and authors.
-- calculate_works: an OQL calculation (get works where ...; then group those works by ...; then calculate ...): split a set of works by up to three fields, named values, searches, conditions or bins, and calculate counts, means, medians, sums, percents and shares, with a total row for the whole set. Answers "compare MIT, Stanford and Harvard on CRISPR output and impact", "open-access share by year for Kenya", "authors with more than 10 kelp papers and an h-index above 20".
+- calculate_works: an OQL calculation (get works where ...; then group those works by ...; then calculate ...): split a set of works by up to three fields, named values, searches, conditions or bins, and calculate counts, means, medians, sums, percents and shares, with a summary for the whole set and each split on its own. Answers "compare MIT, Stanford and Harvard on CRISPR output and impact", "open-access share by year for Kenya", "authors with more than 10 kelp papers and an h-index above 20".
 - check_oql: free check of an OQL query before running it: valid or not, every limit with its fix, the time estimate and the price.
 {{KEYWORD_TOOLS}}
 {{ALERT_TOOLS}}
@@ -743,7 +743,7 @@ export function createServer(ctx: ServerContext): McpServer {
             q = oqlAddGroupBy(q, dim);
           }
           const data = await client.post<ListResponse>({ oql: q, per_page: limit });
-          // A calculation (the pipeline engine answers with meta.measures) keeps its columns and total row (#1537).
+          // A calculation (the pipeline engine answers with meta.measures) keeps its columns and summary (#1537, #1550).
           if ((data.meta as any)?.measures) {
             const out = shapeCalculation(data);
             if (args.group_by === "year") out.groups?.sort((a: any, b: any) => Number(a.id) - Number(b.id));

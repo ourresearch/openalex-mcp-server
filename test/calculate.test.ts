@@ -15,7 +15,7 @@ const CRISPR = {
     cost: { credits: 1, usd: 0.0001, steps: [{ what: "the starting set", credits: 1 }] },
     x_query: { oql: "get works where topic is (T10878);\nthen group those works by institution in (I63966007, I97018004, I136199984);\nthen calculate count, mean FWCI, percent open access", url: null },
   },
-  total: { key: "total", key_display_name: "all works", count: 94788, mean_fwci: 1.849, percent_open_access_is_oa: 56.3753 },
+  summary: { all: { key: "all", key_display_name: "all works", count: 94788, mean_fwci: 1.849, percent_open_access_is_oa: 56.3753 } },
   group_by: [
     { key: "https://openalex.org/I63966007", key_display_name: "Massachusetts Institute of Technology", count: 1140, mean_fwci: 10.5247, percent_open_access_is_oa: 79.2982 },
     { key: "https://openalex.org/I97018004", key_display_name: "Stanford University", count: 1253, mean_fwci: 4.0065, percent_open_access_is_oa: 75.419 },
@@ -28,32 +28,41 @@ const NESTED = {
   meta: {
     count: 125895, page: 1, groups_count: 2, more_groups: false,
     measures: [{ key: "count", oql: "count" }, { key: "percent_of_those", oql: "percent of those works" }],
+    splits: [{ oql: "condition", kind: "conditions" }, { oql: "type", kind: "column" }],
     cost: { credits: 1, usd: 0.0001, steps: [] },
     x_query: { oql: "get works where year >= (2016) and country is (KE);\nthen group those works into ((institution is (I99464096)), (country is (BE)));\nthen group those works again by type;\nthen calculate count, percent of those works" },
   },
-  total: { key: "total", key_display_name: "all works", count: 125895, groups: [{ key: "https://openalex.org/types/article", key_display_name: "article", count: 94975, percent_of_those: 75.4399 }] },
+  summary: {
+    all: { key: "all", key_display_name: "all works", count: 125895 },
+    splits: [
+      { groups: [{ key: "institution is (I99464096)", key_display_name: "institution is (I99464096)", count: 382, percent_of_those: 0.3034 }], more_groups: false },
+      { groups: [{ key: "https://openalex.org/types/article", key_display_name: "article", count: 94975, percent_of_those: 75.4399 }], more_groups: false },
+    ],
+  },
   group_by: [
     { key: "institution is (I99464096)", key_display_name: "institution is (I99464096)", count: 382, percent_of_those: 0.3034, groups: [{ key: "https://openalex.org/types/article", key_display_name: "article", count: 295, percent_of_those: 77.2251 }] },
   ],
 };
 
 describe("shapeCalculation (#1537)", () => {
-  it("returns one row per group keyed by the calculations' OQL words, the total row and the price", () => {
+  it("returns one row per group keyed by the calculations' OQL words, the summary and the price", () => {
     const out = shapeCalculation(CRISPR);
     expect(out.columns).toEqual(["count", "mean FWCI", "percent open access"]);
     expect(out.groups[0]).toEqual({ id: "I63966007", name: "Massachusetts Institute of Technology", count: 1140, "mean FWCI": 10.5247, "percent open access": 79.2982 });
     expect(out.groups).toHaveLength(3);
-    expect(out.total).toEqual({ name: "all works", count: 94788, "mean FWCI": 1.849, "percent open access": 56.3753 });
+    expect(out.summary).toEqual({ all: { name: "all works", count: 94788, "mean FWCI": 1.849, "percent open access": 56.3753 } });
     expect(out.price).toEqual({ credits: 1, usd: 0.0001, steps: [{ what: "the starting set", credits: 1 }] });
     expect(out.oql).toBe("get works where topic is (T10878); then group those works by institution in (I63966007, I97018004, I136199984); then calculate count, mean FWCI, percent open access");
     expect(out.reproduce_url).toMatch(/^https:\/\/api\.openalex\.org\/\?oql=get%20works/);
     expect(out.total_works).toBe(94788);
     expect(out.next_page).toBeUndefined();
   });
-  it("nests inner splits, in the groups and in the total row", () => {
+  it("nests inner splits in the groups; the summary has each split on its own, named", () => {
     const out = shapeCalculation(NESTED);
     expect(out.groups[0]).toEqual({ id: "institution is (I99464096)", count: 382, "percent of those works": 0.3034, groups: [{ id: "article", count: 295, "percent of those works": 77.2251 }] });
-    expect(out.total.groups[0]).toEqual({ id: "article", count: 94975, "percent of those works": 75.4399 });
+    expect(out.summary.all).toEqual({ name: "all works", count: 125895 });
+    expect(out.summary.splits.map((s: any) => s.split)).toEqual(["condition", "type"]);
+    expect(out.summary.splits[1].groups[0]).toEqual({ id: "article", count: 94975, "percent of those works": 75.4399 });
   });
   it("reads a classic grouped response (no measures, no total) as counts", () => {
     const out = shapeCalculation({ meta: { count: 10, page: 1, more_groups: true, cost_usd: 0.0001, x_query: { oql: "works where title has (kelp) group by year" } }, group_by: [{ key: "2020", key_display_name: "2020", count: 7 }] });

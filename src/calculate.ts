@@ -1,6 +1,6 @@
 /**
- * Shaping for OQL calculations (oxjob #1537): the API's grouped rows with their calculated columns, the total row
- * and the price (#1530's pipeline engine), and the free check's verdict. Pure, unit-tested.
+ * Shaping for OQL calculations (oxjob #1537): the API's grouped rows with their calculated columns, the summary
+ * (#1550) and the price (#1530's pipeline engine), and the free check's verdict. Pure, unit-tested.
  */
 import { compact, MAX_RESULT_CHARS } from "./shape";
 import { shortId } from "./ids";
@@ -33,7 +33,8 @@ function shapeRow(g: any, cols: Col[]): Record<string, any> {
 
 /**
  * The response of a grouped or calculated query, compactly: one row per group keyed by the OQL words of each
- * calculation, nested splits under `groups`, the total row for the whole starting set, paging and the price.
+ * calculation, nested splits under `groups`, the summary (the whole starting set, and each split's groups on their
+ * own), paging and the price.
  * `sortBy` (a column label) orders the returned rows; the API itself returns groups by count.
  */
 export function shapeCalculation(data: any, opts: { page?: number; sortBy?: string; ascending?: boolean } = {}): Record<string, any> {
@@ -53,10 +54,18 @@ export function shapeCalculation(data: any, opts: { page?: number; sortBy?: stri
       sortNote = `OQL has no sort, and "${opts.sortBy}" is not a calculated column (${labels.join(", ")}); rows are in the API's order (by count).`;
     }
   }
-  let total: Record<string, any> | undefined;
-  if (data?.total) {
-    const { id: _id, ...rest } = shapeRow(data.total, cols);
-    total = { name: data.total.key_display_name ?? "all works", ...rest };
+  // The summary (#1550): the whole set, and with 2+ splits each split's groups on their own, computed by the API
+  // from the works (read these, never sum or average the group rows).
+  let summary: Record<string, any> | undefined;
+  if (data?.summary?.all) {
+    const { id: _id, ...rest } = shapeRow(data.summary.all, cols);
+    const splits = (data.summary.splits ?? []).map((part: any, i: number) => compact({
+      split: meta.splits?.[i]?.oql,
+      groups: (part?.groups ?? []).map((g: any) => shapeRow(g, cols)),
+      more_groups: part?.more_groups || undefined,
+    }));
+    summary = compact({ all: { name: data.summary.all.key_display_name ?? "all works", ...rest },
+                        splits: splits.length ? splits : undefined });
   }
   const page = opts.page ?? meta.page ?? 1;
   // The pipeline engine itemizes the price in meta.cost; a classic grouped response carries only cost_usd (1 credit = $0.0001).
@@ -65,7 +74,7 @@ export function shapeCalculation(data: any, opts: { page?: number; sortBy?: stri
     ...queryEcho(data),
     total_works: meta.count,
     columns: labels,
-    total,
+    summary,
     groups,
     groups_count: meta.groups_count,
     groups_returned: groups.length,
@@ -85,15 +94,20 @@ export function serializeCalculation(payload: Record<string, any>, maxChars = MA
   if (text.length <= maxChars) return text;
   const cap = (rows: any[] | undefined, n: number): any[] | undefined =>
     rows?.map((r) => (Array.isArray(r.groups) ? { ...r, groups: cap(r.groups.slice(0, n), n), ...(r.groups.length > n ? { groups_trimmed: r.groups.length } : {}) } : r));
+  // the summary's split lists are capped like inner groups: the whole-set row always stays
+  const capSummary = (n: number) => payload.summary && {
+    ...payload.summary,
+    splits: payload.summary.splits?.map((s: any) => (s.groups.length > n ? { ...s, groups: s.groups.slice(0, n), groups_trimmed: s.groups.length } : s)),
+  };
   for (const n of [50, 10, 1]) {
     text = JSON.stringify({
-      ...payload, total: payload.total && cap([payload.total], n)![0], groups: cap(payload.groups, n),
-      truncation_note: `Inner groups trimmed to the first ${n} of each (groups_trimmed = how many there were) to fit the size limit; narrow the query or split it.`,
+      ...payload, summary: capSummary(n), groups: cap(payload.groups, n),
+      truncation_note: `Inner groups and summary groups trimmed to the first ${n} of each (groups_trimmed = how many there were) to fit the size limit; narrow the query or split it.`,
     });
     if (text.length <= maxChars) return text;
   }
   let rows = (payload.groups ?? []).map(({ groups: _g, ...r }: any) => r);
-  const flat = { ...payload, total: payload.total && { ...payload.total, groups: undefined } };
+  const flat = { ...payload, summary: payload.summary && { all: payload.summary.all } };
   do {
     text = JSON.stringify({ ...flat, groups: rows, truncation_note: `Inner groups dropped and rows trimmed to ${rows.length} to fit the size limit; ask for fewer groups (limit) or page.` });
     rows = rows.slice(0, Math.ceil(rows.length / 2));
