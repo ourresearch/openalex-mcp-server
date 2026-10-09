@@ -24,7 +24,7 @@ const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: 
 
 /** Pointer to the pipeline sections of the OQL reference (help.openalex.org/access/oql/, appended to the server instructions), plus what only these tools add. */
 export const PIPELINE_GUIDE = `Calculations: write the pipeline form from the OQL reference below (The shape, Splitting into groups, Calculating) and run it with calculate_works. Check a new query with check_oql first (free: each limit with its fix, the time, the price), fix it from the message, then run it. Resolve names to IDs with search_entities first.
-Sorting and top N are not in OQL: calculate_works' sort orders a page by a column. To list authors, sources or institutions by their own fields (h-index, 2-year mean citedness), start from them and stop: get authors where last known institution is (I136199984) and h-index > (50).`;
+Sorting and top N are not in OQL: calculate_works' sort orders a page by a column. To list authors, sources or institutions by their own fields (h-index, 2-year mean citedness), start from them and stop: get authors where last known institution is [Harvard University](I136199984) and h-index is above 50.`;
 
 const LIST_KINDS: EntityKind[] = ["authors", "institutions", "sources", "topics", "funders", "publishers"];
 
@@ -43,7 +43,7 @@ export function registerCalculateTools(server: McpServer, deps: CalculateDeps): 
         "Returns one row per group, keyed by the OQL words of each calculation (count, mean FWCI, ...), nested splits under groups, the summary (summary.all for the whole starting set; with two or more splits, summary.splits with each split's groups on their own, computed from the works: read these, never sum or average group rows), groups_count and next_page, the price, the canonical OQL and a reproduce_url. " +
         "A query with no split or calculation gets then, summarize using count; a query that starts from authors, institutions, sources, topics, funders or publishers with no split lists them with their own fields. Retracted works are left out unless include_retracted=true or the query says otherwise.",
       inputSchema: {
-        oql: z.string().max(20000).describe("A pipeline OQL query, e.g. get works where country is [Kenya](KE) and year >= 2015; then, group those works by year; finally, summarize using percent open access."),
+        oql: z.string().max(20000).describe("A pipeline OQL query, e.g. get works where country is [Kenya](KE) and published since 2015; then, group those works by year; finally, summarize using percent open access."),
         limit: z.number().int().min(1).max(200).optional().describe("Groups per page (the outer split), 1-200. Default 50. Groups come back by count."),
         page: z.number().int().min(1).max(200).optional().describe("Page of groups. Default 1."),
         sort: z.string().max(100).optional().describe("Order this page's rows by a calculated column, e.g. \"mean FWCI\" (descending). OQL itself has no sort; the API picks each page's groups by count."),

@@ -153,7 +153,7 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
         types: z.array(z.enum(WORK_TYPES)).optional().describe("Only these work types (OR), e.g. [\"article\",\"review\"]."),
         open_access_only: z.boolean().optional().describe("Only works with a free-to-read copy."),
         language: z.string().length(2).optional().describe("ISO-639-1 language code, e.g. \"en\". Note that keywords are what find works in other languages."),
-        extra_oql: z.string().max(2000).optional().describe("Any further OQL condition ANDed onto every count, e.g. country is (BR) or \"cited by count >= (10)\"."),
+        extra_oql: z.string().max(2000).optional().describe("Any further OQL condition ANDed onto every count, e.g. country is (BR) or \"citation count is at least 10\"."),
         include_retracted: z.boolean().optional().describe("Include retracted works. Default false."),
         sample_size: z.number().int().min(0).max(25).optional().describe("Random works to show from the keyword-only additions (up to 8 are also drawn from the whole search). Default 8."),
       },
