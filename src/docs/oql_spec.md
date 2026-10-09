@@ -56,7 +56,7 @@ This invariant is the spec's runnable contract — see [Conformance](#conformanc
 ## Statement shape
 
 The canonical form is the [step form](#steps-the-pipeline-language) (`get works where ...;
-then group those works by ...; then calculate ...`). The classic statement below is still
+then group those works by ...; then summarize using ...`). The classic statement below is still
 accepted on input, and is what the [condition rules](#conditions) are written against:
 
 ```
@@ -800,7 +800,7 @@ get <entity> [ where <conditions> ]
   [ ; then sample (<n>) of those <entity> [ with seed (<s>) ] ]
   [ ; then group those <entity> [again] by <split> [ where <group filter> ] ]   ×0-3
   [ ; then group those <entity> [again] into <split> [ where <group filter> ] ]
-  [ ; then calculate <measure> [, <measure>]* ]                               last
+  [ ; then summarize using <measure> [, <measure>]* ]                        last
 ```
 
 - **Start:** `get <entity> where ...` is the classic statement with the verb `get`. The
@@ -832,11 +832,11 @@ get <entity> [ where <conditions> ]
 
   Measures and own fields combine with `and`; an `or` mixing the two kinds is refused at
   execution.
-- **`calculate`** is always the last step (`OQL_STEP_AFTER_CALCULATE`): `count`; `mean`,
+- **`summarize using`** is always the last step (`OQL_STEP_AFTER_SUMMARY`): `count`; `mean`,
   `median`, `sum`, `min`, `max` of a number field (`min`/`max` also of a date); `percent`
   of a yes/no field; `percent of those <entity>` (each group's share of its parent set);
   after a split by entities, their own number fields (`h-index`), shown beside each group.
-  A bare works field (`calculate authors count`) is `OQL_BAD_MEASURE` with the fix
+  A bare works field (`summarize using authors count`) is `OQL_BAD_MEASURE` with the fix
   `mean authors count`.
 - **Walks** (`get each author of those works`) are not supported yet: `OQL_WALK_NOT_YET`.
 
@@ -1028,7 +1028,7 @@ sample       ::= 'sample' NUMBER ( 'seed' NUMBER )?
 
 /* The pipeline language. Canonical form:
    `get works where ...; then group those works by ...; then group those works
-   again by ...; then calculate ...`. A calculation is always the last step; up to
+   again by ...; then summarize using ...`. A calculation is always the last step; up to
    three splits; `those <entity>` must name what the query holds; `again` is
    optional on input and always rendered on every split after the first. */
 step         ::= ';'? 'then' ( split | calculation | sampleStep )
@@ -1050,7 +1050,7 @@ searchItem   ::= '(' searchExpr ')'     /* up to 5 AND/OR/NOT; up to 100 items *
 
 bins         ::= 'bins' ( 'at' '(' NUMBER ( ',' NUMBER )* ')' | 'of' '(' NUMBER ')' )
 
-calculation  ::= 'calculate' measure ( ( ',' | 'and' ) measure )*
+calculation  ::= 'summarize' 'using' measure ( ( ',' | 'and' ) measure )*
 
 measure      ::= 'count' ( 'of' those )?
                | ( 'mean' | 'median' | 'sum' | 'min' | 'max' ) field ( 'of' those )?

@@ -5,7 +5,7 @@
 ```
 get works where title-abstract has ("climate change") and year >= (2020);
 then group those works by year;
-then calculate count, percent open access
+then summarize using count, percent open access
 ```
 
 You can read that aloud and know what it returns: climate-change papers since 2020, year by year, with how many there are and what share is open access. That's the point: a query you can paste into a paper's methods section, that a reader understands, and that anyone can run again for the same answer. OQL also says things the classic URL syntax never could: deep nesting, OR across different fields, comparisons between sets, and calculations.
@@ -23,12 +23,12 @@ Queries written the older way (`works where ... group by year`) still work, and 
 ```
 get <things> where <conditions>
   [; then group those <things> by <split> [where <group filter>]]   up to three splits
-  [; then calculate <calculation>, <calculation>]                    always last
+  [; then summarize using <calculation>, <calculation>]             always last
 ```
 
 1. **Start with `get <things> where <conditions>`.** The things are what you get back: `works`, `authors`, `institutions`, `sources`, `funders`, `topics`, … With no conditions, `get works` is a valid query.
 2. **Filter fields with `is` and comparisons; search text with `has`. The value always sits in parentheses.** `year is (2020)`, `citation count >= (100)`, `title has (cancer)`.
-3. **Add steps with `; then`.** `group those works by <field>` splits the works into groups; `calculate ...` computes numbers, and is always the last step.
+3. **Add steps with `; then`.** `group those works by <field>` splits the works into groups; `summarize using ...` computes numbers, and is always the last step.
 4. **Combine conditions with `and` / `or`; group them with parentheses.**
 
 That's enough for most questions. Everything below is detail, and every example runs on production today.
@@ -167,21 +167,21 @@ Filtering on a group's own fields (h-index, last known institution) looks the gr
 
 ## Calculating
 
-`calculate` is always the last step:
+`summarize using` is always the last step:
 
 ```
 get works where country is (KE) and year >= (2015);
 then group those works by year;
-then calculate count, percent open access
+then summarize using count, percent open access
 ```
 
 | Calculation | Example |
 |---|---|
-| `count` | `calculate count` |
+| `count` | `summarize using count` |
 | `mean`, `median`, `sum`, `min`, `max` of a number field (`min`/`max` also of a date) | `mean FWCI`, `median citation count`, `sum APC paid`, `max date` |
 | `percent` of a yes/no field | `percent open access`, `percent retracted` |
 | `percent of those works` | each group's share of the set it came from |
-| after a split by authors, institutions or sources, their own fields | `get works where source is (S137773608); then group those works by author; then calculate count, h-index` |
+| after a split by authors, institutions or sources, their own fields | `get works where source is (S137773608); then group those works by author; then summarize using count, h-index` |
 
 With splits you get a flat table, one row per group with a column per split (group by year, then by open access status: a year column and a status column), plus the summary; without any split, one row.
 
@@ -189,7 +189,7 @@ With splits you get a flat table, one row per group with a column per split (gro
 
 ## Downloading results
 
-A query with a `calculate` step, a split by a list, bins or conditions, or a filter on its groups exports every group, however many there are, the same way a list of works exports every work. On the website, use the download button above the results: the Export dialog shows the price before you start, and you can follow the export in **Settings → Exports**. An export costs the query's price for every 100 rows it writes (1 credit per 100 groups for a filtered set, 10 for a search), and stops if your credits run out.
+A query with a `summarize using` step, a split by a list, bins or conditions, or a filter on its groups exports every group, however many there are, the same way a list of works exports every work. On the website, use the download button above the results: the Export dialog shows the price before you start, and you can follow the export in **Settings → Exports**. An export costs the query's price for every 100 rows it writes (1 credit per 100 groups for a filtered set, 10 for a search), and stops if your credits run out.
 
 There's nothing to choose. With no split, the export is the one row for the whole set, as a CSV. With splits, it's one zip of:
 
@@ -199,14 +199,14 @@ There's nothing to choose. With no split, the export is the one row for the whol
 On the API, the two are separate calls: `format=csv` for the groups, and `format=csv&table=summary` for the summary (one CSV, or a zip of one CSV per table with two or more splits). A single split by a field pages: add `cursor=*` and follow the `X-Next-Cursor` response header (10,000 groups a page) until it's gone. Everything else comes whole in one answer.
 
 ```
-https://api.openalex.org/?oql=get works where country is (KE) and year >= (2015); then group those works by year; then calculate count, percent open access&format=csv
+https://api.openalex.org/?oql=get works where country is (KE) and year >= (2015); then group those works by year; then summarize using count, percent open access&format=csv
 ```
 
 ## Limits, time and price
 
 Up to three splits; up to 100 items in a list; at most 5 AND/OR/NOT in each listed search; a nested split up to 10,000 groups per split (a single split pages through any number); about ten seconds a query. Anything over a limit is refused before it runs, with the limit and how to fix it.
 
-A query with a `calculate` step, a split by a list, bins or conditions, or a filter on its groups is priced from what it does: the starting set costs what a list (1 credit) or a search (10) costs, each listed search 10, each lookup 1. Nothing else adds to the price: splits by a field, counts, means and percentages are free. Any other query costs what the same query costs as a URL: 1 credit for a list, 10 for a search, grouped or not. The check tells you the price for free, and a response shows what it cost in `meta.cost`. See [Example costs](/access/example-costs/#what-an-oql-calculation-costs).
+A query with a `summarize using` step, a split by a list, bins or conditions, or a filter on its groups is priced from what it does: the starting set costs what a list (1 credit) or a search (10) costs, each listed search 10, each lookup 1. Nothing else adds to the price: splits by a field, counts, means and percentages are free. Any other query costs what the same query costs as a URL: 1 credit for a list, 10 for a search, grouped or not. The check tells you the price for free, and a response shows what it cost in `meta.cost`. See [Example costs](/access/example-costs/#what-an-oql-calculation-costs).
 
 ## OQL never guesses
 
@@ -215,7 +215,7 @@ A query that can't do what it appears to do is always a clear error **with a fix
 | You wrote | OQL says |
 |---|---|
 | `... then group those works by FWCI` | FWCI is a decimal: split it into bins, `group those works into FWCI bins at (0.5, 1, 2)` |
-| `... then calculate authors count` | name the calculation: `calculate mean authors count` |
+| `... then summarize using authors count` | name the calculation: `summarize using mean authors count` |
 | `... then group those authors by year` (after `get works`) | this query holds works: `group those works by year` |
 | `title has (bar*)` | wildcards need quotes: `title has ("bar*")` |
 | `type is (article review)` | two values need a connective: `type is (article or review)` |
