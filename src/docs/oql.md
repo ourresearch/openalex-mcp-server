@@ -151,7 +151,7 @@ Besides a field, you can split by:
 
 A yes/no field splits in two: `open access` and `not open access`.
 
-**Every grouped result also has a total row** for the whole starting set, with the same numbers and the same later splits. That's your baseline: start from the widest set you want to compare against (the world since 2016, a country), and read each group's numbers against the total.
+**Every result also has a summary**: the same numbers for the whole starting set, and with two or more splits, for each split's groups on their own (each year across all open access statuses, each status across all years). Every summary number is computed from the works, never added up or averaged from the group rows. That's your baseline: start from the widest set you want to compare against (the world since 2016, a country), and read each group's numbers against the summary.
 
 **Filter the groups** by adding `where` to the split. A calculation tests each group's works; any other field belongs to the group itself:
 
@@ -183,29 +183,30 @@ then calculate count, percent open access
 | `percent of those works` | each group's share of the set it came from |
 | after a split by authors, institutions or sources, their own fields | `get works where source is (S137773608); then group those works by author; then calculate count, h-index` |
 
-With splits you get one row per group plus the total row; without any, one row.
+With splits you get a flat table, one row per group with a column per split (group by year, then by open access status: a year column and a status column), plus the summary; without any split, one row.
 
 > Sorting and choosing columns are **not** part of OQL. They're controls in the results view (`?sort=` / `?select=` on the API, where `sort` takes any calculated column, e.g. `sort=mean_fwci:desc`). OQL says *which* works and *which* numbers, not how to display them.
 
 ## Downloading results
 
-A query with a `calculate` step, a split by a list, bins or conditions, or a filter on its groups downloads as a zip of three files. On the website, use the **Download CSV** button on the results table; on the API, add `format=csv`:
+A query with a `calculate` step, a split by a list, bins or conditions, or a filter on its groups exports every group, however many there are, the same way a list of works exports every work. On the website, use the download button above the results: the Export dialog shows the price before you start, and you can follow the export in **Settings → Exports**. An export costs the query's price for every 100 rows it writes (1 credit per 100 groups for a filtered set, 10 for a search), and stops if your credits run out.
+
+There's nothing to choose. With no split, the export is the one row for the whole set, as a CSV. With splits, it's one zip of:
+
+- **`groups.csv`**: every group, one row each (with nested splits, one row per innermost group, its outer groups repeated), so every row stands on its own. Columns are named in OQL words: each split (`institution`, plus `institution id` for things with ids), then each calculation (`percent open access`).
+- **The summary**: `all-works.csv`, the whole set in one row, and with two or more splits one CSV per split, each split's groups on their own (`by-institution.csv`, `by-year.csv`). Read these rather than summing the groups: a work can sit in more than one group (or in none, when it has no year), so groups don't always add up, and a mean of group means is not the mean.
+
+On the API, the two are separate calls: `format=csv` for the groups, and `format=csv&table=summary` for the summary (one CSV, or a zip of one CSV per table with two or more splits). A single split by a field pages: add `cursor=*` and follow the `X-Next-Cursor` response header (10,000 groups a page) until it's gone. Everything else comes whole in one answer.
 
 ```
 https://api.openalex.org/?oql=get works where country is (KE) and year >= (2015); then group those works by year; then calculate count, percent open access&format=csv
 ```
 
-- **`groups.csv`**: one row per group (with nested splits, one row per innermost group, its outer groups repeated). Columns are named in OQL words: each split (`institution`, plus `institution id` for things with ids), then each calculation (`percent open access`).
-- **`totals.csv`**: the total row and its breakdown, plus each outer group's own row. Read these rather than summing `groups.csv`: a work can sit in more than one group, so groups don't always add up to their parent.
-- **`query.oql`**: the query, when it ran, how many works it covered, and what it cost.
-
-The download holds up to 10,000 groups. When there are more, `query.oql` says so: narrow the query, or page through the JSON with `cursor=*` for the rest.
-
 ## Limits, time and price
 
 Up to three splits; up to 100 items in a list; at most 5 AND/OR/NOT in each listed search; a nested split up to 10,000 groups per split (a single split pages through any number); about ten seconds a query. Anything over a limit is refused before it runs, with the limit and how to fix it.
 
-A query with a `calculate` step, a split by a list, bins or conditions, or a filter on its groups is priced from what it does: the starting set costs what a list (1 credit) or a search (10) costs, each listed search 10, each lookup 1. Nothing else adds to the price: splits by a field, counts, means and percentages are free. Any other query costs 1 credit. The check tells you the price for free, and a response shows what it cost in `meta.cost`. See [Example costs](/access/example-costs/#what-an-oql-calculation-costs).
+A query with a `calculate` step, a split by a list, bins or conditions, or a filter on its groups is priced from what it does: the starting set costs what a list (1 credit) or a search (10) costs, each listed search 10, each lookup 1. Nothing else adds to the price: splits by a field, counts, means and percentages are free. Any other query costs what the same query costs as a URL: 1 credit for a list, 10 for a search, grouped or not. The check tells you the price for free, and a response shows what it cost in `meta.cost`. See [Example costs](/access/example-costs/#what-an-oql-calculation-costs).
 
 ## OQL never guesses
 
