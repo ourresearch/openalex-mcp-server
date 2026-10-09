@@ -139,3 +139,27 @@ describe("the #1555 step words", () => {
       .toBe("get works in the collection (col_x) where retracted is (false)");
   });
 });
+
+// Thing-first (oxjob #1555): one row per author over the works that match
+import { oqlThingFirst } from "../src/oql";
+describe("thing-first", () => {
+  const UBC = "get authors at [University of British Columbia](I141945490) since 2022 who published works where title-abstract has kelp";
+  it("reads the start", () => {
+    expect(oqlThingFirst(UBC)).toEqual({ head: "get authors at [University of British Columbia](I141945490) since 2022 who published works", thing: "authors", body: "where title-abstract has kelp" });
+    expect(oqlThingFirst("get institutions in [Asia](Q48) that published works where topic is [Poultry](T13294)")?.thing).toBe("institutions");
+    expect(oqlThingFirst("get authors who published more than 5 works where title has kelp")?.thing).toBe("authors");
+    expect(oqlThingFirst("get topics of works where institution is (I1)")?.thing).toBe("topics");
+    expect(oqlThingFirst("get authors where h-index is above 20")).toBeNull();
+    expect(oqlThingFirst("get sources where works count is above 1000")).toBeNull();
+  });
+  it("is a split", () => {
+    expect(oqlHasGroupBy(UBC)).toBe(true);
+    expect(oqlHasGroupBy("get authors where h-index is above 20")).toBe(false);
+  });
+  it("leaves retracted works out of the works it names", () => {
+    expect(oqlExcludeRetracted(UBC + "; then, summarize each author using count")).toEqual({
+      oql: "get authors at [University of British Columbia](I141945490) since 2022 who published works where (title-abstract has kelp) and retracted is (false); then, summarize each author using count",
+      applied: true });
+    expect(oqlExcludeRetracted("get authors where h-index is above 20").applied).toBe(false);
+  });
+});

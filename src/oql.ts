@@ -86,8 +86,27 @@ export function oqlHasSearch(oql: string): boolean {
 }
 
 export function oqlHasGroupBy(oql: string): boolean {
-  return /\bgroup by\b|\bgroup\s+those\s+\w+\s+(?:again\s+)?(?:by|into)\b/i.test(oql)
-    || splitOqlSteps(oql).slice(1).some((s) => COMPARE_STEP.test(s));   // `compare A versus B` splits too (#1555)
+  return /\bgroup by\b|\bgroup\s+(?:those\s+\w+|each\s+\S+\s+works)\s+(?:again\s+)?(?:by|into)\b/i.test(oql)
+    || splitOqlSteps(oql).slice(1).some((s) => COMPARE_STEP.test(s))   // `compare A versus B` splits too (#1555)
+    || oqlThingFirst(splitOqlSteps(oql)[0] ?? "") !== null;           // `get authors ... who published works where` (#1555)
+}
+
+// Thing-first (oxjob #1555): `get authors at [UBC](I141945490) since 2022 who published works where ...` is works split
+// by the thing, one row per author over the works that match. Any verb, `with` or `of`, an optional count.
+const THING_FIRST_HEAD = new RegExp(
+  String.raw`^get\s+(authors|institutions|sources|journals|publishers|funders|countries|topics)\b[\s\S]*?` +
+  String.raw`\b(?:(?:who|that|which)\s+(?:(?:ever|have|has|also|all)\s+)*[a-z-]+|with|of)\s+` +
+  String.raw`(?:(?:more than|at least|fewer than|at most|over|under)\s+\d+\s+)?works?\b` +
+  String.raw`(?:\s+(?:anywhere|at any institution(?:,?\s+in any year)?|in any year|\(at any institution,?\s+in any year\)))?`,
+  "i");
+
+/** The start of a thing-first query: { head (up to `works`), thing, body (`where ...` and the rest) }, or null. */
+export function oqlThingFirst(first: string): { head: string; thing: string; body: string } | null {
+  const m = first.trim().match(THING_FIRST_HEAD);
+  if (!m) return null;
+  const body = first.trim().slice(m[0].length).trim();
+  if (body && !/^where\b/i.test(body)) return null;
+  return { head: m[0], thing: m[1]!.toLowerCase(), body };
 }
 
 export function oqlHasSample(oql: string): boolean {
@@ -172,9 +191,11 @@ export function oqlExcludeRetracted(oql: string): { oql: string; applied: boolea
   if (oqlMentionsRetracted(q)) return { oql: q, applied: false };
   const [first = "", ...rest] = splitOqlSteps(q);
   if (rest.some((s) => /\bretracted\b/i.test(s))) return { oql: q, applied: false };
-  const m = first.match(/^(get\s+)?works\b\s*([\s\S]*)$/i);
+  // `get authors at [UBC] since 2022 who published works where ...`: the works it names (#1555)
+  const tf = oqlThingFirst(first);
+  const m = tf ? [first, tf.head, tf.body] : first.match(/^(get\s+)?works\b\s*([\s\S]*)$/i);
   if (!m) return { oql: q, applied: false };
-  let lead = m[1] ? "get works" : "works";
+  let lead = tf ? tf.head : m[1] ? "get works" : "works";
   let body = m[2]!.trim();
   // a start from a saved list keeps its place: `get works in the collection [Our lab](col_x) where ...` (#1555)
   const coll = body.match(/^in\s+(?:the\s+)?(?:collection|set)\s+(?:\[[^\]]*\])?\([^)]*\)|^in\s+\([^)]*\)/i);

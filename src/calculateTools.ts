@@ -8,7 +8,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { OpenAlexClient, ListResponse } from "./openalex";
 import { compact, shapeEntity, type EntityKind } from "./shape";
-import { prepareOql, oqlHasGroupBy, oqlHasCalculate, oqlHasSample, splitOqlSteps, queryEcho } from "./oql";
+import { prepareOql, oqlHasGroupBy, oqlHasCalculate, oqlHasSample, oqlThingFirst, splitOqlSteps, queryEcho } from "./oql";
 import { shapeCalculation, calculationResult, shapeCheck } from "./calculate";
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
@@ -37,7 +37,11 @@ export function registerCalculateTools(server: McpServer, deps: CalculateDeps): 
       title: "Calculate over works (OQL pipeline)",
       description:
         "Run an OQL calculation and get the calculated groups: split a set of works by one to three fields, named values, searches, conditions or bins, and calculate count, mean/median/sum/min/max of a number, percent of a yes/no field, or each group's share. " +
-        "Write it as a pipeline: get works where <conditions>; then, group those works by <field>; finally, summarize using <measures>; or compare named things in one step, e.g. " +
+        "Write it as a pipeline: get works where <conditions>; then, group those works by <field>; finally, summarize using <measures>. " +
+        "For one row per author, institution, source, publisher, funder, country or topic, start with them and say which works count, e.g. " +
+        "get authors at [University of British Columbia](I141945490) since 2022 who published works where title-abstract has kelp; then, summarize each author using count and mean FWCI " +
+        "(`at` reads the author's own record; `in [Asia](Q48)` for institutions; then, group each author's works by year for a further split). " +
+        "Or compare named things in one step, e.g. " +
         "get works where topic is [CRISPR and Genetic Engineering](T10878); then, compare institution [Massachusetts Institute of Technology](I63966007) versus [Stanford University](I97018004) versus [Harvard University](I136199984) using count, mean FWCI, and percent open access. " +
         "The full guide is the OQL reference in the server instructions (read_docs topic oql). Check a new query with check_oql first (free: limits with fixes, time estimate, price). " +
         "Returns one row per group, keyed by the OQL words of each calculation (count, mean FWCI, ...), nested splits under groups, the summary (summary.all for the whole starting set; with two or more splits, summary.splits with each split's groups on their own, computed from the works: read these, never sum or average group rows), groups_count and next_page, the price, the canonical OQL and a reproduce_url. " +
@@ -58,7 +62,8 @@ export function registerCalculateTools(server: McpServer, deps: CalculateDeps): 
         const limit = args.limit ?? 50;
         const page = args.page ?? 1;
         const steps = splitOqlSteps(q);
-        const start = steps[0]!.match(/^(?:get\s+)?(\w+)/i)?.[1]?.toLowerCase() ?? "works";
+        // a thing-first start (`get authors ... who published works where ...`) is works, split by the thing (#1555)
+        const start = oqlThingFirst(steps[0]!) ? "works" : steps[0]!.match(/^(?:get\s+)?(\w+)/i)?.[1]?.toLowerCase() ?? "works";
         const bare = steps.length === 1 && !oqlHasGroupBy(q) && !oqlHasSample(q);
         if (start !== "works" && bare) {
           const kind = start as EntityKind;
