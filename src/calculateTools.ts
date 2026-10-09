@@ -1,6 +1,6 @@
 /**
  * OQL calculations (oxjob #1537, on #1530's pipeline engine): calculate_works runs a pipeline query
- * (`get works where ...; then group those works by ...; then calculate ...`) and returns the calculated groups,
+ * (`get works where ...; then, group those works by ...; finally, summarize using ...`) and returns the calculated groups,
  * the summary and the price; check_oql runs the API's free check (validity, every limit with its fix,
  * the time estimate, the price).
  */
@@ -37,13 +37,13 @@ export function registerCalculateTools(server: McpServer, deps: CalculateDeps): 
       title: "Calculate over works (OQL pipeline)",
       description:
         "Run an OQL calculation and get the calculated groups: split a set of works by one to three fields, named values, searches, conditions or bins, and calculate count, mean/median/sum/min/max of a number, percent of a yes/no field, or each group's share. " +
-        "Write it as a pipeline: get works where <conditions>; then group those works by <field>; then calculate <measures>, e.g. " +
-        "get works where topic is (T10878); then group those works by institution in (I63966007, I97018004, I136199984); then calculate count, mean FWCI, percent open access. " +
+        "Write it as a pipeline: get works where <conditions>; then, group those works by <field>; finally, summarize using <measures>; or compare named things in one step, e.g. " +
+        "get works where topic is [CRISPR and Genetic Engineering](T10878); then, compare institution [Massachusetts Institute of Technology](I63966007) versus [Stanford University](I97018004) versus [Harvard University](I136199984) using count, mean FWCI, and percent open access. " +
         "The full guide is the OQL reference in the server instructions (read_docs topic oql). Check a new query with check_oql first (free: limits with fixes, time estimate, price). " +
         "Returns one row per group, keyed by the OQL words of each calculation (count, mean FWCI, ...), nested splits under groups, the summary (summary.all for the whole starting set; with two or more splits, summary.splits with each split's groups on their own, computed from the works: read these, never sum or average group rows), groups_count and next_page, the price, the canonical OQL and a reproduce_url. " +
-        "A query with no split or calculation gets then calculate count; a query that starts from authors, institutions, sources, topics, funders or publishers with no split lists them with their own fields. Retracted works are left out unless include_retracted=true or the query says otherwise.",
+        "A query with no split or calculation gets then, summarize using count; a query that starts from authors, institutions, sources, topics, funders or publishers with no split lists them with their own fields. Retracted works are left out unless include_retracted=true or the query says otherwise.",
       inputSchema: {
-        oql: z.string().max(20000).describe("A pipeline OQL query, e.g. get works where country is (KE) and year >= (2015); then group those works by year; then calculate percent open access."),
+        oql: z.string().max(20000).describe("A pipeline OQL query, e.g. get works where country is [Kenya](KE) and year >= 2015; then, group those works by year; finally, summarize using percent open access."),
         limit: z.number().int().min(1).max(200).optional().describe("Groups per page (the outer split), 1-200. Default 50. Groups come back by count."),
         page: z.number().int().min(1).max(200).optional().describe("Page of groups. Default 1."),
         sort: z.string().max(100).optional().describe("Order this page's rows by a calculated column, e.g. \"mean FWCI\" (descending). OQL itself has no sort; the API picks each page's groups by count."),
@@ -70,7 +70,7 @@ export function registerCalculateTools(server: McpServer, deps: CalculateDeps): 
             results: data.results.map((e: any) => shapeEntity(kind, e)),
           }));
         }
-        if (bare && !oqlHasCalculate(q)) q = `${q}; then calculate count`;
+        if (bare && !oqlHasCalculate(q)) q = `${q}; then summarize using count`;
         const data = await client.post<ListResponse>({ oql: q, per_page: limit, page });
         return calculationResult(compact({
           retracted_works: start === "works" ? prep.retractedWorks : undefined,

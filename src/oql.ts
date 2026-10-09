@@ -16,7 +16,9 @@ export function normalizeOql(input: string, entity = "works"): string {
 }
 
 // ---------------------------------------------------------------------------
-// The pipeline language (oxjobs #1530, #1537): `get works where ...; then group those works by ...; then calculate ...`.
+// The pipeline language (oxjobs #1530, #1537, #1555): `get works where ...; then, group those works by ...; finally,
+// summarize using ...`, or `...; then, compare A versus B using ...`. A step opens with `then` (`then,`), `finally,`
+// or nothing (`compare`, `summarize`); `calculate` is gone (#1555).
 // Until the API's launch flip, a query the classic form can say echoes classic; after it, every echo is a
 // pipeline. Everything here reads both.
 // ---------------------------------------------------------------------------
@@ -44,9 +46,14 @@ export function oqlIsPipeline(oql: string): boolean {
   return /^\s*get\s/i.test(oql) || splitOqlSteps(oql).length > 1;
 }
 
-/** Does the query have a `then calculate ...` step? */
+// A step's opening word, if any: `then`, `then,`, `finally,` (#1555).
+const STEP_OPENER = String.raw`^(?:(?:then|finally|next|lastly),?\s+)?`;
+const SUMMARY_STEP = new RegExp(STEP_OPENER + String.raw`(?:summarize\s+using|calculate)\b`, "i");
+const COMPARE_STEP = new RegExp(STEP_OPENER + String.raw`compare\b`, "i");
+
+/** Does the query calculate: a `summarize using ...` step, or a `compare ... using ...` step? */
 export function oqlHasCalculate(oql: string): boolean {
-  return splitOqlSteps(oql).some((s) => /^then\s+calculate\b/i.test(s));
+  return splitOqlSteps(oql).slice(1).some((s) => SUMMARY_STEP.test(s) || (COMPARE_STEP.test(s) && /\busing\b/i.test(s)));
 }
 
 /**
@@ -79,7 +86,8 @@ export function oqlHasSearch(oql: string): boolean {
 }
 
 export function oqlHasGroupBy(oql: string): boolean {
-  return /\bgroup by\b|\bgroup\s+those\s+\w+\s+(?:again\s+)?(?:by|into)\b/i.test(oql);
+  return /\bgroup by\b|\bgroup\s+those\s+\w+\s+(?:again\s+)?(?:by|into)\b/i.test(oql)
+    || splitOqlSteps(oql).slice(1).some((s) => COMPARE_STEP.test(s));   // `compare A versus B` splits too (#1555)
 }
 
 export function oqlHasSample(oql: string): boolean {
@@ -95,7 +103,7 @@ export function oqlAddSample(oql: string, n: number): string {
 export function oqlAddGroupBy(oql: string, dim: string): string {
   if (!oqlIsPipeline(oql)) return `${oql} group by ${dim}`;
   const steps = splitOqlSteps(oql);
-  const at = steps.findIndex((s) => /^then\s+calculate\b/i.test(s));
+  const at = steps.findIndex((s, i) => i > 0 && SUMMARY_STEP.test(s));
   steps.splice(at < 0 ? steps.length : at, 0, `then group those works by ${dim}`);
   return steps.join("; ");
 }
@@ -166,8 +174,11 @@ export function oqlExcludeRetracted(oql: string): { oql: string; applied: boolea
   if (rest.some((s) => /\bretracted\b/i.test(s))) return { oql: q, applied: false };
   const m = first.match(/^(get\s+)?works\b\s*([\s\S]*)$/i);
   if (!m) return { oql: q, applied: false };
-  const lead = m[1] ? "get works" : "works";
-  const body = m[2]!.trim();
+  let lead = m[1] ? "get works" : "works";
+  let body = m[2]!.trim();
+  // a start from a saved list keeps its place: `get works in the collection [Our lab](col_x) where ...` (#1555)
+  const coll = body.match(/^in\s+(?:the\s+)?(?:collection|set)\s+(?:\[[^\]]*\])?\([^)]*\)|^in\s+\([^)]*\)/i);
+  if (coll) { lead = `${lead} ${coll[0]}`; body = body.slice(coll[0].length).trim(); }
   const whereMatch = body.match(/^where\b\s*([\s\S]*)$/i);
   const [clause, tail] = whereMatch ? splitOqlTail(whereMatch[1]!) : ["", body];
   const where = clause ? `${lead} where (${clause}) and retracted is (false)` : `${lead} where retracted is (false)`;

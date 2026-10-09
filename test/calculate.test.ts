@@ -13,7 +13,7 @@ const CRISPR = {
     ],
     elapsed_ms: 44,
     cost: { credits: 1, usd: 0.0001, steps: [{ what: "the starting set", credits: 1 }] },
-    x_query: { oql: "get works where topic is (T10878);\nthen group those works by institution in (I63966007, I97018004, I136199984);\nthen calculate count, mean FWCI, percent open access", url: null },
+    x_query: { oql: "get works where topic is (T10878);\nthen group those works by institution in (I63966007, I97018004, I136199984);\nthen summarize using count, mean FWCI, percent open access", url: null },
   },
   summary: { all: { key: "all", key_display_name: "all works", count: 94788, mean_fwci: 1.849, percent_open_access_is_oa: 56.3753 } },
   group_by: [
@@ -30,7 +30,7 @@ const NESTED = {
     measures: [{ key: "count", oql: "count" }, { key: "percent_of_those", oql: "percent of those works" }],
     splits: [{ oql: "condition", kind: "conditions" }, { oql: "type", kind: "column" }],
     cost: { credits: 1, usd: 0.0001, steps: [] },
-    x_query: { oql: "get works where year >= (2016) and country is (KE);\nthen group those works into ((institution is (I99464096)), (country is (BE)));\nthen group those works again by type;\nthen calculate count, percent of those works" },
+    x_query: { oql: "get works where year >= (2016) and country is (KE);\nthen group those works into ((institution is (I99464096)), (country is (BE)));\nthen group those works again by type;\nthen summarize using count, percent of those works" },
   },
   summary: {
     all: { key: "all", key_display_name: "all works", count: 125895 },
@@ -52,7 +52,7 @@ describe("shapeCalculation (#1537)", () => {
     expect(out.groups).toHaveLength(3);
     expect(out.summary).toEqual({ all: { name: "all works", count: 94788, "mean FWCI": 1.849, "percent open access": 56.3753 } });
     expect(out.price).toEqual({ credits: 1, usd: 0.0001, steps: [{ what: "the starting set", credits: 1 }] });
-    expect(out.oql).toBe("get works where topic is (T10878); then group those works by institution in (I63966007, I97018004, I136199984); then calculate count, mean FWCI, percent open access");
+    expect(out.oql).toBe("get works where topic is (T10878); then group those works by institution in (I63966007, I97018004, I136199984); then summarize using count, mean FWCI, percent open access");
     expect(out.reproduce_url).toMatch(/^https:\/\/api\.openalex\.org\/\?oql=get%20works/);
     expect(out.total_works).toBe(94788);
     expect(out.next_page).toBeUndefined();
@@ -98,14 +98,14 @@ describe("shapeCalculation (#1537)", () => {
 describe("shapeCheck (#1537)", () => {
   it("a valid query: price, estimate, canonical text with names", () => {
     const out = shapeCheck({
-      oql: "get works where topic is (T10878 [CRISPR and Genetic Engineering]);\nthen calculate count",
-      oql_oneline: "get works where topic is (T10878 [CRISPR and Genetic Engineering]); then calculate count",
+      oql: "get works where topic is (T10878 [CRISPR and Genetic Engineering]);\nthen summarize using count",
+      oql_oneline: "get works where topic is (T10878 [CRISPR and Genetic Engineering]); then summarize using count",
       validation: { valid: true, errors: [], warnings: [] },
       check: { valid: true, limits: [], estimate: { seconds: 1.2, es_calls: 1, budget_seconds: 10, within_budget: true }, cost: { credits: 1, usd: 0.0001, steps: [{ what: "the starting set", credits: 1 }] } },
     });
     expect(out).toEqual({
       valid: true,
-      canonical_oql: "get works where topic is (T10878 [CRISPR and Genetic Engineering]); then calculate count",
+      canonical_oql: "get works where topic is (T10878 [CRISPR and Genetic Engineering]); then summarize using count",
       estimated_seconds: 1.2, time_budget_seconds: 10,
       price: { credits: 1, usd: 0.0001, steps: [{ what: "the starting set", credits: 1 }] },
     });
@@ -118,7 +118,7 @@ describe("shapeCheck (#1537)", () => {
   });
   it("limits: listed once each, with fixes, and the price of what was refused", () => {
     const out = shapeCheck({
-      oql_oneline: "get works where year >= (2000); then group those works by author; then group those works again by year; then calculate count",
+      oql_oneline: "get works where year >= (2000); then group those works by author; then group those works again by year; then summarize using count",
       validation: { valid: false, errors: [{ type: "too_many_groups", message: "Splitting by author gives about 86,531,190 groups here; ... Narrow the starting set." }, { type: "query_too_slow", message: "estimated at 654305 seconds" }], warnings: [] },
       check: { valid: false, limits: [{ error: "too_many_groups", message: "Splitting by author gives about 86,531,190 groups here; a nested split takes up to 10,000 groups per split.", fix: "Narrow the starting set." }, { error: "query_too_slow", message: "This query is estimated at 654305 seconds; queries get about 10.", fix: "Narrow the starting set." }], estimate: { seconds: 654304.8, budget_seconds: 10 }, cost: { credits: 1, usd: 0.0001 } },
     });
@@ -136,9 +136,9 @@ describe("shapeCheck (#1537)", () => {
 
 describe("prepareOql (#1537)", () => {
   it("expands, splits the sort off, and hides retracted works on the starting set", () => {
-    const p = prepareOql("get works where topic is (T10878); then group those works by year; then calculate count, mean FWCI; then sort by mean FWCI", false);
-    expect(p.oql).toBe("get works where (topic is (T10878)) and retracted is (false); then group those works by year; then calculate count, mean FWCI");
+    const p = prepareOql("get works where topic is (T10878); then group those works by year; then summarize using count, mean FWCI; then sort by mean FWCI", false);
+    expect(p.oql).toBe("get works where (topic is (T10878)) and retracted is (false); then group those works by year; then summarize using count, mean FWCI");
     expect(p.sort.by).toBe("mean FWCI");
-    expect(prepareOql("get works where topic is (T10878); then calculate count", true).oql).toBe("get works where topic is (T10878); then calculate count");
+    expect(prepareOql("get works where topic is (T10878); then summarize using count", true).oql).toBe("get works where topic is (T10878); then summarize using count");
   });
 });
