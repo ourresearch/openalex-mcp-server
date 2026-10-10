@@ -1,9 +1,9 @@
 {
   "oql": {
     "url": "https://help.openalex.org/access/oql/",
-    "sha": "b97e62fa3d43ff43",
-    "fetched_at": "2026-10-09",
-    "bytes": 15474
+    "sha": "623de22328e91aeb",
+    "fetched_at": "2026-10-10",
+    "bytes": 26171
   },
   "oql_spec": {
     "url": "https://help.openalex.org/access/oql-spec/",

@@ -1,64 +1,99 @@
 # Overview
 
-**OQL, the OpenAlex Query Language, lets you ask OpenAlex for works, and for numbers about them, in something close to plain English.** A query is a short series of steps:
+**OQL, the OpenAlex Query Language, lets you ask OpenAlex for works, people, institutions and journals, and for numbers about them, in something close to plain English.** A query is a short series of steps:
 
 ```
-get works where title-abstract has ("climate change") and year >= (2020);
-then group those works by year;
-then summarize using count, percent open access
+get works where title-abstract has ("climate change") and published since 2020;
+then, group those works by year;
+finally, summarize using count and percent open access
 ```
 
-You can read that aloud and know what it returns: climate-change papers since 2020, year by year, with how many there are and what share is open access. That's the point: a query you can paste into a paper's methods section, that a reader understands, and that anyone can run again for the same answer. OQL also says things the classic URL syntax never could: deep nesting, OR across different fields, comparisons between sets, and calculations.
+You can read that aloud and know what it returns: climate-change papers since 2020, year by year, with how many there are and what share is open access. That's the point: a query you can paste into a paper's methods section, that a reader understands, and that anyone can run again for the same answer. OQL also says things the classic URL syntax never could: deep nesting, OR across different fields, one row per author or institution, comparisons between named things, and calculations.
 
 **Where to run it:**
 
 - **On the website:** switch to the **OQL tab** at the top of the [search page](https://openalex.org). Valid queries run as you type, and splits and calculations show as a table. The easiest way to experiment.
 - **On the API:** `https://api.openalex.org/?oql=<your query>`. The query names what it gets (`get works ...`), so it goes to the API **root**, not `/works`. See the [OQL API](/api/oql/).
-- **Check before you run:** `https://api.openalex.org/query/oql/<your query>` is free. It says whether the query is valid (and if not, what to change), how long it should take, and what it will cost.
+- **Check before you run:** `https://api.openalex.org/query/oql/<your query>` is free. It says whether the query is valid (and if not, what to change), how long it should take, and what it will cost, and it gives the query back in the form shown on this page.
 
-Queries written the older way (`works where ... group by year`) still work, and come back in the form above.
+**OQL shows every query back in one form**, the form on this page, whatever you typed. You can type `year >= 2020` and get back `published since 2020`, or type a bare ID and get back `[MIT](I63966007)`. So you never have to remember the exact wording: write it close enough, and read the echo.
 
 ## The shape
 
 ```
 get <things> where <conditions>
-  [; then group those <things> by <split> [where <group filter>]]   up to three splits
-  [; then summarize using <calculation>, <calculation>]             always last
+  [; then, <step>]          splits, comparisons, walks
+  [; finally, <step>]       the last of two or more steps
 ```
 
-1. **Start with `get <things> where <conditions>`.** The things are what you get back: `works`, `authors`, `institutions`, `sources`, `funders`, `topics`, … With no conditions, `get works` is a valid query.
-2. **Filter fields with `is` and comparisons; search text with `has`. The value always sits in parentheses.** `year is (2020)`, `citation count >= (100)`, `title has (cancer)`.
-3. **Add steps with `; then`.** `group those works by <field>` splits the works into groups; `summarize using ...` computes numbers, and is always the last step.
-4. **Combine conditions with `and` / `or`; group them with parentheses.**
+1. **Start with `get` and what you want back:** `get works where ...`, or `get authors where ...`, `get institutions where ...`, `get sources where ...`. With no conditions, `get works` is a valid query.
+2. **Filter fields with `is` and words for numbers and dates; search text with `has`.** `type is [review](review)`, `citation count is at least 100`, `published since 2020`, `title has (cancer)`.
+3. **Add steps after a semicolon.** Each later step opens with `then,`; the last of two or more opens with `finally,`. `group those works by year` splits the works into groups; `summarize using ...` computes numbers, and always comes last.
+4. **To get one row per author, institution, journal, funder, country or topic, start with that thing:** `get institutions that published works where ...` (see [Start with the thing you want](#start-with-the-thing-you-want)).
 
 That's enough for most questions. Everything below is detail, and every example runs on production today.
 
 ## Filtering
 
-A condition is `<field> <operator> (<value>)`:
+A condition is a field, a verb and a value:
 
 | Example | Meaning |
 |---|---|
-| `get works where year is (2020)` | exact match |
-| `get works where type is (article or review)` | one of several: join values with `or` |
-| `get works where type is not (review)` | anything but: negate on the verb |
-| `get works where citation count >= (100)` | numeric comparison (decimals allowed: `FWCI >= (2.0)`) |
-| `get works where year >= (2019) and year <= (2023)` | a range is two endpoint conditions |
-| `get works where institution is (I136199984 [Harvard University])` | entities use their OpenAlex ID |
-| `get works where language is (en)` · `get works where SDG is (3)` | closed vocabularies use codes, not names |
-| `get works where institution is in (col_abc123)` | a saved [collection](/how-to/collections/); `is not in (...)` excludes it |
+| `get works where institution is [Massachusetts Institute of Technology](I63966007)` | entities are links: the name in brackets, the OpenAlex ID in parentheses |
+| `get works where type is [review](review) and language is [French](fr)` | closed vocabularies are links too, by their codes |
+| `get works where institution is ([Massachusetts Institute of Technology](I63966007) or [Stanford University](I97018004))` | one of several: join values with `or`, in one pair of parentheses |
+| `get works where country is ([United States](US) and [China](CN))` | all of several, for things a work has many of |
+| `get works where type is not ([review](review) or [editorial](editorial))` | anything but: negate on the verb |
+| `get works where citation count is at least 1000` | numbers in words: `is above`, `is at least`, `is below`, `is at most` (decimals allowed: `FWCI is at least 2.0`) |
+| `get works where institution is unknown` | the field is empty |
+| `get works where ORCID is 0000-0001-6187-6610` | other schemes' ids have their own fields: `DOI is 10.1038/nature12373`, `ROR ID is 00ghzk478`, `PMID`, `ISSN` |
 
-API column ids also work as field names (`publication_year >= (2020)` is the same query as `year >= (2020)`); the form shown back to you uses the OQL names.
+**For entities the ID is what counts.** The name in brackets is optional and ignored when you type it; the echo fills it in, so queries stay readable. `institution is (I63966007)` and `institution is [MIT](I63966007)` are the same query. One value needs no parentheses around the link; several share one pair.
 
-For entities (institutions, authors, funders, sources, topics, …) the ID is what counts. The `[name]` in square brackets is optional, ignored on input, and filled in when the query is shown back to you, so queries stay readable:
+API column ids also work as field names (`publication_year >= 2020` is the same query as `published since 2020`); the echo uses the OQL names.
+
+### Years and dates
+
+Years and dates read in words:
+
+| Example | Meaning |
+|---|---|
+| `published in 2023` | that year |
+| `published since 2020` | 2020 or later |
+| `published before 2000` | 1999 or earlier |
+| `published after 2020` | 2021 or later |
+| `published from 2015 through 2024` | both years included |
+| `published since 2025-01-01`, `published on 2021-06-01` | dates work the same way |
+| `added since 2026-10-01`, `updated since 2026-10-01` | when OpenAlex added or last changed the work (added-since needs a paid plan) |
+
+`after` works for a year but not for a date: `published after 2021-06-01` is an error, because it's unclear whether June 1 counts. Write `published since 2021-06-02` (or `since 2021-06-01` to include it). Typing `date > 2021-06-01` comes back as `published since 2021-06-02`.
+
+### Yes/no fields
+
+A yes/no field reads as a sentence about the work:
 
 ```
-get works where institution is (I136199984) or funder is (F4320332161 [National Institutes of Health])
+get works where it's open access and it has a DOI and it doesn't have an abstract
+get works where country is [Ghana](GH) and it has an abstract and it's not retracted
+get works where it's in the top 10% by citations
 ```
+
+### Collections
+
+A [collection](/how-to/collections/) is a list you saved: names, DOIs, a ranking OpenAlex doesn't hold. Use it like a value:
+
+```
+get works where institution is in the collection (col_abc123)
+get works where institution is not in the collection (col_abc123)
+get works in the collection (col_abc123)
+get each author in the collection (col_abc123)
+```
+
+The last one returns each author in the list with all their fields. Write the collection's ID in parentheses (or as a link, `[Our peers](col_abc123)`); a bare `col_abc123` is an error.
 
 ## Searching
 
-Search a text field with **`has`**. The fields: `title`, `abstract`, `title-abstract` (both at once), `title-abstract-keywords` (title and abstract, plus works tagged with a [keyword](/api/searching/#keywords-in-search) a phrase in your search names; openalex.org's default), `full text` (title, abstract and full text, plus keywords), `raw affiliation`, `byline`. (Until October 2026 `title-abstract` and `title-abstract-keywords` were spelled `title/abstract` and `title/abstract/keywords`; those spellings still work and come back with hyphens.)
+Search a text field with **`has`**. The fields: `title`, `abstract`, `title-abstract` (both at once), `title-abstract-keywords` (title and abstract, plus works tagged with a [keyword](/api/searching/#keywords-in-search) a phrase in your search names; openalex.org's default), `full text` (title, abstract and full text, plus keywords), `raw affiliation`, `byline`.
 
 The parentheses hold a portable search string, with capital `AND`, `OR` and `NOT`, exactly as a systematic review would report it:
 
@@ -72,124 +107,222 @@ The one rule to internalize: **bare words are stemmed, quotes mean exact.** `tit
 |---|---|
 | `get works where title has (cancer)` | one stemmed word |
 | `get works where title has (machine learning)` | stemmed phrase: one search unit, ranked higher when the words are adjacent |
-| `get works where title has ("climate change")` | **exact** phrase (stemming off) |
-| `get works where title has (stemmed "genome editing")` | the bridge: a phrase kept together that *keeps* stemming |
-| `get works where title has ("psoriat*")` | wildcard, **must be quoted**; `*` is any characters, `?` exactly one (`"wom?n"`); neither may start a word, and `*` needs at least 3 characters before it |
-| `get works where title has (within 3 ("smart", "phone"))` | proximity: terms within N words, any order |
+| `get works where title-abstract has ("climate change")` | **exact** phrase (stemming off) |
+| `get works where title has (stemmed "genome editing")` | a phrase kept together that *keeps* stemming |
+| `get works where title has (psoriat*)` | wildcard: `*` is any characters, `?` exactly one (`wom?n`); neither may start a word, and `*` needs at least 3 characters before it |
+| `get works where title has ("smart" and "phone" within 3 words of each other)` | proximity: terms within N words, any order |
 | `get works where title-abstract is similar to ("ocean acidification effects on coral reefs")` | semantic search: by meaning, not keywords |
 
 ## Combining and nesting
 
-Join conditions with `and` / `or`, and group with parentheses. `and` binds tighter than `or`, so `a and b or c` means `(a and b) or c`, but the form shown back to you always adds the parentheses so nothing is left to guess:
+Join conditions with `and` / `or`, and group them with parentheses. `and` binds tighter than `or`, so `a and b or c` means `(a and b) or c`, but the echo always adds the parentheses so nothing is left to guess:
 
 ```
-get works where (year < (2000) and title-abstract has ("global warming"))
-  or (title-abstract has ("climate change") and year > (2020))
+get works where (published before 2000 and title-abstract has ("global warming"))
+  or (title-abstract has ("climate change") and published after 2020)
 ```
 
-This nesting, and OR across *different* fields (`institution is … or funder is …`), is what the classic URL syntax can't express.
+This nesting, and OR across *different* fields (`institution is [Massachusetts Institute of Technology](I63966007) or funder is [National Institutes of Health](F4320332161)`), is what the classic URL syntax can't express.
 
-## Negation
-
-**Exclude on the verb:** `is not`, `is not in`.
+**Exclude on the verb:** `is not`, `is not in`, `doesn't`:
 
 ```
-get works where type is not (review)
-get works where country is not (FR or DE)
-get works where institution is not in (col_abc123)
+get works where country is not ([France](FR) or [Germany](DE))
+get works where it's not open access
 ```
 
-Inside a search, exclude with `NOT`, as in any search string: `title has (cancer NOT mouse)`, `abstract has (NOT pediatric)`. A `not` written before a value (`country is (not FR)`) still works, and comes back in the form above.
+Inside a search, exclude with `NOT`, as in any search string: `title has (cancer NOT mouse)`.
 
-## Yes/no fields
+## Citations and sets
 
-Yes/no fields read as `is (true)` / `is (false)`:
-
-```
-get works where open access is (true)
-get works where has DOI is (true)
-get works where retracted is (false)
-```
-
-## Citation links
-
-Follow the citation edge in either direction; the subject `it` is each work in your results. Takes `or` in the value like any other filter:
+Follow the citation edge in either direction; `it` is each work in your results. The three below are works whose reference list includes that paper, the works in its reference list, and OpenAlex's "related works" for it:
 
 ```
-get works where it cites (W2741809807)                 works whose reference list includes W…
-get works where it's cited by (W2741809807)            works in W…'s reference list
-get works where it's related to (W2741809807)          OpenAlex "related works"
-get works where title has (climate) and it cites (W1767272795 or W2741809807)
+get works where it cites ([The state of OA: a large-scale analysis of the prevalence and impact of Open Access articles](W2741809807))
+get works where it's cited by ([The state of OA: a large-scale analysis of the prevalence and impact of Open Access articles](W2741809807))
+get works where it's related to ([The state of OA: a large-scale analysis of the prevalence and impact of Open Access articles](W2741809807))
 ```
 
-## Sampling
-
-`sample` returns a random subset; add a seed to get the same subset again:
+**A set** is a query inside a condition. It names what it holds (`works where ...`, `authors of works where ...`):
 
 ```
-get works where year is (2020); then sample (500) of those works
-get works where year is (2020); then sample (500) of those works with seed (42)
+get works where it cites a work in the set (works where institution is [University of Kansas](I146416000) and published in 2020)
+get works where it's cited by a work in the set (works where institution is [University of Kansas](I146416000) and published in 2020)
+get works where topic is [CRISPR and Genetic Engineering](T10878) and published in 2024 and it doesn't cite any work in the set (works where institution is [University of Kansas](I146416000))
+get works where author is in the set (authors of works where title-abstract has (kelp) and published since 2022) and published since 2025
 ```
+
+The first finds every work citing one of Kansas's 2020 papers; the second, every work those papers cite; the last, recent work by anyone who wrote about kelp since 2022.
+
+**Co-authorship** is a filter on authors and institutions:
+
+```
+get authors where co-author is [Jason R Priem](A5023888391)
+get institutions where country is [Germany](DE) and collaborator is not [Massachusetts Institute of Technology](I63966007)
+```
+
+## Start with the thing you want
+
+To get one row per author, institution, source (journal), publisher, funder, country or topic, start the query with that thing, then say which works count:
+
+```
+get institutions that published works where title-abstract has ("climate change");
+then, summarize each institution using count and mean FWCI
+```
+
+Each row is one institution; `count` is how many of the matching works it has, and `mean FWCI` is over those works. The verb fits the thing:
+
+| Start | Example |
+|---|---|
+| authors | `get authors who published works where institution is [Massachusetts Institute of Technology](I63966007) and published in 2024` |
+| institutions | `get institutions that published works where ...` |
+| sources | `get sources that published works where title-abstract has ("large language model") and published since 2023` |
+| publishers | `get publishers that published works where country is [Kenya](KE) and published in 2024` |
+| funders | `get funders that funded works where country is [Kenya](KE) and published since 2020` |
+| countries | `get countries that published works where topic is [CRISPR and Genetic Engineering](T10878) and published since 2020` |
+| topics | `get topics of works where institution is [University of Kansas](I146416000) and published since 2022` |
+
+**Where the authors are.** `at` an institution reads each author's own record (the institutions on their profile, with years), not the papers' affiliations; `in` takes a country or continent:
+
+```
+get authors at [University of British Columbia](I141945490) since 2022 who published works where title-abstract has (kelp);
+then, summarize each author using count, mean FWCI, and h-index
+```
+
+`at [UBC](I141945490) since 2022` means UBC is on their record in 2022 or later; `at [UBC](I141945490) in 2+ years since 2022` means in at least two of those years; `ever at [UBC](I141945490)` means any year. For where they are now, use their last known institution, OpenAlex's best guess from the record: `get authors where last known institution is [University of British Columbia](I141945490) who published works where title-abstract has (kelp)`. With no year, `at` and `in` look at the last five years, and the echo writes the year out: typing `get authors in BR who published ...` comes back as `get authors in [Brazil](BR) since 2022 who published ...`. Institutions take `in` too: `get institutions in [Asia](Q48) that published works where ...`.
+
+**The thing's own fields** go in a `where` before the verb:
+
+```
+get authors where h-index is above 20 who published works where title-abstract has (kelp)
+get authors where co-author is not [Jason R Priem](A5023888391) who published works where title-abstract has (kelp)
+```
+
+**How many of the matching works each has** goes on the verb: `get authors who published more than 5 works where title-abstract has (kelp)` (also `at least`, `fewer than`, `at most`).
+
+**Split each one's works further** with `group each <thing>'s works by`:
+
+```
+get institutions in [Asia](Q48) that published works where topic is [Livestock and Poultry Management](T13294) and published since 2016;
+then, group each institution's works by year;
+finally, summarize using count
+```
+
+**Count the things themselves** with `summarize all those <things>`: `get authors who published works where topic is [CRISPR and Genetic Engineering](T10878); then, summarize all those authors using count` gives how many distinct authors wrote on CRISPR.
+
+**Just listing things by their own fields is not a calculation.** For MIT's most-cited authors, start from the authors and stop: `get authors where last known institution is [Massachusetts Institute of Technology](I63966007) and h-index is above 50`.
 
 ## Splitting into groups
 
-`group those works by <field>` splits the works you have into groups; everything after it is computed within each group. Split again with `group those works again by`, up to three splits:
+`group those works by <field>` splits the works you have into groups, one per value of a field that isn't a thing: year, type, language, open access status, institution type, source type, subfield, field, domain, keyword, SDG, license, and the yes/no fields. Everything after it is computed within each group. Split by two or three fields in the same step:
 
 ```
-get works where year >= (2020); then group those works by topic
-get works where institution is (I63966007); then group those works by year; then group those works again by type
+get works where country is [Kenya](KE); then, group those works by year
+get works where institution is [Massachusetts Institute of Technology](I63966007); then, group those works by year and type
+get works where country is [Kenya](KE); then, group those works by open access
 ```
 
-Besides a field, you can split by:
+A yes/no field splits in two (`open access` and `not open access`). For one group per author, institution, journal, funder, country or topic, [start with that thing](#start-with-the-thing-you-want).
 
-| Split | Example | Groups |
-|---|---|---|
-| **listed values** | `group those works by institution in (I63966007, I97018004, I136199984)` | one per value, in that order, empty ones included (up to 100) |
-| **searches** | `group those works by title-abstract search in (("edge AI"), ("neuromorphic computing"))` | one per search (up to 100, at most 5 AND/OR/NOT each) |
-| **conditions**, to compare sets or periods | `group those works into ((institution is (I99464096)), (country is (BE)))` · `into ((year <= (2019)), (year >= (2021)))` | one per condition, in order |
-| **bins** of a number | `group those works into citation count bins at (1, 10, 100)` | `0`, `1-9`, `10-99`, `100+`; `bins of (10)` gives equal widths. Decimals (FWCI) always need bins |
-
-A yes/no field splits in two: `open access` and `not open access`.
-
-**Every result also has a summary**: the same numbers for the whole starting set, and with two or more splits, for each split's groups on their own (each year across all open access statuses, each status across all years). Every summary number is computed from the works, never added up or averaged from the group rows. That's your baseline: start from the widest set you want to compare against (the world since 2016, a country), and read each group's numbers against the summary.
-
-**Filter the groups** by adding `where` to the split. A calculation tests each group's works; any other field belongs to the group itself:
+**Split a number into bins:**
 
 ```
-get works where title-abstract has (kelp);
-then group those works by author where count of those works > (10) and h-index > (20)
-
-get works where topic is (T10878);
-then group those works by institution where collaborator is not (I63966007)
+get works where institution is [Massachusetts Institute of Technology](I63966007) and published in 2020;
+then, group those works into citation count bins at (1, 10, 100)
 ```
 
-Filtering on a group's own fields (h-index, last known institution) looks the groups up, so put a count filter first; without one, a big set can take too long, and the check will say so.
+That gives `0`, `1-9`, `10-99`, `100+`; `into FWCI bins of 0.5` gives equal widths. Decimals (FWCI) always need bins.
+
+**Every grouped result also has a summary row**: the same numbers for the whole starting set, and with two or more splits, for each split's groups on their own (each year across all types, each type across all years). Every summary number is computed from the works, never added up or averaged from the group rows. That's your baseline: start from the widest set you want to compare against (the world since 2016, a country, a field), and read each group's numbers against the summary.
+
+## Comparing named things
+
+`compare` gives one row for each thing you name, side by side:
+
+```
+get works where topic is [CRISPR and Genetic Engineering](T10878);
+then, compare institution [Massachusetts Institute of Technology](I63966007) versus [Stanford University](I97018004) versus [Harvard University](I136199984) using count and mean FWCI by year
+```
+
+**Measure** the comparison with `using`, and **break it down** with `by` after that (up to three splits in all, the comparison counting as one). A comparison comes before any other split and ends the query: no `summarize` step after it. The summary row is the whole starting set (all CRISPR papers, here), so each institution reads against the field.
+
+What you can compare:
+
+| Compare | Example |
+|---|---|
+| things in one field (write the field once) | `compare institution [Massachusetts Institute of Technology](I63966007) versus [Stanford University](I97018004)` |
+| different fields | `compare institution [KU Leuven](I99464096) versus country [Belgium](BE) using count and percent of those works by SDG` |
+| searches | `compare title-abstract has "machine learning" versus "edge AI" using count` |
+| periods | `compare published from 2016 through 2019 versus published since 2021 using count and percent open access` |
+| a yes/no field | `compare open access versus not open access using count and mean FWCI by year` |
+| one thing against the rest | `compare country [India](IN) versus country is not [India](IN) using mean FWCI` |
+| each member of a collection | `compare each institution in the collection (col_abc123) using count` |
+
+`is` goes unsaid inside a comparison, but `is not` is written out. Inside one item, `and` / `or` are logic. Rows can overlap (a paper by MIT and Stanford counts in both). Up to 100 items; for more, save them as a collection and compare its members. To set yourself against your peers as one row: `compare institution [Massachusetts Institute of Technology](I63966007) versus institution in the collection (col_abc123)`.
 
 ## Calculating
 
-`summarize using` is always the last step:
+`summarize ... using` is always the last step. It names what it summarizes:
 
 ```
-get works where country is (KE) and year >= (2015);
-then group those works by year;
-then summarize using count, percent open access
+get works where country is [Kenya](KE) and published since 2015; then, summarize all those works using percent open access
+get works where country is [Kenya](KE) and published since 2015; then, group those works by year; finally, summarize using percent open access
+get authors who published works where title-abstract has (kelp); then, summarize each author using count and h-index
 ```
+
+`summarize all those works using` gives one row for the whole set; after a split, `summarize using`; after a things start, `summarize each <thing> using` (one row each) or `summarize all those <things> using` (one row for all of them).
 
 | Calculation | Example |
 |---|---|
 | `count` | `summarize using count` |
 | `mean`, `median`, `sum`, `min`, `max` of a number field (`min`/`max` also of a date) | `mean FWCI`, `median citation count`, `sum APC paid`, `max date` |
 | `percent` of a yes/no field | `percent open access`, `percent retracted` |
-| `percent of those works` | each group's share of the set it came from |
-| after a split by authors, institutions or sources, their own fields | `get works where source is (S137773608); then group those works by author; then summarize using count, h-index` |
+| `percent of those works` | each row's share of the set it came from |
+| the things' own fields, after a things start | `summarize each author using count, h-index, and last known institution` |
 
-With splits you get a flat table, one row per group with a column per split (group by year, then by open access status: a year column and a status column), plus the summary; without any split, one row.
+A field of the works always needs a calculation: `mean authors count`, never `authors count`.
+
+With splits you get a flat table, one row per group with a column per split (group by year and type: a year column and a type column), plus the summary; without any split, one row.
 
 > Sorting and choosing columns are **not** part of OQL. They're controls in the results view (`?sort=` / `?select=` on the API, where `sort` takes any calculated column, e.g. `sort=mean_fwci:desc`). OQL says *which* works and *which* numbers, not how to display them.
 
+## Walking out to related things
+
+A walk moves from the works you have to the things related to them, and then to everything those things did, not just the works you started with:
+
+```
+get works where institution is [University of Kansas](I146416000) and published in 2023;
+then, get each author of those works where h-index is above 20;
+then, get all that author's works;
+finally, summarize each author using count and mean FWCI
+```
+
+That's each Kansas 2023 author with an h-index above 20, and their count and mean FWCI over **all** their papers. Compare `get authors who published works where ...`, whose numbers count only the matching works.
+
+- `get each <thing> of those works` gives one result per thing (author, institution, source, publisher, funder, topic, subfield, field, domain, keyword, SDG, country); filter them by their own fields with `where`.
+- `get <things> of those works` gives one combined set; `get all those <things>' works` then gives one list of works you can split:
+
+```
+get works where topic is [CRISPR and Genetic Engineering](T10878);
+then, get institutions of those works;
+then, get all those institutions' works where published since 2025;
+finally, group those works by type
+```
+
+One walk out per query, before any split. After `get each`, summarize directly (no split).
+
+## Sampling
+
+`sample` returns a random subset; add a seed to get the same subset again:
+
+```
+get works where published in 2020; then, sample 500 of those works
+get works where published in 2020; then, sample 500 of those works with seed 42
+```
+
 ## Downloading results
 
-A query with a `summarize using` step, a split by a list, bins or conditions, or a filter on its groups exports every group, however many there are, the same way a list of works exports every work. On the website, use the download button above the results: the Export dialog shows the price before you start, and you can follow the export in **Settings → Exports**. An export costs the query's price for every 100 rows it writes (1 credit per 100 groups for a filtered set, 10 for a search), and stops if your credits run out.
+A query with a `summarize` step, a comparison, bins, or a things start exports every row, however many there are, the same way a list of works exports every work. On the website, use the download button above the results: the Export dialog shows the price before you start, and you can follow the export in **Settings → Exports**. An export costs the query's price for every 100 rows it writes (1 credit per 100 groups for a filtered set, 10 for a search), and stops if your credits run out.
 
 There's nothing to choose. With no split, the export is the one row for the whole set, as a CSV. With splits, it's one zip of:
 
@@ -199,14 +332,14 @@ There's nothing to choose. With no split, the export is the one row for the whol
 On the API, the two are separate calls: `format=csv` for the groups, and `format=csv&table=summary` for the summary (one CSV, or a zip of one CSV per table with two or more splits). A single split by a field pages: add `cursor=*` and follow the `X-Next-Cursor` response header (10,000 groups a page) until it's gone. Everything else comes whole in one answer.
 
 ```
-https://api.openalex.org/?oql=get works where country is (KE) and year >= (2015); then group those works by year; then summarize using count, percent open access&format=csv
+https://api.openalex.org/?oql=get works where country is [Kenya](KE) and published since 2015; then, group those works by year; finally, summarize using count and percent open access&format=csv
 ```
 
 ## Limits, time and price
 
-Up to three splits; up to 100 items in a list; at most 5 AND/OR/NOT in each listed search; a nested split up to 10,000 groups per split (a single split pages through any number); about ten seconds a query. Anything over a limit is refused before it runs, with the limit and how to fix it.
+Up to three splits (a comparison counts as one); up to 100 items in a list or a comparison; at most 5 AND/OR/NOT in each compared search; a nested split up to 10,000 groups per split (a single split pages through any number); one walk out per query; about ten seconds a query. Anything over a limit is refused before it runs, with the limit and how to fix it.
 
-A query with a `summarize using` step, a split by a list, bins or conditions, or a filter on its groups is priced from what it does: the starting set costs what a list (1 credit) or a search (10) costs, each listed search 10, each lookup 1. Nothing else adds to the price: splits by a field, counts, means and percentages are free. Any other query costs what the same query costs as a URL: 1 credit for a list, 10 for a search, grouped or not. The check tells you the price for free, and a response shows what it cost in `meta.cost`. See [Example costs](/access/example-costs/#what-an-oql-calculation-costs).
+A query with a `summarize` step, a comparison, bins, or a things start is priced from what it does: the starting set costs what a list (1 credit) or a search (10) costs, each compared search 10, each lookup 1. Nothing else adds to the price: splits by a field, counts, means and percentages are free. Any other query costs what the same query costs as a URL: 1 credit for a list, 10 for a search. The check tells you the price for free, and a response shows what it cost in `meta.cost`. See [Example costs](/access/example-costs/#what-an-oql-calculation-costs).
 
 ## OQL never guesses
 
@@ -214,14 +347,18 @@ A query that can't do what it appears to do is always a clear error **with a fix
 
 | You wrote | OQL says |
 |---|---|
-| `... then group those works by FWCI` | FWCI is a decimal: split it into bins, `group those works into FWCI bins at (0.5, 1, 2)` |
-| `... then summarize using authors count` | name the calculation: `summarize using mean authors count` |
-| `... then group those authors by year` (after `get works`) | this query holds works: `group those works by year` |
-| `title has (bar*)` | wildcards need quotes: `title has ("bar*")` |
-| `type is (article review)` | two values need a connective: `type is (article or review)` |
-| a fourth split | a query splits its works at most three times: drop a split |
+| `...; then, group those works by FWCI` | FWCI is a decimal: split it into bins, `group those works into FWCI bins at (0.5, 1, 2)` |
+| `...; then, summarize all those works using authors count` | name the calculation: `mean authors count` (or median, sum, min, max) |
+| `published after 2021-06-01` | ambiguous for a date: write `published since 2021-06-02`, or `since 2021-06-01` to include it |
+| `type is (article review)` | two values need a connective: `or` (or `and` if you mean both) |
+| four splits | a query splits its works at most three times: drop a split |
+| `institution is in the collection col_abc123` | wrap the collection ID: `(col_abc123)` |
 | `title contains (cancer)` | `contains` was renamed: use `title has (cancer)` |
-| `pub_year is (2020)` | unknown field `pub_year`: check the field name (you want `year`) |
+| `pub_year is (2020)` | unknown field `pub_year`: check the field name (you want `published in 2020`) |
+
+## Not in the language yet
+
+Splitting each walked thing's works further (walk to the combined set instead); a second walk out in one query; sorting or top N inside the query (results come back sorted by count; ask for all groups and read the top, or sort in the results view). And nothing OpenAlex doesn't hold.
 
 ## Going deeper
 
