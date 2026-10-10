@@ -18,8 +18,9 @@ import {
   revokeAllGrants, keyLabel,
 } from "./auth";
 import { ICON_PNG_BASE64 } from "./icon";
+import { chatApp, type ChatEnv } from "./chatRoute";
 
-export interface Env extends AuthEnv {
+export interface Env extends AuthEnv, ChatEnv {
   ENVIRONMENT: string;
   OPENALEX_API_BASE: string;
   /** Exact public MCP endpoint URL; doubles as the OAuth resource identifier (RFC 9728). */
@@ -278,6 +279,9 @@ function providerFor(env: Env): OAuthProvider<Env> {
 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // The results-page chat panel (oxjob #1494) authenticates with the person's OpenAlex key, not an OAuth
+    // token, so it is answered before the provider sees the request.
+    if (new URL(request.url).pathname === "/chat") return Promise.resolve(chatApp.fetch(request, env, ctx));
     return providerFor(env).fetch(request, env, ctx);
   },
   /** Nightly KV sweep for expired grants/tokens (cron trigger in wrangler.jsonc). */
