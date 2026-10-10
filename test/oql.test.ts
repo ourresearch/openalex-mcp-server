@@ -149,6 +149,7 @@ describe("thing-first", () => {
     expect(oqlThingFirst("get institutions in [Asia](Q48) that published works where topic is [Poultry](T13294)")?.thing).toBe("institutions");
     expect(oqlThingFirst("get authors who published more than 5 works where title has kelp")?.thing).toBe("authors");
     expect(oqlThingFirst("get topics of works where institution is (I1)")?.thing).toBe("topics");
+    expect(oqlThingFirst("get authors who were corresponding authors of works where author is (A1)")?.thing).toBe("authors");
     expect(oqlThingFirst("get authors where h-index is above 20")).toBeNull();
     expect(oqlThingFirst("get sources where works count is above 1000")).toBeNull();
   });

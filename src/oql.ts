@@ -95,7 +95,8 @@ export function oqlHasGroupBy(oql: string): boolean {
 // by the thing, one row per author over the works that match. Any verb, `with` or `of`, an optional count.
 const THING_FIRST_HEAD = new RegExp(
   String.raw`^get\s+(authors|institutions|sources|journals|publishers|funders|countries|topics)\b[\s\S]*?` +
-  String.raw`\b(?:(?:who|that|which)\s+(?:(?:ever|have|has|also|all)\s+)*[a-z-]+|with|of)\s+` +
+  String.raw`\b(?:(?:who|that|which)\s+(?:(?:were|was)\s+(?:the\s+)?corresponding\s+(?:authors?|institutions?)\s+(?:of|on|for)` +
+  String.raw`|(?:(?:ever|have|has|also|all)\s+)*[a-z-]+)|with|of)\s+` +
   String.raw`(?:(?:more than|at least|fewer than|at most|over|under)\s+\d+\s+)?works?\b` +
   String.raw`(?:\s+(?:anywhere|at any institution(?:,?\s+in any year)?|in any year|\(at any institution,?\s+in any year\)))?`,
   "i");
