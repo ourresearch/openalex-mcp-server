@@ -42,7 +42,7 @@ How to write good queries:
 - People: choose the author profile whose name order, affiliation and output fit the person meant; don't join several profiles unless asked.
 - Never put a placeholder or guessed id in a query. If you can't resolve something, leave it out and say so.
 - A random sample: \`...; then, sample 25 of those works with seed 1\`.
-- Sort keys are the API's column names, not OQL words: \`cited_by_count:desc\`, \`publication_date:desc\`, \`fwci:desc\`, \`relevance_score:desc\` (with a search), \`works_count:desc\`, \`summary_stats.h_index:desc\`, \`summary_stats.2yr_mean_citedness:desc\`; for a calculated column use the key the preview lists in \`measures\` (e.g. \`mean_fwci:desc\`, \`percent_open_access_is_oa:desc\`).
+- Sort by a field or calculation in OQL words: \`citation count:desc\`, \`h-index:desc\`, \`works count:desc\`, \`publication_date:desc\`, \`relevance_score:desc\` (with a search); a calculation by its name in the summary: \`mean FWCI:desc\`, \`percent open access:desc\`, \`count:desc\`.
 - One row per person or institution: start with the thing, e.g. \`get authors at [University of Kansas](I146416000) who published works where ...; then, summarize each author using count\`.
 `;
 
