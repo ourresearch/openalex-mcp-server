@@ -9,7 +9,10 @@
   "account_id": "a452eddbbe06eb7d02f4879cee70d29c",
   "main": "src/queryWriter.ts",
   "compatibility_date": "2026-08-01",
-  "compatibility_flags": ["nodejs_compat"],
+  // global_fetch_strictly_public: the agent's calls to api.openalex.org must go through the public route (the API
+  // proxy), so they run and are charged to the caller's key like any call; without it a same-account fetch can go
+  // straight to the origin (first production run, 2026-10-11: every query "doesn't run"). The MCP Worker has it too.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "workers_dev": false,
   "preview_urls": false,
