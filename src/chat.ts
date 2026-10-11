@@ -31,7 +31,10 @@ How to work:
 3. Write the query and try it with run_oql. Check the preview: does it look like the answer? Fix and retry if not.
 4. Call submit with the query exactly as it ran, the sort (an API sort such as cited_by_count:desc or a calculated column key from the preview such as mean_fwci:desc; empty for none), and a note of at most 30 words telling the person what you assumed or what the query can't cover.
 
-If one query can't fully answer the question, submit the closest useful query and say in the note what's missing. Be quick: most questions need one or two tool calls before submit.
+Be quick: most questions need one or two tool calls before submit.
+- Two or more questions in one message ("which journals do we publish in, and what do they cite?"): answer the first with your query and name the rest in left_out, in a few words; the reply tells the person. One question with several conditions, fields or numbers is one question, and so is anything the same query also shows.
+- Out of reach (OpenAlex doesn't hold it, or one query can't say it): submit the nearest useful query, and say plainly what's out of reach in out_of_reach, in a few words.
+- When the person asks how to do it ("how do I find papers citing ..."), also give howto: one line on how they could do it themselves on OpenAlex.
 When the page already shows a query and the person asks for a change ("only open access", "since 2020"), edit that query rather than starting over.
 
 How to write good queries:
@@ -88,7 +91,12 @@ export const TOOLS: Anthropic.Tool[] = [
     description: "Submit the query that answers the question; it sets the results page. Call once, last.",
     input_schema: {
       type: "object",
-      properties: { oql: { type: "string" }, sort: { type: "string" }, note: { type: "string" } },
+      properties: {
+        oql: { type: "string" }, sort: { type: "string" }, note: { type: "string" },
+        left_out: { type: "string", description: "the second (and later) questions you left out, in a few words; omit when there's one question" },
+        out_of_reach: { type: "string", description: "what OpenAlex or one query can't answer, in a few words; omit when the query answers it all" },
+        howto: { type: "string", description: "one line on how to do it themselves on OpenAlex, only when they asked how" },
+      },
       required: ["oql", "sort", "note"],
     },
   },
@@ -126,7 +134,8 @@ export const WORD_RULE = "These search words aren't in the person's request. Sea
 
 export type ChatEvent =
   | { type: "step"; tool: "find_entity" | "run_oql"; detail: string }
-  | { type: "answer"; oql: string; sort: string | null; note: string; preview: Preview; new_words: string[] }
+  | { type: "answer"; oql: string; sort: string | null; note: string; preview: Preview; new_words: string[];
+      left_out: string | null; out_of_reach: string | null; howto: string | null }
   | { type: "done"; messages: Anthropic.MessageParam[]; cost_usd: number; usage: Usage; turns: number; word_retries: number }
   | { type: "error"; message: string };
 
@@ -291,7 +300,9 @@ export async function runChat(
         if (!p.ok) {
           await emit({ type: "error", message: "The assistant's last query doesn't run." });
         } else {
-          await emit({ type: "answer", oql: p.canonical ?? a.oql, sort: a.sort || null, note: a.note ?? "", preview: p, new_words: added });
+          const opt = (v: any) => (typeof v === "string" && v.trim() ? v.trim() : null);
+          await emit({ type: "answer", oql: p.canonical ?? a.oql, sort: a.sort || null, note: a.note ?? "", preview: p, new_words: added,
+            left_out: opt(a.left_out), out_of_reach: opt(a.out_of_reach), howto: opt(a.howto) });
           answered = true;
         }
         results.push({ type: "tool_result", tool_use_id: b.id, content: p.ok ? "received" : "Not submitted: this query fails." });

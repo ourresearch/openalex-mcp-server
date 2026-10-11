@@ -71,7 +71,8 @@ async function one(r: any): Promise<any> {
     cost_usd: d.meta?.cost?.usd ?? credits / 10000, credits,
     error: status === 200 ? null : (d.error ?? `HTTP ${status}`),
     status, route: d.route ?? null, path: d.meta?.path ?? null, answer: d.answer ?? null, link: d.link ?? null,
-    left_out: d.left_out ?? null, confidence: d.confidence ?? null, version: VERSION, meta: d.meta ?? null,
+    left_out: d.left_out ?? null, out_of_reach: d.out_of_reach ?? null, howto: d.howto ?? null,
+    confidence: d.confidence ?? null, version: VERSION, meta: d.meta ?? null,
   };
 }
 

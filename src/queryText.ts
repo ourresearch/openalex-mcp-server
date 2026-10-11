@@ -22,6 +22,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { CHAT_EFFORT, CHAT_MODEL, runChat, runOql, type ChatEvent, type Institution, type Preview } from "./chat";
 import { frontDoor } from "./frontDoor";
+import { HELP_EFFORT, HELP_MODEL, helpDesk, routeQuestion, type RouteResult } from "./router";
 import { OpenAlexClient } from "./openalex";
 
 export interface QueryWriterEnv {
@@ -126,7 +127,7 @@ function reply(status: number, body: Record<string, any>, credits: number): Resp
 /** One question to one answer. Exported for tests; the deps default to the real clients. */
 export async function handle(
   req: Request, env: QueryWriterEnv,
-  deps: { anthropic?: any; openalex?: any; fetchImpl?: typeof fetch; guide?: string } = {},
+  deps: { anthropic?: any; openalex?: any; fetchImpl?: typeof fetch; guide?: string; route?: (text: string, currentQuery: string | null) => Promise<RouteResult> } = {},
 ): Promise<Response> {
   const started = Date.now();
   const parsed = await parseRequest(req);
@@ -153,6 +154,24 @@ export async function handle(
     }, 0);
   }
 
+  // The router: a how-to with no subject goes to the help desk (an answer from help.openalex.org with a link, no
+  // query); anything else, or a help desk that fails, goes on to the OQL agent.
+  const routed = deps.route ? await deps.route(parsed.text, parsed.currentQuery) : await routeQuestion(anthropic, parsed.text, parsed.currentQuery);
+  let preUsd = routed.costUsd;
+  if (routed.route === "help_desk") {
+    const help = await helpDesk(anthropic, parsed.text, deps.fetchImpl ?? fetch);
+    preUsd += help.costUsd;
+    if (help.text) {
+      const credits = creditsFor(preUsd);
+      return reply(200, {
+        text: parsed.text, route: "help_desk", answer: help.text, link: help.link || null, oql: null, sort: null, note: null,
+        confidence: null, count: null, preview: null,
+        meta: { path: "help_desk", model: HELP_MODEL, effort: HELP_EFFORT, turns: help.turns, elapsed_ms: Date.now() - started,
+          cost: { credits, usd: Math.round(preUsd * 1e6) / 1e6 } },
+      }, credits);
+    }
+  }
+
   let answer: Extract<ChatEvent, { type: "answer" }> | null = null;
   let error: string | null = null;
   let turns = 0;
@@ -171,10 +190,11 @@ export async function handle(
   const conf = answer
     ? await confidence(env.TYPESAFE_API_KEY, parsed.text, answer, deps.fetchImpl ?? fetch)
     : { p: null, costUsd: 0 };
-  const usd = out.cost_usd + conf.costUsd;
+  const usd = preUsd + out.cost_usd + conf.costUsd;
   const credits = creditsFor(usd);
   const meta = {
-    path: "model", tried: door.tried, model: CHAT_MODEL, effort: CHAT_EFFORT, turns, elapsed_ms: Date.now() - started,
+    path: "model", tried: routed.route === "help_desk" ? [...door.tried, "help_desk"] : door.tried,
+    model: CHAT_MODEL, effort: CHAT_EFFORT, turns, elapsed_ms: Date.now() - started,
     cost: { credits, usd: Math.round(usd * 1e6) / 1e6 },
     // the no-new-words check: submits refused for new search words, and any left when the turns ran out
     word_retries: wordRetries, new_words: (answer as any)?.new_words ?? [],
@@ -190,6 +210,10 @@ export async function handle(
     oql: a.oql,
     sort: a.sort,
     note: a.note,
+    // two questions in one: the one left out; what one query can't answer; a line of how-to when they asked how
+    left_out: a.left_out,
+    out_of_reach: a.out_of_reach,
+    howto: a.howto,
     confidence: conf.p,
     count: a.preview.count ?? null,
     preview: a.preview,

@@ -31,6 +31,7 @@ function fakeAnthropic(turns: any[][], usage = USAGE) {
 }
 
 const tool = (id: string, name: string, input: any) => ({ type: "tool_use", id, name, input });
+const DATA = async () => ({ route: "data" as const, costUsd: 0 });
 const SUBMIT = tool("s", "submit", { oql: "get works where title-abstract-keywords has (coffee AND health) and it's open access", sort: "", note: "All years." });
 
 const jevFetch = (p: number) => (async () => new Response(JSON.stringify({ answers: { answers: { type: "noul", noul: p } }, usage: { input_tokens: 600 } }))) as unknown as typeof fetch;
@@ -79,7 +80,7 @@ describe("handle", () => {
   it("answers with the query, note, confidence, count and a cost header the proxy settles from", async () => {
     const anthropic = fakeAnthropic([[tool("r", "run_oql", { oql: SUBMIT.input.oql })], [SUBMIT]]);
     const res = await handle(get("/query/text/open%20access%20articles%20about%20coffee%20and%20health"), { OPENALEX_API_BASE: BASE, TYPESAFE_API_KEY: "t" },
-      { anthropic, openalex: fakeOpenAlex(), fetchImpl: jevFetch(0.874), guide: "G" });
+      { anthropic, openalex: fakeOpenAlex(), fetchImpl: jevFetch(0.874), guide: "G", route: DATA });
     expect(res.status).toBe(200);
     const body: any = await res.json();
     expect(body.oql).toContain("coffee AND health");
@@ -99,7 +100,7 @@ describe("handle", () => {
   });
 
   it("reports what the model cost when it finds no query (422; the proxy charges errors nothing)", async () => {
-    const res = await handle(get("/query/text/kelp"), { OPENALEX_API_BASE: BASE }, { anthropic: fakeAnthropic([[{ type: "text", text: "hmm" }]]), openalex: fakeOpenAlex(), guide: "G" });
+    const res = await handle(get("/query/text/kelp"), { OPENALEX_API_BASE: BASE }, { anthropic: fakeAnthropic([[{ type: "text", text: "hmm" }]]), openalex: fakeOpenAlex(), guide: "G", route: DATA });
     expect(res.status).toBe(422);
     expect(Number(res.headers.get("X-Credits-Cost"))).toBe(Math.ceil(costUsd(USAGE) * 10000));
   });
@@ -124,11 +125,49 @@ describe("handle", () => {
     expect(anthropic.requests).toHaveLength(0);
   });
 
+  it("answers a how-to with no subject from the help site, with a link and no query", async () => {
+    const anthropic = fakeAnthropic([
+      [tool("p", "read_help_page", { url: "https://help.openalex.org/how-to/fixing-authors/" })],
+      [tool("a", "answer", { text: "Claim your profile, then add or remove works yourself.", link: "https://help.openalex.org/how-to/fixing-authors/" })],
+    ]);
+    const pages: string[] = [];
+    const fetchImpl = (async (u: any) => { pages.push(String(u)); return new Response(String(u).endsWith("llms.txt") ? "# OpenAlex Help\n- [Fixing authors](https://help.openalex.org/how-to/fixing-authors/)" : "# Fixing authors\nClaim it."); }) as unknown as typeof fetch;
+    const res = await handle(post({ text: "how do I fix my author profile?" }), { OPENALEX_API_BASE: BASE },
+      { anthropic, openalex: fakeOpenAlex(), guide: "G", fetchImpl, route: async () => ({ route: "help_desk", costUsd: 0.0003 }) });
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    expect(body).toMatchObject({ route: "help_desk", oql: null, link: "https://help.openalex.org/how-to/fixing-authors/" });
+    expect(body.answer).toContain("Claim your profile");
+    expect(pages).toContain("https://help.openalex.org/how-to/fixing-authors.md");
+    expect(anthropic.requests[0].system[0].text).toContain("# OpenAlex Help");
+    expect(body.meta.cost.credits).toBe(Math.ceil((0.0003 + 2 * (1000 * 4 + 200 * 20 + 9000 * 0.2) / 1e6) * 10000));
+  });
+
+  it("routes with the router model and falls back to data when the router fails", async () => {
+    const anthropic = fakeAnthropic([[{ type: "text", text: '{"route": "data"}' }], [SUBMIT]]);
+    const res = await handle(post({ text: "open access articles about coffee and health" }), { OPENALEX_API_BASE: BASE }, { anthropic, openalex: fakeOpenAlex(), guide: "G" });
+    expect(res.status).toBe(200);
+    expect(anthropic.requests[0].model).toBe("claude-haiku-5-5");
+    expect(anthropic.requests[0].output_config.format.schema.properties.route.enum).toEqual(["help_desk", "data"]);
+    expect(anthropic.requests[1].model).toBe("claude-opus-5-5");
+    const broken = fakeAnthropic([[{ type: "text", text: "not json" }], [SUBMIT]]);
+    expect((await handle(post({ text: "open access articles about coffee and health" }), { OPENALEX_API_BASE: BASE }, { anthropic: broken, openalex: fakeOpenAlex(), guide: "G" })).status).toBe(200);
+  });
+
+  it("returns the question left out, what's out of reach and a line of how-to", async () => {
+    const sub = tool("s", "submit", { ...SUBMIT.input, left_out: "what they cite", out_of_reach: " ", howto: "Search titles and abstracts for coffee and health, then filter to open access." });
+    const res = await handle(post({ text: "how do I find open access articles about coffee and health, and what do they cite?" }), { OPENALEX_API_BASE: BASE },
+      { anthropic: fakeAnthropic([[sub]]), openalex: fakeOpenAlex(), guide: "G", route: DATA });
+    const body: any = await res.json();
+    expect(body).toMatchObject({ route: "query", left_out: "what they cite", out_of_reach: null });
+    expect(body.howto).toContain("filter to open access");
+  });
+
   it("passes a follow-up's current query on and has no spending cap beyond the turn limit", async () => {
     const pricey = { input_tokens: 0, output_tokens: 8000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }; // $0.16 a turn
     const anthropic = fakeAnthropic([[tool("f", "find_entity", { type: "institutions", name: "Kansas" })], [tool("r", "run_oql", { oql: "x" })], [SUBMIT]], pricey);
     const res = await handle(post({ text: "only open access", current_query: "get works where title has (coffee AND health)" }), { OPENALEX_API_BASE: BASE },
-      { anthropic, openalex: fakeOpenAlex(), guide: "G" });
+      { anthropic, openalex: fakeOpenAlex(), guide: "G", route: DATA });
     expect(res.status).toBe(200);
     expect(anthropic.requests).toHaveLength(3);
     expect(JSON.stringify(anthropic.requests[1].messages)).not.toContain("Last turn");
