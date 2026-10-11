@@ -17,12 +17,22 @@ export interface BooleanSearch {
   notes: string[];
 }
 
-// Words that make a string a request in prose rather than a search string ("papers on kelp AND climate since 2020").
+// Words that make a string a request in prose rather than a search string ("papers on kelp AND climate since 2020"),
+// in the languages of #1494's traffic sample. Prose in other languages is caught by MAX_PLAIN_WORDS when it has no
+// operator ("Encontre trabalhos que mencionem "realidade virtual" e audiência").
 const REQUEST = new Set(["find", "search", "show", "list", "give", "get", "me", "my", "our", "papers", "paper", "articles",
   "article", "works", "publications", "since", "between", "published", "about", "how", "what", "which", "who", "where",
   "when", "why", "many", "much", "most", "top", "cited", "citations", "count", "number", "percent", "percentage", "share",
   "rank", "ranking", "compare", "versus", "please", "want", "need", "looking", "can", "could", "would", "should", "do",
-  "does", "did", "i", "we", "you"]);
+  "does", "did", "i", "we", "you",
+  "buscar", "busca", "busque", "encontre", "encuentra", "encontrar", "trabajos", "trabalhos", "artículos", "artigos",
+  "trouve", "trouver", "cherche", "travaux", "articles", "finde", "finden", "suche", "arbeiten", "finn", "cerca", "trova"]);
+/**
+ * A string with quotes or wildcards but no operator or field tag is a search string only with this few other words
+ * (`"coverage path planning" survey`); two prose words around a phrase are a request ("Karya tentang "...""). Chosen on
+ * #1494's tuning strings (no Boolean string lost) and checked on a fresh chat-phrased draw, 2026-10-11.
+ */
+const MAX_PLAIN_WORDS = 1;
 
 // Database field tags and functions, by the OpenAlex field they search. MeSH and "all fields" read as words.
 const TAG_FIELD: Array<[RegExp, SearchField | "words"]> = [
@@ -75,6 +85,8 @@ function tokenize(s: string, notes: Set<string>): Tok[] | null {
   while (i < s.length) {
     const c = s[i];
     if (/\s|,/.test(c)) { i++; continue; }
+    // Google style +"required term": required is what AND already means
+    if (c === "+" && (i === 0 || /[\s(]/.test(s[i - 1])) && /["'(\p{L}\p{N}]/u.test(s[i + 1] ?? "")) { i++; continue; }
     // Scopus field functions: TITLE-ABS-KEY(...). PUBYEAR > 2015, LIMIT-TO(...), AUTH(...) are filters, not
     // searches: the model handles strings with those.
     const fn = s.slice(i).match(/^([A-Z][A-Z-]{1,15})\s*\(/);
@@ -172,6 +184,8 @@ export function booleanSearch(text: string): BooleanSearch | null {
   const strong = toks.some((t) => t.t === "op" || t.t === "near") || terms.some((t) => t.field !== undefined);
   const weak = quotedCount > 0 || terms.some((t) => /[*?]/.test(t.v));
   if (!strong && !weak) return null;
+  // quotes alone, with many other words around them, is prose ("Finde die Arbeit "Zur Allgemeinen Relativitätstheorie"")
+  if (!strong && plain.filter((w) => !/[*?]/.test(w)).length > MAX_PLAIN_WORDS) return null;
   // balanced parentheses, and no operator left dangling
   let depth = 0;
   for (const t of toks) { depth += t.t === "(" ? 1 : t.t === ")" ? -1 : 0; if (depth < 0) return null; }
@@ -190,23 +204,35 @@ export function booleanSearch(text: string): BooleanSearch | null {
 
   // rebuild the string: phrases quoted, operators in capitals, proximity between two single words as "a b"~n
   const parts: string[] = [];
+  // what was last written: two bare words side by side stay as typed ("landscape archaeology"); any other pair of
+  // terms or groups gets its AND written out, because the live parser drops a phrase's quotes after a bare word
+  // (`survey "coverage path planning"` echoes as four loose words; reported to #1555, 2026-10-11)
+  let last: "bare" | "other" | "op" = "op";
+  const term = (s: string, bare: boolean) => {
+    if (last !== "op" && !(bare && last === "bare")) parts.push("AND");
+    parts.push(s);
+    last = bare ? "bare" : "other";
+  };
   for (let k = 0; k < toks.length; k++) {
     const t = toks[k];
-    if (t.t === "(" || t.t === ")") parts.push(t.t);
-    else if (t.t === "op") parts.push(t.v);
+    if (t.t === "(") { if (last !== "op") parts.push("AND"); parts.push("("); last = "op"; }
+    else if (t.t === ")") { parts.push(")"); last = "other"; }
+    else if (t.t === "op") { parts.push(t.v); last = "op"; }
     else if (t.t === "near") {
       const a = toks[k - 1];
       const b = toks[k + 1];
       if (a?.t === "term" && b?.t === "term" && !/\s/.test(a.v) && !/\s/.test(b.v) && !/[*?]/.test(a.v + b.v) && parts.length) {
         parts[parts.length - 1] = `"${a.v.replace(/"/g, "")} ${b.v.replace(/"/g, "")}"~${t.n}`;
+        last = "other";
         k++;
       } else {
         parts.push("AND");
+        last = "op";
         flags.add("near-and");
       }
-    } else if (t.t === "term") parts.push(t.quoted ? `"${t.v.replace(/"/g, "")}"` : t.v);
+    } else if (t.t === "term") term(t.quoted ? `"${t.v.replace(/"/g, "")}"` : t.v, !t.quoted && !/^".*"~\d+$/.test(t.v));
   }
-  // join, with no space after "(" or before ")"; operators where the person left two terms side by side stay implicit
+  // join, with no space after "(" or before ")"
   let out = parts.join(" ").replace(/\(\s+/g, "(").replace(/\s+\)/g, ")");
   if (flags.has("empty")) {
     // an empty "" dropped: drop the operator it leaves dangling too ("Templeton World Charity Foundation" OR "")
@@ -224,21 +250,21 @@ export function booleanSearch(text: string): BooleanSearch | null {
   if (flags.has("near-and")) notes.push("a proximity operator between phrases or groups ran as AND");
   if (flags.has("fuzzy")) notes.push("fuzzy matching (~) isn't supported; those words ran as typed");
   if (mixesWithoutParens(toks)) {
-    notes.push("AND and OR are mixed without parentheses: OpenAlex reads AND first, as the query shows; add parentheses to group differently");
+    notes.push("OR is mixed with AND or NOT without parentheses: the query shows how OpenAlex grouped them; add parentheses to group differently");
   }
   return { oql: `get works where ${field} has (${out})`, field, notes };
 }
 
-/** True when some parenthesis level has both AND and OR directly in it. */
+/** True when some parenthesis level has OR beside AND or NOT directly in it ("a AND b OR c", "a OR b NOT c"). */
 function mixesWithoutParens(toks: Tok[]): boolean {
   const levels: Array<Set<string>> = [new Set()];
   for (const t of toks) {
     if (t.t === "(") levels.push(new Set());
     else if (t.t === ")") levels.pop();
-    else if (t.t === "op" && t.v !== "NOT") {
+    else if (t.t === "op") {
       const l = levels[levels.length - 1];
       l.add(t.v);
-      if (l.has("AND") && l.has("OR")) return true;
+      if (l.has("OR") && (l.has("AND") || l.has("NOT"))) return true;
     }
   }
   return false;
@@ -252,28 +278,37 @@ export function titleWords(s: string): string[] {
   return fold(s).match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
+// A request's opening, not a title's: "Find ...", "Research on ...", "Studies about ..."
+const REQUEST_OPENING = /^(?:(?:find|show|list|get|give|search|look)\b|(?:research|studies|study|papers|articles|works|publications|literature)\s+(?:on|about|into|regarding|concerning)\b)/i;
+
+export interface TitleCandidate {
+  title: string;
+  /** Asked for by its title ("Find the paper titled "..."", "Finde die Arbeit mit dem Titel "...""). */
+  explicit: boolean;
+}
+
 /**
- * The title to look up, when the input looks like a pasted title or asks for a paper by its quoted title; else null.
- * Shortcut: shape only (4-60 words, or 3 with a colon; 6 when it starts lowercase). lookupTitle accepts a lookup only
- * when a work's title matches and the phrase is rare, which keeps most topic searches out; the lowercase rule keeps out
- * short topic searches that happen to be a real title.
+ * The title to look up, when the input asks for a paper by its quoted title or looks like a pasted title; else null.
+ * Shortcut: shape only (4-60 words, or 3 with a colon; 6 when it starts lowercase; not a request's opening).
+ * lookupTitle accepts a lookup only when a work's title matches and the phrase is rare, which keeps most topic searches
+ * out; the lowercase rule keeps out short topic searches that happen to be a real title.
  */
-export function titleCandidate(text: string): string | null {
+export function titleCandidate(text: string): TitleCandidate | null {
   const s = cleanSearchText(text);
   if (TITLED.test(s)) {
     const q = [...s.matchAll(/"([^"]{8,})"/g)].map((m) => m[1].trim()).sort((a, b) => b.length - a.length)[0];
-    if (q && titleWords(q).length >= 3) return q;
+    if (q && titleWords(q).length >= 3) return { title: q, explicit: true };
   }
-  // one quoted phrase of four or more words, alone: a title first (queryText.ts falls back to the phrase search)
+  // one quoted phrase of four or more words, alone: a title first (frontDoor falls back to the phrase search)
   const whole = s.match(/^"([^"]+)"\.?$/);
-  if (whole && titleWords(whole[1]).length >= 4) return whole[1].trim();
-  if (booleanSearch(s)) return null;
+  if (whole && titleWords(whole[1]).length >= 4) return { title: whole[1].trim(), explicit: false };
+  if (booleanSearch(s) || REQUEST_OPENING.test(s)) return null;
   const n = titleWords(s).length;
   if (n > 60 || (n < 4 && !(n >= 3 && s.includes(":")))) return null;
   // a short all-lowercase string is a topic search more often than a title ("circular economy and finance": two works
   // carry that phrase, but the person wanted the topic; #1494 traffic sample, 2026-10-11)
   if (!/^\p{Lu}/u.test(s) && n < 6) return null;
-  return s.replace(/"/g, "").replace(/[.\s]+$/, "");
+  return { title: s.replace(/"/g, "").replace(/[.\s]+$/, ""), explicit: false };
 }
 
 /** True when a work's title is the pasted one: the same words, or the pasted words are its main title (before ":"). */
@@ -304,12 +339,13 @@ export async function frontDoor<P extends TitlePreview>(text: string, run: (oql:
   const tried: string[] = [];
   const t = titleCandidate(text);
   if (t) {
-    const hit = await lookupTitle(run, t);
+    const hit = await lookupTitle(run, t.title, t.explicit);
     if (hit) {
       const n = hit.preview.count ?? 0;
       return { path: "title", oql: hit.oql, preview: hit.preview, note: n === 1 ? "The paper with this title." : `The ${n} works with this title.` };
     }
     tried.push("title");
+    if (t.explicit) return { path: "model", tried };   // a request in prose, never a search string
   }
   const b = booleanSearch(text);
   if (b) {
@@ -329,13 +365,16 @@ export const MAX_TITLE_HITS = 20;
 export interface TitlePreview { ok: boolean; canonical?: string; count?: number | null; top_rows?: Array<Record<string, any>> }
 
 /**
- * Look a pasted title up: `get works where title has ("<title>")`, accepted only when one of the top works carries that
- * title and few works share the phrase. Null otherwise (the model takes over). `run` is chat.ts's runOql.
+ * Look a title up: `get works where title has ("<title>")`. A pasted title is accepted only when one of the top works
+ * carries that title and few works share the phrase; a title the person asked for by name ("titled ...") whenever any
+ * work's title has it (reprints and versions included). Null otherwise (the model takes over). `run` is runOql.
  */
-export async function lookupTitle<P extends TitlePreview>(run: (oql: string) => Promise<P>, candidate: string): Promise<{ oql: string; preview: P } | null> {
+export async function lookupTitle<P extends TitlePreview>(run: (oql: string) => Promise<P>, candidate: string, explicit = false): Promise<{ oql: string; preview: P } | null> {
   const oql = `get works where title has ("${candidate.replace(/"/g, "")}")`;
   const p = await run(oql);
-  if (!p.ok || !p.count || p.count > MAX_TITLE_HITS) return null;
+  if (!p.ok || !p.count) return null;
+  if (explicit) return { oql: p.canonical ?? oql, preview: p };
+  if (p.count > MAX_TITLE_HITS) return null;
   if (!(p.top_rows ?? []).some((r) => sameTitle(candidate, r.name))) return null;
   return { oql: p.canonical ?? oql, preview: p };
 }

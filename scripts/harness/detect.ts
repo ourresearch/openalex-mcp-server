@@ -29,6 +29,9 @@ async function main() {
     const rs = out.filter((r) => r.kind === k);
     console.log([k, rs.length, ...paths.map((p) => rs.filter((r) => r.path === p).length)].join("\t"));
   }
+  if (process.argv.includes("--fired")) {   // every answer made without a model, to read one by one
+    for (const r of out.filter((r) => r.path === "title" || r.path === "boolean")) console.log(`[${r.kind} -> ${r.path}] ${JSON.stringify(r.text).slice(0, 220)}\n   -> ${r.oql} | ${r.checked}`);
+  }
   if (show) {
     const miss = (r: any) => (r.kind === "boolean" && r.path !== "boolean") || (r.kind !== "boolean" && r.path.startsWith("boolean"))
       || (r.kind === "title" && r.path !== "title") || (r.kind !== "title" && r.path === "title");
