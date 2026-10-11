@@ -12,8 +12,9 @@
  * preview, turns, seconds, cost_usd, error, status, route, answer, link, left_out, confidence, version, response}.
  * A rerun skips (id, arm) pairs already written, except transient failures (HTTP 5xx from the model).
  */
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync } from "node:fs";
 import { handle } from "../../src/queryText";
+import { anthropicKey, pool, readJsonl } from "./util";
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -27,13 +28,10 @@ const WORKERS = Number(arg("--workers", "8"));
 const LIMIT = Number(arg("--limit", "0"));
 const VERSION = arg("--version", "unknown")!;
 
-const readJsonl = (p: string) =>
-  existsSync(p) ? readFileSync(p, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l)) : [];
-
 const env = {
   ENVIRONMENT: "harness",
   OPENALEX_API_BASE: process.env.OPENALEX_API_BASE ?? "https://api.openalex.org",
-  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_API_KEY,
+  ANTHROPIC_API_KEY: anthropicKey(),
   TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY,
 };
 const KEY = process.env.OPENALEX_API_KEY ?? process.env.OPENALEX_ORG_API_KEY;
@@ -84,20 +82,15 @@ async function main() {
   const done = new Set(readJsonl(OUT).filter((x) => x.arm === ARM && x.status && x.status !== 502).map((x) => x.id));
   const todo = rows.filter((r) => !done.has(r.id));
   console.log(`${rows.length} rows; ${todo.length} to run; arm ${ARM}; version ${VERSION}`);
-  let next = 0;
   let k = 0;
-  async function worker() {
-    while (next < todo.length) {
-      const r = todo[next++];
-      const row = await one(r);
-      appendFileSync(OUT, JSON.stringify(row) + "\n");
-      k++;
-      if (k % 20 === 0 || k === todo.length) {
-        console.log(`  ${k}/${todo.length} last ${row.id} ${row.check} ${row.path ?? ""} $${Number(row.cost_usd ?? 0).toFixed(4)} ${row.seconds}s`);
-      }
+  await pool(todo, WORKERS, async (r) => {
+    const row = await one(r);
+    appendFileSync(OUT, JSON.stringify(row) + "\n");
+    k++;
+    if (k % 20 === 0 || k === todo.length) {
+      console.log(`  ${k}/${todo.length} last ${row.id} ${row.check} ${row.path ?? ""} $${Number(row.cost_usd ?? 0).toFixed(4)} ${row.seconds}s`);
     }
-  }
-  await Promise.all(Array.from({ length: WORKERS }, worker));
+  });
 }
 
 main().catch((e) => {

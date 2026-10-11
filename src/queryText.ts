@@ -11,13 +11,16 @@
  *   GET  /query/text/<question>
  *   POST /query/text   {"text": "...", "current_query": "<OQL the page shows>", "institution": {"id": "I...", "name": "..."}}
  *
- * 200: {text, oql, sort, note, confidence, count, preview, meta: {model, effort, turns, elapsed_ms, cost: {credits, usd}}}
+ * 200: {text, route, oql, sort, note, confidence, count, preview, meta: {path, model, effort, turns, elapsed_ms, cost}}
+ *   route "title" / "search_string": a pasted title or a Boolean search string, answered with no model (frontDoor.ts)
+ *   route "help_desk": a how-to with no subject, answered from help.openalex.org: {answer, link}, oql null (router.ts)
+ *   route "query": the agent's query, plus left_out (a second question left out), out_of_reach and howto when they apply
  * 422: no query found; 400: a bad request; 502: the model failed. The proxy charges none of these (errors are free).
  *
- * The agent is chat.ts's: Claude Opus 5.5 at xhigh effort, the prompt v2 rules and #1555's one-page guide, chosen
- * on #1494's harness (about 81% of dev questions and 88-91% of real search-box requests answered right). The
- * confidence is Jev's probability that the result answers the question (its verifier agreed with #1494's judge at
- * AUROC 0.76-0.84).
+ * The front door (Jason, 2026-10-11): deterministic pass, then the router, then the help desk or the agent. The agent
+ * is chat.ts's: Claude Opus 5.5 at xhigh effort with #1555's one-page guide, whose searches may use only the person's
+ * own words (searchWords.ts). The confidence is Jev's probability that the result answers the question (its verifier
+ * agreed with #1494's judge at AUROC 0.76-0.84).
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { CHAT_EFFORT, CHAT_MODEL, runChat, runOql, type ChatEvent, type Institution, type Preview } from "./chat";
@@ -117,6 +120,9 @@ export async function confidence(
 /** Credits for a cost in dollars, rounded up (10,000 credits = $1). */
 export const creditsFor = (usd: number) => Math.max(0, Math.ceil(usd * 10000));
 
+/** A response's meta.cost: credits charged and dollars spent. */
+const costOf = (usd: number) => ({ credits: creditsFor(usd), usd: Math.round(usd * 1e6) / 1e6 });
+
 function reply(status: number, body: Record<string, any>, credits: number): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -143,12 +149,8 @@ export async function handle(
   // No model, so no model cost; the searches themselves are charged by the proxy like any call.
   const door = await frontDoor(parsed.text, (q) => runOql(openalex, q));
   if (door.path !== "model") {
-    const n = door.preview.count ?? 0;
-    const note = door.path === "title"
-      ? (n === 1 ? "The paper with this title." : `The ${n} works with this title.`)
-      : `Your search string, run as written over ${door.oql.includes(" title has ") ? "titles" : door.oql.includes(" abstract has ") ? "abstracts" : "titles, abstracts and keywords"}${door.notes.length ? `; ${door.notes.join("; ")}` : ""}.`;
     return reply(200, {
-      text: parsed.text, route: door.path, oql: door.oql, sort: null, note, confidence: null, count: door.preview.count ?? null,
+      text: parsed.text, route: door.path, oql: door.oql, sort: null, note: door.note, confidence: null, count: door.preview.count ?? null,
       preview: door.preview,
       meta: { path: door.path, model: null, effort: null, turns: 0, elapsed_ms: Date.now() - started, cost: { credits: 0, usd: 0 } },
     }, 0);
@@ -162,13 +164,12 @@ export async function handle(
     const help = await helpDesk(anthropic, parsed.text, deps.fetchImpl ?? fetch);
     preUsd += help.costUsd;
     if (help.text) {
-      const credits = creditsFor(preUsd);
+      const cost = costOf(preUsd);
       return reply(200, {
         text: parsed.text, route: "help_desk", answer: help.text, link: help.link || null, oql: null, sort: null, note: null,
         confidence: null, count: null, preview: null,
-        meta: { path: "help_desk", model: HELP_MODEL, effort: HELP_EFFORT, turns: help.turns, elapsed_ms: Date.now() - started,
-          cost: { credits, usd: Math.round(preUsd * 1e6) / 1e6 } },
-      }, credits);
+        meta: { path: "help_desk", model: HELP_MODEL, effort: HELP_EFFORT, turns: help.turns, elapsed_ms: Date.now() - started, cost },
+      }, cost.credits);
     }
   }
 
@@ -180,7 +181,6 @@ export async function handle(
     messages: [{ role: "user", content: parsed.text }],
     currentQuery: parsed.currentQuery,
     institution: parsed.institution,
-    typed: [parsed.text],
   }, (e) => {
     if (e.type === "answer") answer = e;
     else if (e.type === "error" && !error) error = e.message;
@@ -190,20 +190,18 @@ export async function handle(
   const conf = answer
     ? await confidence(env.TYPESAFE_API_KEY, parsed.text, answer, deps.fetchImpl ?? fetch)
     : { p: null, costUsd: 0 };
-  const usd = preUsd + out.cost_usd + conf.costUsd;
-  const credits = creditsFor(usd);
+  const a = answer as Extract<ChatEvent, { type: "answer" }> | null;
+  const cost = costOf(preUsd + out.cost_usd + conf.costUsd);
   const meta = {
     path: "model", tried: routed.route === "help_desk" ? [...door.tried, "help_desk"] : door.tried,
-    model: CHAT_MODEL, effort: CHAT_EFFORT, turns, elapsed_ms: Date.now() - started,
-    cost: { credits, usd: Math.round(usd * 1e6) / 1e6 },
+    model: CHAT_MODEL, effort: CHAT_EFFORT, turns, elapsed_ms: Date.now() - started, cost,
     // the no-new-words check: submits refused for new search words, and any left when the turns ran out
-    word_retries: wordRetries, new_words: (answer as any)?.new_words ?? [],
+    word_retries: wordRetries, new_words: a?.new_words ?? [],
   };
-  if (!answer) {
+  if (!a) {
     const modelFailed = (error ?? "").startsWith("The model call failed");
-    return reply(modelFailed ? 502 : 422, { text: parsed.text, error: error ?? "No query found.", meta }, credits);
+    return reply(modelFailed ? 502 : 422, { text: parsed.text, error: error ?? "No query found.", meta }, cost.credits);
   }
-  const a = answer as Extract<ChatEvent, { type: "answer" }>;
   return reply(200, {
     text: parsed.text,
     route: "query",
@@ -218,6 +216,6 @@ export async function handle(
     count: a.preview.count ?? null,
     preview: a.preview,
     meta,
-  }, credits);
+  }, cost.credits);
 }
 

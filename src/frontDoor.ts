@@ -5,6 +5,8 @@
  * 44 pasted titles. Pure helpers here (unit-tested); queryText.ts runs them and checks the result on the live API.
  */
 
+import { fold } from "./text";
+
 export type SearchField = "title-abstract-keywords" | "title" | "abstract";
 
 export interface BooleanSearch {
@@ -117,7 +119,7 @@ function tokenize(s: string, notes: Set<string>): Tok[] | null {
       i = j + 1;
       let field = cur();
       const tag = s.slice(i).match(/^\[([^\]]+)\]/);
-      if (tag) { field = tagField(tag[1]) ?? field; i += tag[0].length; if (/:~\d+/.test(tag[1])) notes.add("proximity"); }
+      if (tag) { field = tagField(tag[1]) ?? field; i += tag[0].length; }
       const slop = s.slice(i).match(/^~(\d+)/);
       if (slop) i += slop[0].length;
       if (v) out.push({ t: "term", v: slop ? `"${v}"~${slop[1]}` : v, quoted: !slop, field });
@@ -221,8 +223,7 @@ export function booleanSearch(text: string): BooleanSearch | null {
   if (!out) return null;
   if (flags.has("near-and")) notes.push("a proximity operator between phrases or groups ran as AND");
   if (flags.has("fuzzy")) notes.push("fuzzy matching (~) isn't supported; those words ran as typed");
-  const ops = toks.filter((t) => t.t === "op").map((t) => (t as any).v);
-  if (ops.includes("AND") && ops.includes("OR") && mixesWithoutParens(toks)) {
+  if (mixesWithoutParens(toks)) {
     notes.push("AND and OR are mixed without parentheses: OpenAlex reads AND first, as the query shows; add parentheses to group differently");
   }
   return { oql: `get works where ${field} has (${out})`, field, notes };
@@ -248,13 +249,14 @@ const TITLED = /(?<!\p{L})(?:titled|entitled|called|named|title|titulado|titulad
 
 /** Folded words of a title, stopwords kept, for comparing a pasted title with a work's. */
 export function titleWords(s: string): string[] {
-  return s.toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "").match(/[\p{L}\p{N}]+/gu) ?? [];
+  return fold(s).match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
 /**
  * The title to look up, when the input looks like a pasted title or asks for a paper by its quoted title; else null.
- * Shortcut: shape only (4-60 words, or 3 with a colon); queryText.ts accepts a lookup only when a work's title matches
- * it and the phrase is rare, which is what keeps topic searches ("climate change and human health") out.
+ * Shortcut: shape only (4-60 words, or 3 with a colon; 6 when it starts lowercase). lookupTitle accepts a lookup only
+ * when a work's title matches and the phrase is rare, which keeps most topic searches out; the lowercase rule keeps out
+ * short topic searches that happen to be a real title.
  */
 export function titleCandidate(text: string): string | null {
   const s = cleanSearchText(text);
@@ -286,26 +288,36 @@ export function sameTitle(candidate: string, title: string | null | undefined): 
 }
 
 export type FrontDoor<P> =
-  | { path: "title"; oql: string; preview: P; notes: string[] }
-  | { path: "search_string"; oql: string; preview: P; notes: string[] }
+  | { path: "title" | "search_string"; oql: string; preview: P; note: string }
   | { path: "model"; tried: string[] };
+
+const SEARCHED: Record<SearchField, string> = {
+  "title-abstract-keywords": "titles, abstracts and keywords", title: "titles", abstract: "abstracts",
+};
 
 /**
  * The deterministic pass, in order: a pasted title that a lookup confirms; a Boolean search string that runs; else
- * the model (`tried` says what was tried, for the response's meta). `run` is chat.ts's runOql.
+ * the model (`tried` says what was tried, for the response's meta). `run` is chat.ts's runOql. An answer comes with
+ * its note to the person.
  */
 export async function frontDoor<P extends TitlePreview>(text: string, run: (oql: string) => Promise<P>): Promise<FrontDoor<P>> {
   const tried: string[] = [];
   const t = titleCandidate(text);
   if (t) {
     const hit = await lookupTitle(run, t);
-    if (hit) return { path: "title", oql: hit.oql, preview: hit.preview, notes: [] };
+    if (hit) {
+      const n = hit.preview.count ?? 0;
+      return { path: "title", oql: hit.oql, preview: hit.preview, note: n === 1 ? "The paper with this title." : `The ${n} works with this title.` };
+    }
     tried.push("title");
   }
   const b = booleanSearch(text);
   if (b) {
     const p = await run(b.oql);
-    if (p.ok) return { path: "search_string", oql: p.canonical ?? b.oql, preview: p, notes: b.notes };
+    if (p.ok) {
+      const note = `Your search string, run as written over ${SEARCHED[b.field]}${b.notes.length ? `; ${b.notes.join("; ")}` : ""}.`;
+      return { path: "search_string", oql: p.canonical ?? b.oql, preview: p, note };
+    }
     tried.push("search_string");
   }
   return { path: "model", tried };

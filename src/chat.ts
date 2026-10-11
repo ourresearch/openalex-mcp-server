@@ -13,15 +13,26 @@
  */
 import type Anthropic from "@anthropic-ai/sdk";
 import { OpenAlexError } from "./openalex";
-import { newWords } from "./searchWords";
+import { newWords, typedVocabulary } from "./searchWords";
 import CHAT_GUIDE from "./chat_guide.md";
 
 export const CHAT_MODEL = "claude-opus-5-5";
 export const CHAT_EFFORT = "xhigh";
 /** Model turns per question; the harness median was two tool calls before submit. */
 export const MAX_TURNS = 8;
-/** $/MTok for CHAT_MODEL (claude-api skill, cached 2026-10-06): input, output, cache read, cache write. */
-export const PRICE = { input: 4.0, output: 20.0, cacheRead: 0.2, cacheWrite: 5.0 };
+/** $/MTok (claude-api skill, cached 2026-10-06): input, output, cache read, cache write. */
+const PRICES: Record<string, [number, number, number, number]> = {
+  "claude-haiku-5-5": [0.1, 0.5, 0.01, 0.125],
+  "claude-sonnet-5-5": [2.0, 10.0, 0.2, 2.5],
+  "claude-opus-5-5": [4.0, 20.0, 0.2, 5.0],
+};
+
+/** What a call cost in dollars, from its usage (unknown models priced as Opus). */
+export function priceOf(model: string, u: Partial<Usage>): number {
+  const p = PRICES[model] ?? PRICES[CHAT_MODEL];
+  return ((u.input_tokens ?? 0) * p[0] + (u.output_tokens ?? 0) * p[1] + (u.cache_read_input_tokens ?? 0) * p[2]
+    + (u.cache_creation_input_tokens ?? 0) * p[3]) / 1e6;
+}
 
 const BASE_PROMPT = `You are the assistant in the chat panel beside OpenAlex's search results. People ask questions about the scholarly literature in plain words; you answer by writing ONE OQL query. The results page then shows that query's results (with its facets, table and download), and the query itself at the top so anyone can rerun it.
 
@@ -124,9 +135,6 @@ export interface Preview {
   top_groups?: Array<Record<string, any>>;
   top_rows?: Array<Record<string, any>>;
   errors?: any;
-  /** Search words the person never typed (the no-new-words check, searchWords.ts), with what to do about them. */
-  new_search_words?: string[];
-  word_rule?: string;
 }
 
 /** The feedback a query with new search words gets back (on a trial run, and on a refused submit). */
@@ -142,8 +150,7 @@ export type ChatEvent =
 export interface Usage { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }
 
 export function costUsd(u: Usage): number {
-  return (u.input_tokens * PRICE.input + u.output_tokens * PRICE.output + u.cache_read_input_tokens * PRICE.cacheRead
-    + u.cache_creation_input_tokens * PRICE.cacheWrite) / 1e6;
+  return priceOf(CHAT_MODEL, u);
 }
 
 /** find_entity: the same fields the harness gave the model. */
@@ -204,8 +211,6 @@ export interface ChatInput {
   /** The query the page shows now, if any; follow-ups edit it. */
   currentQuery?: string | null;
   institution?: Institution | null;
-  /** What the person typed, for the no-new-words check; defaults to the text of every user turn. */
-  typed?: string[];
 }
 
 /** The text of the person's own turns (tool results and nudges excluded). */
@@ -238,7 +243,12 @@ export async function runChat(
   }
   const system = systemPrompt(input.institution, deps.guide);
   // The words the person typed (and the page's query, for follow-ups): searches may use only these (searchWords.ts)
-  const typed = [...(input.typed ?? userTexts(input.messages)), input.currentQuery ?? ""];
+  const typed = typedVocabulary([...userTexts(input.messages), input.currentQuery ?? ""]);
+  /** Run a query the model wrote, and the search words in it the person never typed. */
+  const trial = async (a: any) => {
+    const p = await runOql(deps.openalex, a.oql ?? "", a.sort || null);
+    return { p, added: p.ok ? newWords(p.canonical ?? a.oql ?? "", typed) : [] };
+  };
   let wordRetries = 0;
   let turns = 0;
   let answered = false;
@@ -281,17 +291,16 @@ export async function runChat(
         results.push({ type: "tool_result", tool_use_id: b.id, content: await findEntity(deps.openalex, a.type ?? "institutions", a.name ?? "") });
       } else if (b.name === "run_oql") {
         await emit({ type: "step", tool: "run_oql", detail: String(a.oql ?? "").slice(0, 300) });
-        const p = await runOql(deps.openalex, a.oql ?? "", a.sort || null);
-        const added = p.ok ? newWords(p.canonical ?? a.oql ?? "", typed) : [];
-        if (added.length) Object.assign(p, { new_search_words: added, word_rule: WORD_RULE });
-        results.push({ type: "tool_result", tool_use_id: b.id, content: JSON.stringify(p).slice(0, 4000) });
+        const { p, added } = await trial(a);
+        // the word check's feedback goes to the model only, never into the preview the page gets
+        const shown = added.length ? { ...p, new_search_words: added, word_rule: WORD_RULE } : p;
+        results.push({ type: "tool_result", tool_use_id: b.id, content: JSON.stringify(shown).slice(0, 4000) });
       } else if (b.name === "submit") {
-        const p = await runOql(deps.openalex, a.oql ?? "", a.sort || null);
+        const { p, added } = await trial(a);
         if (!p.ok && !lastTurn) {
           results.push({ type: "tool_result", tool_use_id: b.id, is_error: true, content: "Not submitted: this query fails. " + JSON.stringify(p).slice(0, 1500) });
           continue;
         }
-        const added = p.ok ? newWords(p.canonical ?? a.oql ?? "", typed) : [];
         if (added.length && !lastTurn) {
           wordRetries++;
           results.push({ type: "tool_result", tool_use_id: b.id, is_error: true, content: `Not submitted: new search words ${JSON.stringify(added)}. ${WORD_RULE}` });

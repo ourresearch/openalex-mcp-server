@@ -11,6 +11,7 @@ import { compact, abstractFromInvertedIndex, truncate } from "./shape";
 import { WORK_TYPES } from "./filters";
 import { reproduceUrl } from "./oql";
 import { buildKeywordSearch, keywordSlug } from "./keywordSearch";
+import { pool } from "./pool";
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 
@@ -26,18 +27,6 @@ const MAX_KEYWORDS = 30;
 /** A facet that keeps at least this share of what the other facets match is not narrowing anything. */
 const LOOSE_FACET = 0.85;
 
-/** Run async jobs with bounded concurrency, keeping order. */
-async function pool<T, R>(items: T[], n: number, fn: (x: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
-    while (next < items.length) {
-      const i = next++;
-      out[i] = await fn(items[i]!);
-    }
-  }));
-  return out;
-}
 
 export const KEYWORD_RECIPE = `Recipe for "do a thorough search", "find everything on X", "build a systematic search" (use it whenever the user wants recall, not just a few good papers). search_works already matches titles, abstracts and the keywords a phrase in the query names, and reranks its top results; this recipe adds keywords chosen by meaning (wordings the user's phrases don't contain) and measures what each part adds:
 1. Split the topic into its facets, the parts that must all hold (e.g. "microplastics" and "human health"). For each facet write the phrase plus the synonyms, spellings and abbreviations a careful searcher would try: phrases that mean the facet, not single generic words (human, patients, blood) that appear in almost any abstract.

@@ -2,6 +2,9 @@
 
 const STOP = new Set(["a", "an", "the", "of", "and", "or", "in", "on", "for", "to", "with", "by", "from", "at", "is", "are", "vs", "via"]);
 
+/** Lowercase, accents off, every script kept ("Arañas" -> "aranas", Cyrillic stays Cyrillic). */
+export const fold = (s: string) => s.toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "");
+
 export function tokens(s: string | null | undefined): Set<string> {
   if (!s) return new Set();
   return new Set(

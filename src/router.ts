@@ -5,26 +5,16 @@
  * itself handles what only it can judge: two questions in one (answer the first, name the one left out), what's out of
  * reach (say so, offer the nearest query), and a how-to with a real subject (the query plus one line of how-to).
  */
-import type { AnthropicLike, Usage } from "./chat";
+import { priceOf, type AnthropicLike } from "./chat";
 
+// Haiku: on #1494's router check (2026-10-11, tune half) it kept the most data questions on the query path (97-100%)
+// and sent 82% of #1618's how-tos to the help desk, at $0.00004 and 1.2 s (Sonnet: 93% / 94-95%; Opus low: 87% / 97%).
 export const ROUTER_MODEL = "claude-haiku-5-5";
 export const ROUTER_EFFORT: string | null = "high";
 export const HELP_MODEL = "claude-opus-5-5";
 export const HELP_EFFORT = "high";
-export const HELP_SITE = "https://help.openalex.org";
+const HELP_SITE = "https://help.openalex.org";
 const HELP_MAX_TURNS = 4;
-/** $/MTok (claude-api skill, cached 2026-10-06): input, output, cache read, cache write. */
-const PRICES: Record<string, [number, number, number, number]> = {
-  "claude-haiku-5-5": [0.1, 0.5, 0.01, 0.125],
-  "claude-sonnet-5-5": [2.0, 10.0, 0.2, 2.5],
-  "claude-opus-5-5": [4.0, 20.0, 0.2, 5.0],
-};
-
-export function priceOf(model: string, u: Partial<Usage>): number {
-  const p = PRICES[model] ?? PRICES["claude-opus-5-5"];
-  return ((u.input_tokens ?? 0) * p[0] + (u.output_tokens ?? 0) * p[1] + (u.cache_read_input_tokens ?? 0) * p[2]
-    + (u.cache_creation_input_tokens ?? 0) * p[3]) / 1e6;
-}
 
 export const ROUTER_PROMPT = `You sort what people type into the chat panel beside OpenAlex's search results. OpenAlex is an open catalog of the world's scholarly works and the authors, institutions, journals, funders and topics behind them. The panel answers a data question by writing a query that sets the results page; it answers a help-desk question from OpenAlex's help site.
 
@@ -85,19 +75,26 @@ const HELP_TOOLS = [
   },
 ];
 
-let indexCache: { text: string; at: number } | null = null;
+let indexCache: { text: Promise<string>; at: number } | null = null;
 
-/** help.openalex.org/llms.txt (every page with a one-line summary), cached for an hour per isolate. */
-export async function helpIndex(fetchImpl: typeof fetch = fetch): Promise<string> {
+/**
+ * help.openalex.org/llms.txt (every page with a one-line summary), cached for an hour per isolate. The cache holds the
+ * fetch itself, so concurrent cold requests share one; a failed fetch is dropped from the cache.
+ */
+function helpIndex(fetchImpl: typeof fetch = fetch): Promise<string> {
   if (indexCache && Date.now() - indexCache.at < 3600_000) return indexCache.text;
-  const res = await fetchImpl(`${HELP_SITE}/llms.txt`, { signal: AbortSignal.timeout(8000) });
-  if (!res.ok) throw new Error(`help index: HTTP ${res.status}`);
-  indexCache = { text: await res.text(), at: Date.now() };
-  return indexCache.text;
+  const text = (async () => {
+    const res = await fetchImpl(`${HELP_SITE}/llms.txt`, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`help index: HTTP ${res.status}`);
+    return res.text();
+  })();
+  indexCache = { text, at: Date.now() };
+  text.catch(() => { if (indexCache?.text === text) indexCache = null; });
+  return text;
 }
 
 /** One help page as markdown; only help.openalex.org pages. */
-export async function readHelpPage(url: string, fetchImpl: typeof fetch = fetch): Promise<string> {
+async function readHelpPage(url: string, fetchImpl: typeof fetch = fetch): Promise<string> {
   let u: URL;
   try {
     u = new URL(url, HELP_SITE);
@@ -118,16 +115,21 @@ export async function readHelpPage(url: string, fetchImpl: typeof fetch = fetch)
 
 export interface HelpAnswer { text: string; link: string; costUsd: number; turns: number; error?: string }
 
-/** Answer a how-to from the help site. Never throws: failures come back in `error` with no text. */
+/**
+ * Answer a how-to from the help site. Never throws: failures come back in `error` with no text.
+ * Shortcut: a second hand-written tool loop beside chat.ts runChat (they force the last turn differently); extract a
+ * shared loop if a third appears.
+ */
 export async function helpDesk(anthropic: AnthropicLike, question: string, fetchImpl: typeof fetch = fetch): Promise<HelpAnswer> {
+  let costUsd = 0;
+  const fail = (error: string, turns: number): HelpAnswer => ({ text: "", link: "", costUsd, turns, error });
   let index: string;
   try {
     index = await helpIndex(fetchImpl);
   } catch (e: any) {
-    return { text: "", link: "", costUsd: 0, turns: 0, error: e?.message ?? String(e) };
+    return fail(e?.message ?? String(e), 0);
   }
   const messages: any[] = [{ role: "user", content: question }];
-  let costUsd = 0;
   for (let turn = 0; turn < HELP_MAX_TURNS; turn++) {
     let res: any;
     try {
@@ -140,17 +142,18 @@ export async function helpDesk(anthropic: AnthropicLike, question: string, fetch
         output_config: { effort: HELP_EFFORT },
       } as any);
     } catch (e: any) {
-      return { text: "", link: "", costUsd, turns: turn, error: `The model call failed: ${e?.message ?? e}` };
+      return fail(`The model call failed: ${e?.message ?? e}`, turn);
     }
     costUsd += priceOf(HELP_MODEL, res.usage ?? {});
     messages.push({ role: "assistant", content: res.content });
     const uses = (res.content ?? []).filter((b: any) => b.type === "tool_use");
     const done = uses.find((b: any) => b.name === "answer");
     if (done) return { text: String(done.input?.text ?? ""), link: String(done.input?.link ?? ""), costUsd, turns: turn + 1 };
-    if (!uses.length) return { text: "", link: "", costUsd, turns: turn + 1, error: "The help desk stopped without an answer." };
-    const results = [];
-    for (const b of uses) results.push({ type: "tool_result", tool_use_id: b.id, content: await readHelpPage(String(b.input?.url ?? ""), fetchImpl) });
+    if (!uses.length) return fail("The help desk stopped without an answer.", turn + 1);
+    // pages asked for in one turn are read together
+    const results = await Promise.all(uses.map(async (b: any) =>
+      ({ type: "tool_result", tool_use_id: b.id, content: await readHelpPage(String(b.input?.url ?? ""), fetchImpl) })));
     messages.push({ role: "user", content: results });
   }
-  return { text: "", link: "", costUsd, turns: HELP_MAX_TURNS, error: "The help desk ran out of steps." };
+  return fail("The help desk ran out of steps.", HELP_MAX_TURNS);
 }

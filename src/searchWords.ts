@@ -8,6 +8,7 @@
  * title-abstract-keywords, full text) and the forms #1555's rewrite will echo: `works about (...)` and
  * `with (...) in the title`. Raw affiliation searches are names, not aboutness, and aren't checked. Pure, unit-tested.
  */
+import { fold } from "./text";
 
 const STOP = new Set(["a", "an", "the", "of", "and", "or", "not", "in", "on", "for", "to", "with", "by", "from", "at", "is",
   "are", "as", "vs", "via", "within", "words", "each", "other", "de", "la", "le", "et", "des", "du", "en", "el", "y", "di"]);
@@ -57,8 +58,6 @@ export function searchStrings(oql: string): string[] {
   }
   return out;
 }
-
-const fold = (s: string) => s.toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "");
 
 /** Words of a search string or of what the person typed: folded, operators and proximity dropped, wildcards kept. */
 export function words(s: string): string[] {
@@ -148,8 +147,10 @@ export function stem(word: string): string {
   return w;
 }
 
+export interface Vocabulary { raw: Set<string>; stems: Set<string> }
+
 /** What the person typed, as words to match against: each word, its stem, and hyphenated words joined ("covid19"). */
-export function typedVocabulary(texts: Array<string | null | undefined>): { raw: Set<string>; stems: Set<string> } {
+export function typedVocabulary(texts: Array<string | null | undefined>): Vocabulary {
   const raw = new Set<string>();
   for (const t of texts) {
     if (!t) continue;
@@ -161,16 +162,17 @@ export function typedVocabulary(texts: Array<string | null | undefined>): { raw:
 
 /**
  * The search words of a query that the person never typed (an empty list when the query uses only their words).
- * A wildcard word passes when some typed word starts with its stem (`adolescen*` after "adolescents").
+ * A wildcard word passes when some typed word starts with its stem (`adolescen*` after "adolescents"). Pass a
+ * Vocabulary (typedVocabulary) to check many queries against the same typed words.
  */
-export function newWords(oql: string, typed: Array<string | null | undefined>): string[] {
-  const v = typedVocabulary(typed);
+export function newWords(oql: string, typed: Array<string | null | undefined> | Vocabulary): string[] {
+  const v = Array.isArray(typed) ? typedVocabulary(typed) : typed;
   const out = new Set<string>();
   for (const s of searchStrings(oql)) {
     for (const w of words(s)) {
       if (/[*?]/.test(w)) {
         const head = w.split(/[*?]/)[0];
-        if (!head || [...v.raw].some((t) => t.startsWith(head) || t.split(/[*?]/)[0] === head)) continue;
+        if (!head || [...v.raw].some((t) => t.startsWith(head))) continue;
         out.add(w);
       } else if (!v.raw.has(w) && !v.stems.has(stem(w))) {
         out.add(w);

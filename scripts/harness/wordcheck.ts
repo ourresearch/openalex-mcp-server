@@ -4,10 +4,9 @@
  *   node dist/wordcheck.mjs <rows.jsonl> <runs.jsonl> [<runs.jsonl> ...]
  * Prints per runs file: answers, answers with a text search, share of those with new words, the commonest new words.
  */
-import { readFileSync } from "node:fs";
+import { readJsonl } from "./util";
 import { newWords, searchStrings } from "../../src/searchWords";
 
-const readJsonl = (p: string) => readFileSync(p, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
 const [rowsPath, ...runPaths] = process.argv.slice(2);
 const input = new Map(readJsonl(rowsPath).map((r: any) => [r.id, r.input ?? r.text]));
 for (const p of runPaths) {
