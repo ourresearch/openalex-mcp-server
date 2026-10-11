@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRequest, callerKey, creditsFor, handle, confidence, NUDGE_AT_USD } from "../src/queryText";
+import { parseRequest, callerKey, creditsFor, handle, confidence } from "../src/queryText";
 import { costUsd } from "../src/chat";
 
 const BASE = "https://api.openalex.org";
@@ -98,23 +98,23 @@ describe("handle", () => {
     expect(res.headers.get("X-Credits-Cost")).toBe("0");
   });
 
-  it("charges what the model cost when it finds no query (422)", async () => {
+  it("reports what the model cost when it finds no query (422; the proxy charges errors nothing)", async () => {
     const res = await handle(get("/query/text/kelp"), { OPENALEX_API_BASE: BASE }, { anthropic: fakeAnthropic([[{ type: "text", text: "hmm" }]]), openalex: fakeOpenAlex(), guide: "G" });
     expect(res.status).toBe(422);
     expect(Number(res.headers.get("X-Credits-Cost"))).toBe(Math.ceil(costUsd(USAGE) * 10000));
   });
 
-  it("forces a submit once a question passes the nudge, and passes the follow-up's current query on", async () => {
-    // $0.16 a turn: over the $0.15 nudge after the first turn
-    const pricey = { input_tokens: 0, output_tokens: 8000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
-    expect(costUsd(pricey)).toBeGreaterThan(NUDGE_AT_USD);
-    const anthropic = fakeAnthropic([[tool("f", "find_entity", { type: "institutions", name: "Kansas" })], [SUBMIT]], pricey);
+  it("passes a follow-up's current query on and has no spending cap beyond the turn limit", async () => {
+    const pricey = { input_tokens: 0, output_tokens: 8000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }; // $0.16 a turn
+    const anthropic = fakeAnthropic([[tool("f", "find_entity", { type: "institutions", name: "Kansas" })], [tool("r", "run_oql", { oql: "x" })], [SUBMIT]], pricey);
     const res = await handle(post({ text: "only open access", current_query: "get works where title has coffee" }), { OPENALEX_API_BASE: BASE },
       { anthropic, openalex: fakeOpenAlex(), guide: "G" });
     expect(res.status).toBe(200);
-    expect(JSON.stringify(anthropic.requests[1].messages.at(-1).content)).toContain("Last turn: call submit now.");
+    expect(anthropic.requests).toHaveLength(3);
+    expect(JSON.stringify(anthropic.requests[1].messages)).not.toContain("Last turn");
     expect(anthropic.requests[0].messages[0].content).toContain("The results page currently shows this query: get works where title has coffee");
     const body: any = await res.json();
+    expect(body.meta.cost.credits).toBe(Math.ceil(3 * costUsd(pricey) * 10000));
     expect(body.confidence).toBeNull(); // no Jev key configured
   });
 });

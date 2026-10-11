@@ -198,8 +198,6 @@ export async function runChat(
   deps: { anthropic: AnthropicLike; openalex: OpenAlexLike; guide?: string },
   input: ChatInput,
   emit: (e: ChatEvent) => void | Promise<void>,
-  /** Spending limits for one question: past `nudgeAtUsd` the next turn must submit; at `stopAtUsd` it stops. */
-  limits: { nudgeAtUsd?: number; stopAtUsd?: number } = {},
 ): Promise<{ cost_usd: number; answered: boolean }> {
   const usage: Usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
   const messages: Anthropic.MessageParam[] = input.messages.map((m) => ({ ...m }));
@@ -217,11 +215,7 @@ export async function runChat(
   let turns = 0;
   let answered = false;
   for (; turns < MAX_TURNS && !answered; turns++) {
-    if (limits.stopAtUsd !== undefined && costUsd(usage) >= limits.stopAtUsd) {
-      await emit({ type: "error", message: "This question used up its budget before the assistant found a query." });
-      break;
-    }
-    const lastTurn = turns === MAX_TURNS - 1 || (limits.nudgeAtUsd !== undefined && costUsd(usage) >= limits.nudgeAtUsd);
+    const lastTurn = turns === MAX_TURNS - 1;
     let res: Anthropic.Message;
     try {
       res = await deps.anthropic.messages.create({

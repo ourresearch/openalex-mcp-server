@@ -2,16 +2,17 @@
  * openalex-query-writer (oxjob #1494): plain words to OQL, served as api.openalex.org/query/text. The Worker's entry
  * is src/queryWriter.ts (an entry module may export only handlers, so the logic and its constants live here).
  *
- * This Worker has no public route. The API proxy (openalex-api-proxy) calls it over a service binding after holding
- * QUERY_TEXT_HOLD_CREDITS of the caller's budget, and settles the hold to the X-Credits-Cost this returns: what the
- * model and the confidence check cost us, in credits (10,000 = $1). The searches the agent runs go out on the
- * caller's own key and are charged by the proxy like any other call.
+ * This Worker has no public route. The API proxy (openalex-api-proxy) lets a question in when the caller has any
+ * budget left (one credit), calls this over a service binding, and charges the X-Credits-Cost this returns on an
+ * answer: what the model and the confidence check cost us, in credits (10,000 = $1). Errors are free, as everywhere
+ * in the API, and a question that costs more than the caller had left is absorbed (Jason, 2026-10-11). The searches
+ * the agent runs go out on the caller's own key and are charged by the proxy like any other call.
  *
  *   GET  /query/text/<question>
  *   POST /query/text   {"text": "...", "current_query": "<OQL the page shows>", "institution": {"id": "I...", "name": "..."}}
  *
  * 200: {text, oql, sort, note, confidence, count, preview, meta: {model, effort, turns, elapsed_ms, cost: {credits, usd}}}
- * 422: no query found (the model still ran and is charged); 400: a bad request (free); 502: the model failed.
+ * 422: no query found; 400: a bad request; 502: the model failed. The proxy charges none of these (errors are free).
  *
  * The agent is chat.ts's: Claude Opus 5.5 at xhigh effort, the prompt v2 rules and #1555's one-page guide, chosen
  * on #1494's harness (about 81% of dev questions and 88-91% of real search-box requests answered right). The
@@ -29,9 +30,6 @@ export interface QueryWriterEnv {
   TYPESAFE_API_KEY?: string;
 }
 
-/** The proxy holds $0.20 (2,000 credits); past $0.15 the next turn must submit, and $0.19 stops the question. */
-export const NUDGE_AT_USD = 0.15;
-export const STOP_AT_USD = 0.19;
 export const MAX_TEXT_CHARS = 2000;
 export const JEV_URL = "https://api.typesafe.ai/v1/systemone";
 export const JEV_MODEL = "jev-1.13.0";
@@ -149,7 +147,7 @@ export async function handle(
     if (e.type === "answer") answer = e;
     else if (e.type === "error" && !error) error = e.message;
     else if (e.type === "done") turns = e.turns;
-  }, { nudgeAtUsd: NUDGE_AT_USD, stopAtUsd: STOP_AT_USD });
+  });
 
   const conf = answer
     ? await confidence(env.TYPESAFE_API_KEY, parsed.text, answer, deps.fetchImpl ?? fetch)
