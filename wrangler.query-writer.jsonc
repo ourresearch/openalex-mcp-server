@@ -1,0 +1,21 @@
+{
+  // openalex-query-writer (oxjob #1494): plain words to OQL behind api.openalex.org/query/text.
+  // No route and no workers.dev URL: only the API proxy reaches it, over its QUERY_WRITER service binding, so every
+  // call is held and settled against the caller's credits there.
+  // Deploy: npx wrangler deploy -c wrangler.query-writer.jsonc
+  // Secrets: npx wrangler secret put ANTHROPIC_API_KEY -c wrangler.query-writer.jsonc (and TYPESAFE_API_KEY, for confidence)
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openalex-query-writer",
+  "account_id": "a452eddbbe06eb7d02f4879cee70d29c",
+  "main": "src/queryWriter.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "vars": {
+    "ENVIRONMENT": "production",
+    "OPENALEX_API_BASE": "https://api.openalex.org"
+  }
+}
