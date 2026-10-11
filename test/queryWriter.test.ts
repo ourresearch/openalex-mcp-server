@@ -104,6 +104,26 @@ describe("handle", () => {
     expect(Number(res.headers.get("X-Credits-Cost"))).toBe(Math.ceil(costUsd(USAGE) * 10000));
   });
 
+  it("runs a Boolean search string as typed, with no model call and no model charge", async () => {
+    const anthropic = fakeAnthropic([[SUBMIT]]);
+    const res = await handle(post({ text: '("kelp forest" OR seaweed) AND decline' }), { OPENALEX_API_BASE: BASE }, { anthropic, openalex: fakeOpenAlex(), guide: "G" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Credits-Cost")).toBe("0");
+    expect(anthropic.requests).toHaveLength(0);
+    const body: any = await res.json();
+    expect(body).toMatchObject({ route: "search_string", oql: 'get works where title-abstract-keywords has (("kelp forest" OR seaweed) AND decline)', count: 5559 });
+    expect(body.note).toContain("run as written over titles, abstracts and keywords");
+  });
+
+  it("answers a pasted title from a confirmed lookup", async () => {
+    const anthropic = fakeAnthropic([[SUBMIT]]);
+    const oa = { ...fakeOpenAlex(), async post() { return { meta: { count: 1 }, results: [{ id: "https://openalex.org/W2", display_name: "Coffee and Health: A Review of Recent Human Research", publication_year: 2006 }] }; } };
+    const res = await handle(post({ text: "Coffee and Health: A Review of Recent Human Research" }), { OPENALEX_API_BASE: BASE }, { anthropic, openalex: oa, guide: "G" });
+    const body: any = await res.json();
+    expect(body).toMatchObject({ route: "title", oql: 'get works where title has ("Coffee and Health: A Review of Recent Human Research")', note: "The paper with this title." });
+    expect(anthropic.requests).toHaveLength(0);
+  });
+
   it("passes a follow-up's current query on and has no spending cap beyond the turn limit", async () => {
     const pricey = { input_tokens: 0, output_tokens: 8000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }; // $0.16 a turn
     const anthropic = fakeAnthropic([[tool("f", "find_entity", { type: "institutions", name: "Kansas" })], [tool("r", "run_oql", { oql: "x" })], [SUBMIT]], pricey);

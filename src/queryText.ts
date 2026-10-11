@@ -20,7 +20,8 @@
  * AUROC 0.76-0.84).
  */
 import Anthropic from "@anthropic-ai/sdk";
-import { CHAT_EFFORT, CHAT_MODEL, runChat, type ChatEvent, type Institution, type Preview } from "./chat";
+import { CHAT_EFFORT, CHAT_MODEL, runChat, runOql, type ChatEvent, type Institution, type Preview } from "./chat";
+import { frontDoor } from "./frontDoor";
 import { OpenAlexClient } from "./openalex";
 
 export interface QueryWriterEnv {
@@ -136,6 +137,22 @@ export async function handle(
 
   const anthropic = deps.anthropic ?? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const openalex = deps.openalex ?? new OpenAlexClient({ apiKey: key, baseUrl: env.OPENALEX_API_BASE, keyLabel: "your OpenAlex key" });
+
+  // Before any model: a pasted title a lookup confirms, or a Boolean search string, runs as typed (frontDoor.ts).
+  // No model, so no model cost; the searches themselves are charged by the proxy like any call.
+  const door = await frontDoor(parsed.text, (q) => runOql(openalex, q));
+  if (door.path !== "model") {
+    const n = door.preview.count ?? 0;
+    const note = door.path === "title"
+      ? (n === 1 ? "The paper with this title." : `The ${n} works with this title.`)
+      : `Your search string, run as written over ${door.oql.includes(" title has ") ? "titles" : door.oql.includes(" abstract has ") ? "abstracts" : "titles, abstracts and keywords"}${door.notes.length ? `; ${door.notes.join("; ")}` : ""}.`;
+    return reply(200, {
+      text: parsed.text, route: door.path, oql: door.oql, sort: null, note, confidence: null, count: door.preview.count ?? null,
+      preview: door.preview,
+      meta: { path: door.path, model: null, effort: null, turns: 0, elapsed_ms: Date.now() - started, cost: { credits: 0, usd: 0 } },
+    }, 0);
+  }
+
   let answer: Extract<ChatEvent, { type: "answer" }> | null = null;
   let error: string | null = null;
   let turns = 0;
@@ -157,7 +174,7 @@ export async function handle(
   const usd = out.cost_usd + conf.costUsd;
   const credits = creditsFor(usd);
   const meta = {
-    model: CHAT_MODEL, effort: CHAT_EFFORT, turns, elapsed_ms: Date.now() - started,
+    path: "model", tried: door.tried, model: CHAT_MODEL, effort: CHAT_EFFORT, turns, elapsed_ms: Date.now() - started,
     cost: { credits, usd: Math.round(usd * 1e6) / 1e6 },
     // the no-new-words check: submits refused for new search words, and any left when the turns ran out
     word_retries: wordRetries, new_words: (answer as any)?.new_words ?? [],
@@ -169,6 +186,7 @@ export async function handle(
   const a = answer as Extract<ChatEvent, { type: "answer" }>;
   return reply(200, {
     text: parsed.text,
+    route: "query",
     oql: a.oql,
     sort: a.sort,
     note: a.note,
