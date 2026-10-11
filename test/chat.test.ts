@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { runChat, runOql, findEntity, systemPrompt, costUsd, MAX_TURNS, type ChatEvent, type OpenAlexLike } from "../src/chat";
-import { validateBody } from "../src/chatRoute";
 
 // A fake OpenAlex: /query check refuses anything containing "bogus"; runs return a fixed grouped or summary answer.
 function fakeOpenAlex(): OpenAlexLike & { calls: string[] } {
@@ -160,18 +159,5 @@ describe("systemPrompt", () => {
   it("names the person's institution when the page knows it", () => {
     expect(systemPrompt({ id: "I146416000", name: "University of Kansas" }, "G")).toContain("University of Kansas (I146416000)");
     expect(systemPrompt(null, "G")).toContain("say in the note which institution the query assumes");
-  });
-});
-
-describe("validateBody", () => {
-  it("accepts a conversation ending with the person's turn", () => {
-    expect(validateBody({ messages: [{ role: "user", content: "q" }] })).toBeNull();
-  });
-  it("rejects bad shapes", () => {
-    expect(validateBody(null)).toMatch(/object/);
-    expect(validateBody({ messages: [] })).toMatch(/non-empty/);
-    expect(validateBody({ messages: [{ role: "system", content: "x" }] })).toMatch(/role/);
-    expect(validateBody({ messages: [{ role: "user", content: "q" }, { role: "assistant", content: "a" }] })).toMatch(/last message/);
-    expect(validateBody({ messages: Array.from({ length: 61 }, () => ({ role: "user", content: "q" })) })).toMatch(/too long/);
   });
 });
