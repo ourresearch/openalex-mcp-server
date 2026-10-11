@@ -139,14 +139,16 @@ export async function handle(
   let answer: Extract<ChatEvent, { type: "answer" }> | null = null;
   let error: string | null = null;
   let turns = 0;
+  let wordRetries = 0;
   const out = await runChat({ anthropic, openalex, guide: deps.guide }, {
     messages: [{ role: "user", content: parsed.text }],
     currentQuery: parsed.currentQuery,
     institution: parsed.institution,
+    typed: [parsed.text],
   }, (e) => {
     if (e.type === "answer") answer = e;
     else if (e.type === "error" && !error) error = e.message;
-    else if (e.type === "done") turns = e.turns;
+    else if (e.type === "done") ({ turns, word_retries: wordRetries } = e);
   });
 
   const conf = answer
@@ -157,6 +159,8 @@ export async function handle(
   const meta = {
     model: CHAT_MODEL, effort: CHAT_EFFORT, turns, elapsed_ms: Date.now() - started,
     cost: { credits, usd: Math.round(usd * 1e6) / 1e6 },
+    // the no-new-words check: submits refused for new search words, and any left when the turns ran out
+    word_retries: wordRetries, new_words: (answer as any)?.new_words ?? [],
   };
   if (!answer) {
     const modelFailed = (error ?? "").startsWith("The model call failed");

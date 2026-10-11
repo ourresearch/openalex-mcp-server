@@ -107,12 +107,12 @@ describe("handle", () => {
   it("passes a follow-up's current query on and has no spending cap beyond the turn limit", async () => {
     const pricey = { input_tokens: 0, output_tokens: 8000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }; // $0.16 a turn
     const anthropic = fakeAnthropic([[tool("f", "find_entity", { type: "institutions", name: "Kansas" })], [tool("r", "run_oql", { oql: "x" })], [SUBMIT]], pricey);
-    const res = await handle(post({ text: "only open access", current_query: "get works where title has coffee" }), { OPENALEX_API_BASE: BASE },
+    const res = await handle(post({ text: "only open access", current_query: "get works where title has (coffee AND health)" }), { OPENALEX_API_BASE: BASE },
       { anthropic, openalex: fakeOpenAlex(), guide: "G" });
     expect(res.status).toBe(200);
     expect(anthropic.requests).toHaveLength(3);
     expect(JSON.stringify(anthropic.requests[1].messages)).not.toContain("Last turn");
-    expect(anthropic.requests[0].messages[0].content).toContain("The results page currently shows this query: get works where title has coffee");
+    expect(anthropic.requests[0].messages[0].content).toContain("The results page currently shows this query: get works where title has (coffee AND health)");
     const body: any = await res.json();
     expect(body.meta.cost.credits).toBe(Math.ceil(3 * costUsd(pricey) * 10000));
     expect(body.confidence).toBeNull(); // no Jev key configured

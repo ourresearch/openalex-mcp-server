@@ -122,6 +122,34 @@ describe("runChat", () => {
     expect(toolResult.content).toContain("Not submitted");
   });
 
+  it("refuses a submit with search words the person never typed, then takes their own words", async () => {
+    const anthropic = fakeAnthropic([
+      [tool("r", "run_oql", { oql: "get works where title-abstract-keywords has (kelp OR seaweed)" })],
+      [tool("s1", "submit", { oql: "get works where title-abstract-keywords has (kelp OR seaweed)", sort: "", note: "" })],
+      [tool("s2", "submit", { oql: "get works where title-abstract-keywords has (kelp)", sort: "", note: "ok" })],
+    ]);
+    const events: ChatEvent[] = [];
+    await runChat({ anthropic, openalex: fakeOpenAlex(), guide: "G" }, { messages: [{ role: "user", content: "papers on kelp" }] }, (e) => { events.push(e); });
+    const trial = JSON.parse(anthropic.requests[1].messages.at(-1).content[0].content);
+    expect(trial.new_search_words).toEqual(["seaweed"]);
+    const refused = anthropic.requests[2].messages.at(-1).content[0];
+    expect(refused.is_error).toBe(true);
+    expect(refused.content).toContain('new search words ["seaweed"]');
+    const answer: any = events.find((e) => e.type === "answer");
+    expect(answer.oql).toBe("get works where title-abstract-keywords has (kelp)");
+    expect(answer.new_words).toEqual([]);
+    expect(events.find((e) => e.type === "done")).toMatchObject({ word_retries: 1 });
+  });
+
+  it("takes new search words on the last turn rather than no answer, and says which", async () => {
+    const anthropic = fakeAnthropic([[tool("s", "submit", { oql: "get works where title-abstract-keywords has (kelp OR seaweed)", sort: "", note: "" })]]);
+    const events: ChatEvent[] = [];
+    const out = await runChat({ anthropic, openalex: fakeOpenAlex(), guide: "G" }, { messages: [{ role: "user", content: "papers on kelp" }] }, (e) => { events.push(e); });
+    expect(out.answered).toBe(true);
+    expect(anthropic.requests).toHaveLength(MAX_TURNS);
+    expect(events.find((e) => e.type === "answer")).toMatchObject({ new_words: ["seaweed"] });
+  });
+
   it("adds the page's current query to the newest user turn only", async () => {
     const anthropic = fakeAnthropic([[tool("t1", "submit", { oql: "get works where year >= 2020; then, group those works by country", sort: "", note: "" })]]);
     const history: any[] = [

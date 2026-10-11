@@ -13,6 +13,7 @@
  */
 import type Anthropic from "@anthropic-ai/sdk";
 import { OpenAlexError } from "./openalex";
+import { newWords } from "./searchWords";
 import CHAT_GUIDE from "./chat_guide.md";
 
 export const CHAT_MODEL = "claude-opus-5-5";
@@ -115,12 +116,18 @@ export interface Preview {
   top_groups?: Array<Record<string, any>>;
   top_rows?: Array<Record<string, any>>;
   errors?: any;
+  /** Search words the person never typed (the no-new-words check, searchWords.ts), with what to do about them. */
+  new_search_words?: string[];
+  word_rule?: string;
 }
+
+/** The feedback a query with new search words gets back (on a trial run, and on a refused submit). */
+export const WORD_RULE = "These search words aren't in the person's request. Search only with their own words (their stems, plurals and wildcards are fine): no synonyms, related terms, translations or spellings of your own. If their words alone find too little, keep them anyway and say in the note what a broader search might add.";
 
 export type ChatEvent =
   | { type: "step"; tool: "find_entity" | "run_oql"; detail: string }
-  | { type: "answer"; oql: string; sort: string | null; note: string; preview: Preview }
-  | { type: "done"; messages: Anthropic.MessageParam[]; cost_usd: number; usage: Usage; turns: number }
+  | { type: "answer"; oql: string; sort: string | null; note: string; preview: Preview; new_words: string[] }
+  | { type: "done"; messages: Anthropic.MessageParam[]; cost_usd: number; usage: Usage; turns: number; word_retries: number }
   | { type: "error"; message: string };
 
 export interface Usage { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }
@@ -188,6 +195,14 @@ export interface ChatInput {
   /** The query the page shows now, if any; follow-ups edit it. */
   currentQuery?: string | null;
   institution?: Institution | null;
+  /** What the person typed, for the no-new-words check; defaults to the text of every user turn. */
+  typed?: string[];
+}
+
+/** The text of the person's own turns (tool results and nudges excluded). */
+function userTexts(messages: Anthropic.MessageParam[]): string[] {
+  return messages.filter((m) => m.role === "user").flatMap((m) =>
+    typeof m.content === "string" ? [m.content] : m.content.flatMap((b: any) => (b.type === "text" ? [b.text] : [])));
 }
 
 /**
@@ -213,6 +228,9 @@ export async function runChat(
     last.content = typeof last.content === "string" ? last.content + ctx : [...last.content, { type: "text", text: ctx }];
   }
   const system = systemPrompt(input.institution, deps.guide);
+  // The words the person typed (and the page's query, for follow-ups): searches may use only these (searchWords.ts)
+  const typed = [...(input.typed ?? userTexts(input.messages)), input.currentQuery ?? ""];
+  let wordRetries = 0;
   let turns = 0;
   let answered = false;
   for (; turns < MAX_TURNS && !answered; turns++) {
@@ -255,6 +273,8 @@ export async function runChat(
       } else if (b.name === "run_oql") {
         await emit({ type: "step", tool: "run_oql", detail: String(a.oql ?? "").slice(0, 300) });
         const p = await runOql(deps.openalex, a.oql ?? "", a.sort || null);
+        const added = p.ok ? newWords(p.canonical ?? a.oql ?? "", typed) : [];
+        if (added.length) Object.assign(p, { new_search_words: added, word_rule: WORD_RULE });
         results.push({ type: "tool_result", tool_use_id: b.id, content: JSON.stringify(p).slice(0, 4000) });
       } else if (b.name === "submit") {
         const p = await runOql(deps.openalex, a.oql ?? "", a.sort || null);
@@ -262,10 +282,16 @@ export async function runChat(
           results.push({ type: "tool_result", tool_use_id: b.id, is_error: true, content: "Not submitted: this query fails. " + JSON.stringify(p).slice(0, 1500) });
           continue;
         }
+        const added = p.ok ? newWords(p.canonical ?? a.oql ?? "", typed) : [];
+        if (added.length && !lastTurn) {
+          wordRetries++;
+          results.push({ type: "tool_result", tool_use_id: b.id, is_error: true, content: `Not submitted: new search words ${JSON.stringify(added)}. ${WORD_RULE}` });
+          continue;
+        }
         if (!p.ok) {
           await emit({ type: "error", message: "The assistant's last query doesn't run." });
         } else {
-          await emit({ type: "answer", oql: p.canonical ?? a.oql, sort: a.sort || null, note: a.note ?? "", preview: p });
+          await emit({ type: "answer", oql: p.canonical ?? a.oql, sort: a.sort || null, note: a.note ?? "", preview: p, new_words: added });
           answered = true;
         }
         results.push({ type: "tool_result", tool_use_id: b.id, content: p.ok ? "received" : "Not submitted: this query fails." });
@@ -278,7 +304,7 @@ export async function runChat(
   }
   if (!answered && turns >= MAX_TURNS) await emit({ type: "error", message: "The assistant ran out of steps without a query." });
   const cost = costUsd(usage);
-  await emit({ type: "done", messages, cost_usd: cost, usage, turns });
+  await emit({ type: "done", messages, cost_usd: cost, usage, turns, word_retries: wordRetries });
   return { cost_usd: cost, answered };
 }
 
