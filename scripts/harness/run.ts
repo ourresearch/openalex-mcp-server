@@ -13,6 +13,9 @@
  * A rerun skips (id, arm) pairs already written, except transient failures (HTTP 5xx from the model).
  */
 import { appendFileSync } from "node:fs";
+import { runOql } from "../../src/chat";
+import { frontDoor } from "../../src/frontDoor";
+import { OpenAlexClient } from "../../src/openalex";
 import { handle } from "../../src/queryText";
 import { anthropicKey, pool, readJsonl } from "./util";
 
@@ -27,6 +30,8 @@ const ARM = arg("--arm", "base")!;
 const WORKERS = Number(arg("--workers", "8"));
 const LIMIT = Number(arg("--limit", "0"));
 const VERSION = arg("--version", "unknown")!;
+// --front-door-only: answer only the rows the deterministic pass takes (no model call at all); skip the rest
+const FRONT_DOOR_ONLY = process.argv.includes("--front-door-only");
 
 const env = {
   ENVIRONMENT: "harness",
@@ -83,7 +88,9 @@ async function main() {
   const todo = rows.filter((r) => !done.has(r.id));
   console.log(`${rows.length} rows; ${todo.length} to run; arm ${ARM}; version ${VERSION}`);
   let k = 0;
+  const oa = new OpenAlexClient({ apiKey: KEY! });
   await pool(todo, WORKERS, async (r) => {
+    if (FRONT_DOOR_ONLY && (await frontDoor(r.input, (q) => runOql(oa, q))).path === "model") return;
     const row = await one(r);
     appendFileSync(OUT, JSON.stringify(row) + "\n");
     k++;
