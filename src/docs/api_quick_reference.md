@@ -14,7 +14,7 @@
 Base: https://api.openalex.org
 Auth: API key free + strongly recommended (10x the no-key budget); openalex.org/settings/api
       Send as ?api_key=KEY or header: Authorization: Bearer KEY
-Rate: $1/day free usage with key, $0.10/day without; 429 on over-budget or >100 req/sec
+Rate: $1/day free usage with key, $0.10/day without; 429 on over-budget or over the per-second limit (10/s no key, 30/s free key or prepaid, 50/s annual plan)
 Corpus: default = curated core (~324M works). corpus=all adds the ~193M-work
         expansion corpus (formerly "XPAC"); corpus=expansion selects it alone; each
         work has an is_xpac boolean. (Legacy include_xpac=true = corpus=all; deprecated —
