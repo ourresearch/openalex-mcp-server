@@ -19,6 +19,8 @@
     "@anthropic-ai/sdk": "0.131.0",
     "@cloudflare/workers-oauth-provider": "^0.10.3",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@sentry/cloudflare": "10.76.2",
+    "@sentry/core": "10.76.2",
     "hono": "^4.13.8",
     "zod": "^4.6.5"
   },

@@ -9,8 +9,11 @@
   "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "workers_dev": true,
   "observability": { "enabled": true, "head_sampling_rate": 1 },
+  // Sentry release = this deploy's version id (oxjob #1685; SENTRY_DSN is a Worker secret, per environment).
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "vars": {
     "ENVIRONMENT": "staging",
+    "SENTRY_ENVIRONMENT": "staging",
     "OPENALEX_API_BASE": "https://api.openalex.org",
     // Must be the exact public MCP endpoint: it is the OAuth resource identifier (RFC 9728).
     "MCP_PUBLIC_URL": "https://openalex-mcp-server.our-research.workers.dev/mcp",
@@ -37,9 +40,11 @@
     "production": {
       "name": "openalex-mcp-server-production",
       "workers_dev": false,
+      "version_metadata": { "binding": "CF_VERSION_METADATA" },
       "routes": [{ "pattern": "mcp.openalex.org", "custom_domain": true }],
       "vars": {
         "ENVIRONMENT": "production",
+        "SENTRY_ENVIRONMENT": "production",
         "OPENALEX_API_BASE": "https://api.openalex.org",
         "MCP_PUBLIC_URL": "https://mcp.openalex.org/mcp",
         "OPENALEX_WEB_BASE": "https://openalex.org",

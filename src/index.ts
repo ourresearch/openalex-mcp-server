@@ -18,8 +18,9 @@ import {
   revokeAllGrants, keyLabel,
 } from "./auth";
 import { ICON_PNG_BASE64 } from "./icon";
+import { reportError, withErrorReporting, type SentryEnv } from "./sentry";
 
-export interface Env extends AuthEnv {
+export interface Env extends AuthEnv, SentryEnv {
   ENVIRONMENT: string;
   OPENALEX_API_BASE: string;
   /** Exact public MCP endpoint URL; doubles as the OAuth resource identifier (RFC 9728). */
@@ -42,10 +43,19 @@ const MCP_CORS = {
   allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
 };
 
+/** Hono's default error handler (log, plain 500) plus a Sentry report (oxjob #1685): Hono catches route errors itself. */
+function onAppError(err: Error, c: { text: (body: string, status: 500) => Response }): Response {
+  if ("getResponse" in err && typeof err.getResponse === "function") return err.getResponse() as Response;
+  console.error(err);
+  reportError(err, { site: "route", handled: false });
+  return c.text("Internal Server Error", 500);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Public handler: landing page, health, and the two halves of the consent round-trip.
 // ---------------------------------------------------------------------------------------------
 const publicApp = new Hono<{ Bindings: Env }>();
+publicApp.onError(onAppError);
 publicApp.use("/mcp", cors(MCP_CORS));
 publicApp.use("/mcp/*", cors(MCP_CORS));
 
@@ -134,6 +144,7 @@ publicApp.get("/oauth/callback", async (c) => {
   } catch (e: any) {
     const status = e instanceof ExchangeError ? e.status : 500;
     console.error("oauth exchange failed", status, e?.message);
+    if (status >= 500) reportError(e, { site: "oauth_exchange", extra: { status } });
     return back(status >= 500 ? "temporarily_unavailable" : "access_denied", status >= 500 ? "OpenAlex accounts are unavailable right now; try again in a minute." : e?.message ?? "Consent could not be verified.");
   }
 
@@ -169,6 +180,7 @@ function errorPage(message: string): string {
 // decrypted the grant props for us.
 // ---------------------------------------------------------------------------------------------
 const mcpApp = new Hono<{ Bindings: Env }>();
+mcpApp.onError(onAppError);
 mcpApp.use("/mcp", cors(MCP_CORS));
 mcpApp.use("/mcp/*", cors(MCP_CORS));
 
@@ -184,7 +196,10 @@ async function handleMcp(c: any) {
     keyLabel: keyLabel(props),
     onUnauthorized: () => {
       // The user rotated (or lost) the key we hold: drop every grant so the client re-authenticates.
-      c.executionCtx?.waitUntil?.(revokeAllGrants(env.OAUTH_PROVIDER, props.userId).catch((e: any) => console.error("revoke failed", e?.message)));
+      c.executionCtx?.waitUntil?.(revokeAllGrants(env.OAUTH_PROVIDER, props.userId).catch((e: any) => {
+        console.error("revoke failed", e?.message);
+        reportError(e, { site: "revoke_grants" });
+      }));
     },
   });
   // users-api authenticates the *user's* key only; org-key grants made before #1269 carry no personal key.
@@ -194,7 +209,10 @@ async function handleMcp(c: any) {
         apiKey: personalKey,
         baseUrl: env.USERS_API_BASE,
         onUnauthorized: () => {
-          c.executionCtx?.waitUntil?.(revokeAllGrants(env.OAUTH_PROVIDER, props.userId).catch((e: any) => console.error("revoke failed", e?.message)));
+          c.executionCtx?.waitUntil?.(revokeAllGrants(env.OAUTH_PROVIDER, props.userId).catch((e: any) => {
+            console.error("revoke failed", e?.message);
+            reportError(e, { site: "revoke_grants" });
+          }));
         },
       })
     : null;
@@ -278,10 +296,15 @@ function providerFor(env: Env): OAuthProvider<Env> {
 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    return providerFor(env).fetch(request, env, ctx);
+    return withErrorReporting({ env, waitUntil: (p) => ctx.waitUntil(p), request }, "fetch",
+      () => providerFor(env).fetch(request, env, ctx));
   },
   /** Nightly KV sweep for expired grants/tokens (cron trigger in wrangler.jsonc). */
   scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(providerFor(env).purgeExpiredData(env).catch((e: any) => console.error("purge failed", e?.message)));
+    const inv = { env, waitUntil: (p: Promise<unknown>) => ctx.waitUntil(p) };
+    ctx.waitUntil(providerFor(env).purgeExpiredData(env).catch((e: any) => {
+      console.error("purge failed", e?.message);
+      reportError(e, { site: "purge_expired", inv });
+    }));
   },
 };
