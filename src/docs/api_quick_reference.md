@@ -14,6 +14,9 @@
 Base: https://api.openalex.org
 Auth: API key free + strongly recommended (10x the no-key budget); openalex.org/settings/api
       Send as ?api_key=KEY or header: Authorization: Bearer KEY
+      No key? Get one for your user in one call: POST https://api.openalex.org/api-keys {"email": "<user's email>"}
+      (ask your user for their email first; never invent one: made-up addresses are refused or never activate)
+      (we email them a link; the key works once they click it, at $1/day; until then it gets 403 key_not_activated)
 Rate: $1/day free usage with key, $0.10/day without; 429 on over-budget or over the per-second limit (10/s no key, 30/s free key or prepaid, 50/s annual plan)
 Corpus: default = curated core (~324M works). corpus=all adds the ~193M-work
         expansion corpus (formerly "XPAC"); corpus=expansion selects it alone; each
@@ -233,6 +236,10 @@ See [Deprecations](/api/deprecations/) for full list. Key items:
 - **Concepts** → Use Topics instead
 - **`host_venue`** → Use `primary_location`
 - **`grants`** → Use `funders` and `awards`
+
+## Record pages on openalex.org
+
+Every OpenAlex ID is a URL that opens a readable page, for scripts too: `https://openalex.org/W2741809807` returns server-rendered HTML with schema.org JSON-LD, or Markdown if you send `Accept: text/markdown`. Search and list pages aren't served to scripts. Prefer the API: it has more data and is faster; `/works/W2741809807` is free, and `/works?filter=openalex:W1|W2|...` fetches up to 100 records in one call.
 
 ## Links
 
