@@ -22,23 +22,23 @@ const call = async (name: string, args: Record<string, any>) => {
   if (r.content?.[1]) console.log("[2nd block]", r.content[1].text);
 };
 
-const CRISPR = "get works where topic is (T10878); then group those works by institution in (I63966007, I97018004, I136199984); then calculate count, mean FWCI, percent open access";
+const CRISPR = "get works where topic is (T10878); then group those works by institution in (I63966007, I97018004, I136199984); finally, summarize using count, mean FWCI, percent open access";
 await call("calculate_works", { oql: CRISPR });
 await call("check_oql", { oql: CRISPR });
-await call("check_oql", { oql: "get works where topic is (T10878); then group those works by year; then group those works again by type; then group those works again by country; then group those works again by language; then calculate count" });
-await call("check_oql", { oql: "get works where topic is (T10878); then group those works by FWCI; then calculate count" });
+await call("check_oql", { oql: "get works where topic is (T10878); then group those works by year; then group those works again by type; then group those works again by country; then group those works again by language; finally, summarize using count" });
+await call("check_oql", { oql: "get works where topic is (T10878); then group those works by FWCI; finally, summarize using count" });
 await call("check_oql", { oql: "works where title has (kelp)" });
-await call("calculate_works", { oql: "get works where year >= (2016) and country is (KE); then group those works into ((institution is (I99464096)), (country is (BE))); then group those works again by type; then calculate count, percent of those works" });
-await call("calculate_works", { oql: "get works where title-abstract has (kelp); then group those works by author where count of those works > (10) and h-index > (20); then calculate count, mean FWCI, h-index", limit: 5, sort: "mean FWCI" });
-await call("calculate_works", { oql: "get works where topic is (T10878); then calculate count, mean FWCI, percent open access, median citation count" });
-await call("calculate_works", { oql: "get works where topic is (T10878); then group those works by institution; then calculate count, mean FWCI", limit: 3, page: 2 });
+await call("calculate_works", { oql: "get works where year >= (2016) and country is (KE); then group those works into ((institution is (I99464096)), (country is (BE))); then group those works again by type; finally, summarize using count, percent of those works" });
+await call("calculate_works", { oql: "get works where title-abstract has (kelp); then group those works by author where count of those works > (10) and h-index > (20); finally, summarize using count, mean FWCI, h-index", limit: 5, sort: "mean FWCI" });
+await call("calculate_works", { oql: "get works where topic is (T10878); finally, summarize using count, mean FWCI, percent open access, median citation count" });
+await call("calculate_works", { oql: "get works where topic is (T10878); then group those works by institution; finally, summarize using count, mean FWCI", limit: 3, page: 2 });
 await call("calculate_works", { oql: "get authors where last known institution is (I136199984) and h-index > (50)", limit: 3 });
-await call("calculate_works", { oql: "get works where year >= (2000); then group those works by author; then group those works again by year; then calculate count" });
+await call("calculate_works", { oql: "get works where year >= (2000); then group those works by author; then group those works again by year; finally, summarize using count" });
 await call("calculate_works", { oql: "get works where topic is (T10878)" });
 await call("search_works", { oql: CRISPR });
 await call("search_works", { oql: "get works where title has (kelp) and year >= (2024)", preview: true, preview_limit: 3 });
 await call("search_works", { oql: "get works where title has (kelp) and year >= (2024)", preview: true, preview_limit: 3, preview_sample: "random" });
-await call("group_works", { oql: "get works where topic is (T10878); then calculate count, mean FWCI", group_by: "oa_status" });
+await call("group_works", { oql: "get works where topic is (T10878); finally, summarize using count, mean FWCI", group_by: "oa_status" });
 await call("group_works", { oql: "get works where topic is (T10878)", group_by: "year", limit: 3 });
 // what agents paste back after the API's launch flip (every echo in the pipeline form; preview with ?oql_style=pipeline)
 await call("search_works", { oql: "get works where title has (kelp) and retracted is (false)", preview: true, preview_limit: 2 });
