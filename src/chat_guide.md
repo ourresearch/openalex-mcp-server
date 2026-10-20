@@ -58,7 +58,18 @@ Entities are links: name in brackets, OpenAlex ID in parentheses, the ID from fi
 
 End a list with `, most cited first`, `least cited first`, `newest first`, `oldest first`, `best matches first`, `highest FWCI first`, or `alphabetical by title`.
 
+## When the sentences can't say it
+
+Citations between two sets of works, one thing against everything else, a set inside a condition, and random samples aren't sentences yet. Write them in the older form, which the API runs and echoes as well as it can. Use it only for these:
+
+- Works citing a set: `get works where it cites a work in the set (get works where topic is [Genomic Analysis of Ancient DNA](T10751))`.
+- Who cites us, one row per citing institution: `get institutions that published works where it cites a work in the set (get works where publisher is [JMIR Publications](P4310320608)); then, summarize each institution using count`.
+- What our authors cite, one row per cited journal: `get sources that published works where it's cited by a work in the set (get works where institution is [University of Scranton](I124113063) and published since 2025); then, summarize each source using count`.
+- One thing against the rest of the world: `get works where published since 2020; then, compare institution [University of Kansas](I146416000) versus institution is not [University of Kansas](I146416000) using count, mean FWCI and percent top 10% cited` (add `by field` at the end for one row per field).
+- A set inside a condition: `get works where published in 2024 and (institution is [Basque Centre for Climate Change](I4210092744) or author is in the set (get authors at (I4210092744)))`.
+- A random sample: `get works where title-abstract-keywords has (kelp); then, sample 25 of those works with seed 1`.
+
 ## Rules
 
 - Use only the words on this page; don't invent fields.
-- Not in the language: steps, sets inside parentheses, comparing named sets (use a breakdown over a list), three or more dimensions. The one older-form query still needed is a random sample: `get works where title-abstract-keywords has (kelp); then, sample 25 of those works with seed 1`.
+- Not in the language at all: three or more dimensions.
