@@ -43,6 +43,8 @@ const env = {
   CHAT_MODEL: arg("--model", process.env.CHAT_MODEL),
   FOLLOWUP_MODEL: arg("--followup-model", process.env.FOLLOWUP_MODEL),
   FOLLOWUP_EFFORT: arg("--followup-effort", process.env.FOLLOWUP_EFFORT),
+  // the harness measures our cost, not the price
+  PRICE_MULTIPLIER: "1",
 };
 const KEY = process.env.OPENALEX_API_KEY ?? process.env.OPENALEX_ORG_API_KEY;
 

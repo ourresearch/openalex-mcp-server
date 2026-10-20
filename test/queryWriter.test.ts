@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRequest, callerKey, creditsFor, handle, confidence } from "../src/queryText";
+import { parseRequest, callerKey, creditsFor, handle, confidence, PRICE_MULTIPLIER } from "../src/queryText";
 import { costUsd } from "../src/chat";
 
 const BASE = "https://api.openalex.org";
@@ -120,7 +120,8 @@ describe("handle", () => {
     expect(body.confidence).toBe(0.874);
     expect(body.count).toBe(5559);
     const usd = 2 * costUsd(USAGE) + 600 * 0.042 / 1e6;
-    expect(body.meta.cost.credits).toBe(Math.ceil(usd * 10000));
+    expect(body.meta.cost.credits).toBe(Math.ceil(usd * PRICE_MULTIPLIER * 10000));
+    expect(body.meta.cost.usd).toBe(body.meta.cost.credits / 10000);   // the price, not our cost
     expect(res.headers.get("X-Credits-Cost")).toBe(String(body.meta.cost.credits));
     expect(body.meta.model).toBe("claude-opus-5-5");
   });
@@ -134,7 +135,7 @@ describe("handle", () => {
   it("reports what the model cost when it finds no query (422; the proxy charges errors nothing)", async () => {
     const res = await handle(get("/query/text/kelp"), { OPENALEX_API_BASE: BASE }, { anthropic: fakeAnthropic([[{ type: "text", text: "hmm" }]]), openalex: fakeOpenAlex(), guide: "G", route: DATA });
     expect(res.status).toBe(422);
-    expect(Number(res.headers.get("X-Credits-Cost"))).toBe(Math.ceil(costUsd(USAGE) * 10000));
+    expect(Number(res.headers.get("X-Credits-Cost"))).toBe(Math.ceil(costUsd(USAGE) * PRICE_MULTIPLIER * 10000));
   });
 
   it("runs a Boolean search string as typed, with no model call and no model charge", async () => {
@@ -173,7 +174,7 @@ describe("handle", () => {
     expect(pages).toContain("https://help.openalex.org/how-to/fixing-authors.md");
     expect(anthropic.seen.help[0].system[0].text).toContain("# OpenAlex Help");
     expect(anthropic.seen.agent.length).toBe(1);   // started beside the router, stopped when it said help desk
-    expect(body.meta.cost.credits).toBe(Math.ceil((0.0003 + 2 * (1000 * 4 + 200 * 20 + 9000 * 0.2) / 1e6) * 10000));
+    expect(body.meta.cost.credits).toBe(Math.ceil((0.0003 + 2 * (1000 * 4 + 200 * 20 + 9000 * 0.2) / 1e6) * PRICE_MULTIPLIER * 10000));
   });
 
   it("routes with the router model and falls back to data when the router fails", async () => {
@@ -185,6 +186,19 @@ describe("handle", () => {
     expect(anthropic.seen.agent[0].model).toBe("claude-opus-5-5");
     const broken = fakeRoles({ router: [[{ type: "text", text: "not json" }]], agent: [[SUBMIT]] });
     expect((await handle(post({ text: "open access articles about coffee and health" }), { OPENALEX_API_BASE: BASE }, { anthropic: broken, openalex: fakeOpenAlex(), guide: "G" })).status).toBe(200);
+  });
+
+  it("charges our cost times the multiplier, which a Worker var can change (never below 1)", async () => {
+    const run = async (env: any) => {
+      const res = await handle(post({ text: "coffee and health" }), { OPENALEX_API_BASE: BASE, ...env }, { anthropic: fakeRoles({ agent: [[SUBMIT]] }), openalex: fakeOpenAlex(), guide: "G", route: DATA });
+      return Number(res.headers.get("X-Credits-Cost"));
+    };
+    const base = await run({ PRICE_MULTIPLIER: "1" });
+    expect(PRICE_MULTIPLIER).toBe(3);
+    expect(await run({})).toBe(Math.ceil(costUsd(USAGE) * 3 * 10000));
+    expect(await run({ PRICE_MULTIPLIER: "2" })).toBe(Math.ceil(costUsd(USAGE) * 2 * 10000));
+    expect(await run({ PRICE_MULTIPLIER: "0.5" })).toBe(await run({}));   // never below cost
+    expect(base).toBe(Math.ceil(costUsd(USAGE) * 10000));
   });
 
   it("runs a follow-up on the follow-up model and effort when they are set", async () => {
@@ -218,7 +232,7 @@ describe("handle", () => {
     expect(JSON.stringify(anthropic.requests[1].messages)).not.toContain("Last turn");
     expect(anthropic.requests[0].messages[0].content).toContain("The results page currently shows this query: get works where title has (coffee AND health)");
     const body: any = await res.json();
-    expect(body.meta.cost.credits).toBe(Math.ceil(3 * costUsd(pricey) * 10000));
+    expect(body.meta.cost.credits).toBe(Math.ceil(3 * costUsd(pricey) * PRICE_MULTIPLIER * 10000));
     expect(body.confidence).toBeNull(); // no Jev key configured
   });
 });

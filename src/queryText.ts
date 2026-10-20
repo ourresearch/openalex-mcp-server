@@ -4,7 +4,7 @@
  *
  * This Worker has no public route. The API proxy (openalex-api-proxy) lets a question in when the caller has any
  * budget left (one credit), calls this over a service binding, and charges the X-Credits-Cost this returns on an
- * answer: what the model and the confidence check cost us, in credits (10,000 = $1). Errors are free, as everywhere
+ * answer: what the model and the confidence check cost us times PRICE_MULTIPLIER, in credits (10,000 = $1). Errors are free, as everywhere
  * in the API, and a question that costs more than the caller had left is absorbed (Jason, 2026-10-11). The searches
  * the agent runs go out on the caller's own key and are charged by the proxy like any other call.
  *
@@ -41,7 +41,12 @@ export interface QueryWriterEnv {
   /** A follow-up (the page already shows a query): its own model and effort, for speed; unset = the agent's. */
   FOLLOWUP_MODEL?: string;
   FOLLOWUP_EFFORT?: string;
+  /** The price as a multiple of our model cost; unset = PRICE_MULTIPLIER. A wrangler var, so it can come down without code. */
+  PRICE_MULTIPLIER?: string;
 }
+
+/** Jason, 2026-10-20: charge on the expensive side while it's new, and bring it down later. */
+export const PRICE_MULTIPLIER = 3;
 
 export const MAX_TEXT_CHARS = 2000;
 export const JEV_URL = "https://api.typesafe.ai/v1/systemone";
@@ -146,7 +151,17 @@ export async function confidence(
 export const creditsFor = (usd: number) => Math.max(0, Math.ceil(usd * 10000));
 
 /** A response's meta.cost: credits charged and dollars spent. */
-const costOf = (usd: number) => ({ credits: creditsFor(usd), usd: Math.round(usd * 1e6) / 1e6 });
+/** A response's meta.cost: the price, in credits and dollars (our model cost times the multiplier; the cost itself isn't shown). */
+const costOf = (usd: number, multiplier: number) => {
+  const credits = creditsFor(usd * multiplier);
+  return { credits, usd: credits / 10000 };
+};
+
+/** The price multiple for this Worker: its PRICE_MULTIPLIER var when it's a number >= 1, else the default. */
+export function multiplierOf(env: QueryWriterEnv): number {
+  const m = Number(env.PRICE_MULTIPLIER);
+  return Number.isFinite(m) && m >= 1 ? m : PRICE_MULTIPLIER;
+}
 
 function reply(status: number, body: Record<string, any>, credits: number): Response {
   return new Response(JSON.stringify(body), {
@@ -229,7 +244,7 @@ export async function handle(
     const help = await helpDesk(anthropic, parsed.text, deps.fetchImpl ?? fetch);
     preUsd += help.costUsd;
     if (help.text) {
-      const cost = costOf(preUsd);
+      const cost = costOf(preUsd, multiplierOf(env));
       return reply(200, {
         text: parsed.text, route: "help_desk", answer: help.text, link: help.link || null, oql: null, sort: null, note: null,
         confidence: null, count: null, preview: null,
@@ -246,7 +261,7 @@ export async function handle(
     ? await confidence(env.TYPESAFE_API_KEY, parsed.text, answer, deps.fetchImpl ?? fetch)
     : { p: null, costUsd: 0 };
   const a = answer as Extract<ChatEvent, { type: "answer" }> | null;
-  const cost = costOf(preUsd + run.costUsd + conf.costUsd);
+  const cost = costOf(preUsd + run.costUsd + conf.costUsd, multiplierOf(env));
   const meta = {
     path: "model", tried: routed.route === "help_desk" ? [...door.tried, "help_desk"] : door.tried,
     model, effort, turns, elapsed_ms: Date.now() - started, cost,
