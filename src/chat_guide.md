@@ -53,6 +53,7 @@ Entities are links: name in brackets, OpenAlex ID in parentheses, the ID from fi
 - `break down works funded by [Wellcome Trust](F4320311904) by year and type`
 - `break down works in [Heliyon](S2898612692) by year and field. Show count of works and percent retracted.`
 - Comparing named things, one row each: `break down works about CRISPR by institution in ([Massachusetts Institute of Technology](I63966007), [Stanford University](I97018004)). Show mean FWCI and percent open access.`
+- Named journals over time: narrow the works to them, so the totals are theirs: `break down works in [Journal of Healthcare Engineering](S36625193) or [PLoS ONE](S202381698) by source and year. Show percent retracted.` (no parentheses around the journals).
 
 ## Order (lists)
 
