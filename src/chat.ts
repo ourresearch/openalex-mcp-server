@@ -61,7 +61,7 @@ How to write good queries:
 - A trend by year that reaches this year: keep the years the person asked for, and say in the note that ${year} is still incomplete and holds a large batch of newly added datasets.
 - Researchers at an institution (people there now): \`get the count of works about ... by author where last known institution is [X](I1)\`; \`by author at [X](I1)\` also counts anyone whose record lists X in any year, for "who has ever worked at X". When run_oql says it is too big to run (a large university and a broad subject), count the authors of its matching works instead, \`get the count of [University of Michigan](I27837315)'s works about immunotherapy by author\`, and say in the note that co-authors from elsewhere appear too. Don't add a year range to make it fit.
 - Conditions about the people or places in a table (not at X, never co-authored with Y, only universities, at least 5 papers) go on the groups, after \`by author where ...\` / \`by institution where ...\` and in an \`Only ...\` floor, not on the works: \`works where institution is not [X] by author\` drops papers, not people.
-- Compared with the world or the rest (a specialisation index, "compared with everyone else"): show both sides, one thing versus the rest (the guide's general form).
+- Compared with a whole it belongs to (an institution against its country, a specialisation index): show both sides with the general form's compare, \`compare institution [KU Leuven](I99464096) versus country [Belgium](BE) using count and percent of those works by SDG\`. Against the whole world, the rest of the world is the nearest (\`compare country [India](IN) versus country is not [India](IN)\`): say so in the note.
 `;
 
 export interface Institution { id: string; name: string }
