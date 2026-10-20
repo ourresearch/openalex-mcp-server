@@ -3,10 +3,9 @@
  * OQL query, which sets the openalex.org results page (results, facets, download) and shows at its top.
  *
  * Configuration chosen on oxjob #1494's harness (EXPLORE.md §§ 8-14): Claude Opus 5.5 at xhigh effort, the
- * "prompt v2" search rules below, and #1555's one-page OQL guide (chat_guide.md, a copy of guide_v6.md). Measured
- * there: 81% of the dev questions and 88-91% of a traffic-shaped sample of real search-box requests answered right,
- * about $0.032 a question, median 9 s. Every OpenAlex call runs on the person's own API key (their credits), as in
- * the MCP tools.
+ * "prompt v2" search rules below, and #1555's one-page OQL guide. Since 2026-10-20 (NL-search push) it writes the new
+ * OQL sentences (`get` / `rank` / `break down`, the order inside the sentence) from chat_guide.md = #1555's guide_v7.md
+ * adapted for this chat. Every OpenAlex call runs on the person's own API key (their credits), as in the MCP tools.
  *
  * The browser keeps the conversation: it sends back `messages` exactly as returned, assistant turns included
  * (Opus 5.5 rejects edited history, so thinking blocks must round-trip untouched).
@@ -34,32 +33,31 @@ export function priceOf(model: string, u: Partial<Usage>): number {
     + (u.cache_creation_input_tokens ?? 0) * p[3]) / 1e6;
 }
 
-const BASE_PROMPT = `You are the assistant in the chat panel beside OpenAlex's search results. People ask questions about the scholarly literature in plain words; you answer by writing ONE OQL query. The results page then shows that query's results (with its facets, table and download), and the query itself at the top so anyone can rerun it.
+const BASE_PROMPT = `You are the assistant in the chat panel beside OpenAlex's search results. People ask questions about the scholarly literature in plain words; you answer by writing ONE OQL query. The results page then shows that query's results (as a list, a table or a chart), and the query itself at the top in an editor, so anyone can read it, change it and rerun it. Write OQL as plain-English sentences, the way the guide below shows: \`get ...\`, \`rank ...\`, \`break down ...\`.
 
 How to work:
-1. Work out what the person wants back: a list of works, a count, a breakdown, numbers per group, a ranking.
-2. Resolve every name (institution, author, journal, funder, topic) to its OpenAlex id with find_entity.
+1. Work out what the person wants back: a list of works or things, one number, a ranking (who or what comes out on top), or a breakdown (how a body of work splits up or changes over time).
+2. Resolve every name (institution, author, journal, funder, publisher, topic) to its OpenAlex id with find_entity.
 3. Write the query and try it with run_oql. Check the preview: does it look like the answer? Fix and retry if not.
-4. Call submit with the query exactly as it ran, the sort (an API sort such as cited_by_count:desc or a calculated column key from the preview such as mean_fwci:desc; empty for none), and a note of at most 30 words telling the person what you assumed or what the query can't cover.
+4. Call submit with the query exactly as it ran and a note of at most 30 words telling the person what you assumed or what the query can't cover. Any order goes inside the query (\`, most cited first\`; a ranking is highest first unless \`, lowest first\`); leave sort empty.
 
 Be quick: most questions need one or two tool calls before submit.
 - Two or more questions in one message ("which journals do we publish in, and what do they cite?"): answer the first with your query and name the rest in left_out, in a few words; the reply tells the person. One question with several conditions, fields or numbers is one question, and so is anything the same query also shows.
 - Out of reach (OpenAlex doesn't hold it, or one query can't say it): submit the nearest useful query, and say plainly what's out of reach in out_of_reach, in a few words.
 - When the person asks how to do it ("how do I find papers citing ..."), also give howto: one line on how they could do it themselves on OpenAlex.
-When the page already shows a query and the person asks for a change ("only open access", "since 2020"), edit that query rather than starting over.
+
+Follow-ups: when the page already shows a query, a new message usually refines it ("only open access", "since 2020", "now by country", "what about Stanford?", "show mean FWCI too", "chart it by year"): change that query and keep everything else in it. Start fresh only when they ask about something new. Earlier turns of the conversation, when shown, are context; the page's current query is the one to change.
 
 How to write good queries:
-- Answer what was asked. Add no condition the person didn't ask for: no year range, work type, language, minimum count or other cutoff. When a ranking by an average needs a minimum group size to mean anything, use a small one (5) and say so in the note.
-- What works are about: search their title, abstract and keywords, \`title-abstract-keywords has (...)\`, unless the person says where else to look ("in the title", "mentions ... anywhere in the full text") or asks for a topic, subfield or field by name ("the field of economics").
+- Answer what was asked. Add no condition the person didn't ask for: no year range, work type, language, minimum count or other cutoff. Write a year only when the person gives one, and years rather than dates unless they give exact dates or months. When a ranking by an average needs a minimum group size to mean anything, use a small one (\`with at least 5 works about ...\`) and say so in the note.
+- What works are about: \`about ...\` searches their title, abstract and keywords. Use it unless the person says where else to look (\`with ... in the title\`, \`in the abstract\`, \`in the full text\`) or asks for a topic, subfield or field by name (\`in the field [Economics](20)\`).
 - Search only with the person's own words. Never add a search word they didn't type: no synonyms, related terms, abbreviations, spellings or translations of your own, even when they would find more. Bare words are stemmed (\`teacher\` also finds teachers) and a wildcard keeps a stem open (\`adolescen*\`), so word forms need no OR. Quote only phrases the person quoted and fixed multi-word terms they typed. Join their concepts with AND; use OR and NOT only where they did; keep every concept they asked for.
-- \`topic\` is a work's primary topic; \`topics\` matches any of its topics. Subfield, field and domain follow the primary topic.
-- Finding a known paper ("find the paper titled ..."): \`get works where title has ("<the exact title>")\`; if that finds nothing, retry with the title's distinctive words unquoted. The answer is the matching paper. If OpenAlex doesn't have it, say so plainly in the note.
-- When the person asks for a thing itself (an author, institution or journal record, e.g. "the author with OpenAlex ID A..."), start from that thing: \`get authors where OpenAlex ID is A5022654839\`.
+- Finding a known paper ("find the paper titled ..."): \`get works with "<the exact title>" in the title\`; if that finds nothing, retry with the title's distinctive words unquoted. The answer is the matching paper. If OpenAlex doesn't have it, say so plainly in the note.
+- A thing itself by id ("the author with OpenAlex ID A..."): \`get authors where OpenAlex ID is A5022654839\`, \`get works where OpenAlex ID is W2626778328\`.
 - People: choose the author profile whose name order, affiliation and output fit the person meant; don't join several profiles unless asked.
 - Never put a placeholder or guessed id in a query. If you can't resolve something, leave it out and say so.
-- A random sample: \`...; then, sample 25 of those works with seed 1\`.
-- Sort by a field or calculation in OQL words: \`citation count:desc\`, \`h-index:desc\`, \`works count:desc\`, \`publication_date:desc\`, \`relevance_score:desc\` (with a search); a calculation by its name in the summary: \`mean FWCI:desc\`, \`percent open access:desc\`, \`count:desc\`.
-- One row per person or institution: start with the thing, e.g. \`get authors at [University of Kansas](I146416000) who published works where ...; then, summarize each author using count\`.
+- Comparing named things (us and our peers, MIT and Stanford): one row each, \`break down <works> by institution in ([A](I1), [B](I2))\`, with \`Show ...\` for the numbers they asked about.
+- Too big: when run_oql says a ranking of authors at a large institution is too big to run, rank the authors of that institution's matching works instead, \`rank authors by count of [University of Michigan](I27837315)'s works about immunotherapy\`, and say so in the note. Don't add a year range to make it fit.
 `;
 
 export interface Institution { id: string; name: string }
@@ -87,12 +85,11 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "run_oql",
-    description: "Check and run an OQL query on the live API. Returns its canonical form, validation errors with fixes, the count, and the top rows (groups with their numbers, or works).",
+    description: "Check and run an OQL query on the live API. Returns its canonical form (the sentence the page will show), validation errors with fixes, the count, and the top rows (groups with their numbers, or works).",
     input_schema: {
       type: "object",
       properties: {
         oql: { type: "string" },
-        sort: { type: "string", description: "optional API sort, e.g. cited_by_count:desc, or a calculated column key such as mean_fwci:desc" },
       },
       required: ["oql"],
     },
@@ -103,12 +100,13 @@ export const TOOLS: Anthropic.Tool[] = [
     input_schema: {
       type: "object",
       properties: {
-        oql: { type: "string" }, sort: { type: "string" }, note: { type: "string" },
+        oql: { type: "string" }, note: { type: "string" },
+        sort: { type: "string", description: "leave empty: the order goes inside the query" },
         left_out: { type: "string", description: "the second (and later) questions you left out, in a few words; omit when there's one question" },
         out_of_reach: { type: "string", description: "what OpenAlex or one query can't answer, in a few words; omit when the query answers it all" },
         howto: { type: "string", description: "one line on how to do it themselves on OpenAlex, only when they asked how" },
       },
-      required: ["oql", "sort", "note"],
+      required: ["oql", "note"],
     },
   },
 ];
@@ -127,7 +125,10 @@ export interface AnthropicLike {
 
 export interface Preview {
   ok: boolean;
+  /** The sentence the page shows and runs: the API's new form (x_new_oql, names kept), or the older form when it has none. */
   canonical?: string;
+  /** The older pipeline form of the same query (`title-abstract-keywords has (...)`): what the word check reads. */
+  pipeline?: string;
   count?: number | null;
   groups_count?: number | null;
   measures?: string[];
@@ -170,7 +171,11 @@ export async function findEntity(oa: OpenAlexLike, type: string, name: string): 
   }
 }
 
-/** run_oql: the free check first, then a 5-row run of the canonical form; a refusal comes back as data, not a throw. */
+/**
+ * run_oql: the free check first, then a 5-row run of the sentence the page will show (the check's x_new_oql, names
+ * kept). The new form carries the order (`, most cited first`, a rank by mean FWCI, `, lowest first`); the older
+ * pipeline form the check also returns drops it (2026-10-20). A refusal comes back as data, not a throw.
+ */
 export async function runOql(oa: OpenAlexLike, oql: string, sort?: string | null): Promise<Preview> {
   let check: any;
   try {
@@ -180,18 +185,34 @@ export async function runOql(oa: OpenAlexLike, oql: string, sort?: string | null
   }
   const v = check?.validation ?? {};
   if (!check?.oql || v.valid === false) {
-    return { ok: false, canonical: check?.oql, errors: check?.check?.limits?.length ? check.check.limits : (v.errors ?? check) };
+    return { ok: false, canonical: check?.x_new_oql ?? check?.oql, errors: check?.check?.limits?.length ? check.check.limits : (v.errors ?? check) };
   }
-  const canonical: string = check.oql;
+  const pipeline: string = check.oql;
+  let canonical: string = check.x_new_oql || pipeline;
+  const run = (q: string) => oa.post({ oql: q, per_page: 5, ...(sort ? { sort } : {}) });
   let r: any;
   try {
-    r = await oa.post({ oql: canonical, per_page: 5, ...(sort ? { sort } : {}) });
+    r = await run(canonical);
   } catch (e: any) {
-    const body = e instanceof OpenAlexError ? e.body : undefined;
-    return { ok: false, canonical, errors: body?.validation?.errors ?? e?.message ?? String(e) };
+    // The new form failing where the text as written passed the check is a renderer slip: run the text as written.
+    let err = e;
+    if (canonical !== oql) {
+      try {
+        r = await run(oql);
+        canonical = oql;
+        err = null;
+      } catch (e2: any) {
+        err = e2;
+      }
+    }
+    if (err) {
+      const body = err instanceof OpenAlexError ? err.body : undefined;
+      const said = body?.message ? { error: body.error, message: body.message, fix: body.fix } : null;   // e.g. too_many_groups
+      return { ok: false, canonical, errors: body?.validation?.errors ?? said ?? err?.message ?? String(err) };
+    }
   }
   const m = r?.meta ?? {};
-  const p: Preview = { ok: true, canonical, count: m.count ?? null, groups_count: m.groups_count ?? null };
+  const p: Preview = { ok: true, canonical, pipeline, count: m.count ?? null, groups_count: m.groups_count ?? null };
   if (Array.isArray(m.measures) && m.measures.length) p.measures = m.measures.map((x: any) => x.key);
   // A calculation with no split answers in summary.all alone (group_by and results are empty).
   if (r?.summary?.all) p.summary_all = r.summary.all;
@@ -210,7 +231,18 @@ export interface ChatInput {
   messages: Anthropic.MessageParam[];
   /** The query the page shows now, if any; follow-ups edit it. */
   currentQuery?: string | null;
+  /** Earlier turns of the page's chat, oldest first: what was asked and the query that turn set (null: none). */
+  history?: Turn[] | null;
   institution?: Institution | null;
+}
+
+export interface Turn { text: string; oql: string | null }
+
+/** Earlier turns as context for the newest question (the page's chat history, #1744). */
+export function historyContext(history: Turn[] | null | undefined): string {
+  if (!history?.length) return "";
+  const lines = history.map((h, i) => `${i + 1}. They asked: ${h.text}\n   The page then showed: ${h.oql ?? "(no query)"}`);
+  return `(Earlier in this conversation, oldest first:\n${lines.join("\n")})\n\nNow they ask: `;
 }
 
 /** The text of the person's own turns (tool results and nudges excluded). */
@@ -225,7 +257,7 @@ function userTexts(messages: Anthropic.MessageParam[]): string[] {
  * conversation and the model cost. Throws nothing a caller must catch: failures become an `error` event.
  */
 export async function runChat(
-  deps: { anthropic: AnthropicLike; openalex: OpenAlexLike; guide?: string },
+  deps: { anthropic: AnthropicLike; openalex: OpenAlexLike; guide?: string; effort?: string },
   input: ChatInput,
   emit: (e: ChatEvent) => void | Promise<void>,
 ): Promise<{ cost_usd: number; answered: boolean }> {
@@ -235,20 +267,26 @@ export async function runChat(
     await emit({ type: "error", message: "The conversation must end with the person's question." });
     return { cost_usd: 0, answered: false };
   }
-  if (input.currentQuery) {
-    // Context for a follow-up, appended to the newest user turn (never to earlier turns: history stays as returned).
+  const before = historyContext(input.history);
+  const after = input.currentQuery ? `\n\n(The results page currently shows this query: ${input.currentQuery})` : "";
+  if (before || after) {
+    // Context for a follow-up, around the newest user turn only (earlier turns stay exactly as returned).
     const last = messages[messages.length - 1];
-    const ctx = `\n\n(The results page currently shows this query: ${input.currentQuery})`;
-    last.content = typeof last.content === "string" ? last.content + ctx : [...last.content, { type: "text", text: ctx }];
+    last.content = typeof last.content === "string"
+      ? before + last.content + after
+      : [...(before ? [{ type: "text" as const, text: before }] : []), ...last.content, ...(after ? [{ type: "text" as const, text: after }] : [])];
   }
   const system = systemPrompt(input.institution, deps.guide);
-  // The words the person typed (and the page's query, for follow-ups): searches may use only these (searchWords.ts)
-  const typed = typedVocabulary([...userTexts(input.messages), input.currentQuery ?? ""]);
-  /** Run a query the model wrote, and the search words in it the person never typed. */
+  const effort = deps.effort || CHAT_EFFORT;
+  // The words the person typed (this turn, earlier turns, and the page's query): searches may use only these (searchWords.ts)
+  const typed = typedVocabulary([...userTexts(input.messages), ...(input.history ?? []).map((h) => h.text), input.currentQuery ?? ""]);
+  /** Run a query the model wrote, and the search words in it the person never typed (read from the older form). */
   const trial = async (a: any) => {
     const p = await runOql(deps.openalex, a.oql ?? "", a.sort || null);
-    return { p, added: p.ok ? newWords(p.canonical ?? a.oql ?? "", typed) : [] };
+    return { p, added: p.ok ? newWords(p.pipeline ?? p.canonical ?? a.oql ?? "", typed) : [] };
   };
+  /** The preview without the older form (the model and the page see only the sentence). */
+  const shownPreview = ({ pipeline: _pipeline, ...rest }: Preview): Preview => rest;
   let wordRetries = 0;
   let turns = 0;
   let answered = false;
@@ -262,7 +300,7 @@ export async function runChat(
         system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
         tools: TOOLS,
         messages: lastTurn ? addNudge(messages) : messages,
-        output_config: { effort: CHAT_EFFORT },
+        output_config: { effort },
       });
     } catch (e: any) {
       await emit({ type: "error", message: `The model call failed: ${e?.message ?? e}` });
@@ -293,12 +331,12 @@ export async function runChat(
         await emit({ type: "step", tool: "run_oql", detail: String(a.oql ?? "").slice(0, 300) });
         const { p, added } = await trial(a);
         // the word check's feedback goes to the model only, never into the preview the page gets
-        const shown = added.length ? { ...p, new_search_words: added, word_rule: WORD_RULE } : p;
+        const shown = added.length ? { ...shownPreview(p), new_search_words: added, word_rule: WORD_RULE } : shownPreview(p);
         results.push({ type: "tool_result", tool_use_id: b.id, content: JSON.stringify(shown).slice(0, 4000) });
       } else if (b.name === "submit") {
         const { p, added } = await trial(a);
         if (!p.ok && !lastTurn) {
-          results.push({ type: "tool_result", tool_use_id: b.id, is_error: true, content: "Not submitted: this query fails. " + JSON.stringify(p).slice(0, 1500) });
+          results.push({ type: "tool_result", tool_use_id: b.id, is_error: true, content: "Not submitted: this query fails. " + JSON.stringify(shownPreview(p)).slice(0, 1500) });
           continue;
         }
         if (added.length && !lastTurn) {
@@ -310,7 +348,7 @@ export async function runChat(
           await emit({ type: "error", message: "The assistant's last query doesn't run." });
         } else {
           const opt = (v: any) => (typeof v === "string" && v.trim() ? v.trim() : null);
-          await emit({ type: "answer", oql: p.canonical ?? a.oql, sort: a.sort || null, note: a.note ?? "", preview: p, new_words: added,
+          await emit({ type: "answer", oql: p.canonical ?? a.oql, sort: a.sort || null, note: a.note ?? "", preview: shownPreview(p), new_words: added,
             left_out: opt(a.left_out), out_of_reach: opt(a.out_of_reach), howto: opt(a.howto) });
           answered = true;
         }

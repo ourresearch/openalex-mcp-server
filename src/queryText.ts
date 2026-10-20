@@ -9,7 +9,8 @@
  * the agent runs go out on the caller's own key and are charged by the proxy like any other call.
  *
  *   GET  /query/text/<question>
- *   POST /query/text   {"text": "...", "current_query": "<OQL the page shows>", "institution": {"id": "I...", "name": "..."}}
+ *   POST /query/text   {"text": "...", "current_query": "<OQL the page shows>", "history": [{"text": "...", "oql": "..."}],
+ *                       "institution": {"id": "I...", "name": "..."}}   history: the chat's earlier turns, oldest first (last 6)
  *
  * 200: {text, route, oql, sort, note, confidence, count, preview, meta: {path, model, effort, turns, elapsed_ms, cost}}
  *   route "title" / "search_string": a pasted title or a Boolean search string, answered with no model (frontDoor.ts)
@@ -23,7 +24,7 @@
  * agreed with #1494's judge at AUROC 0.76-0.84).
  */
 import Anthropic from "@anthropic-ai/sdk";
-import { CHAT_EFFORT, CHAT_MODEL, runChat, runOql, type ChatEvent, type Institution, type Preview } from "./chat";
+import { CHAT_EFFORT, CHAT_MODEL, runChat, runOql, type ChatEvent, type Institution, type Preview, type Turn } from "./chat";
 import { frontDoor } from "./frontDoor";
 import { HELP_EFFORT, HELP_MODEL, helpDesk, routeQuestion, type RouteResult } from "./router";
 import { OpenAlexClient } from "./openalex";
@@ -33,6 +34,8 @@ export interface QueryWriterEnv {
   OPENALEX_API_BASE: string;
   ANTHROPIC_API_KEY?: string;
   TYPESAFE_API_KEY?: string;
+  /** The agent's effort (low | medium | high | xhigh); unset = CHAT_EFFORT. A wrangler var, so it changes without code. */
+  CHAT_EFFORT?: string;
 }
 
 export const MAX_TEXT_CHARS = 2000;
@@ -43,7 +46,22 @@ export const JEV_USD_PER_INPUT_TOKEN = 0.042 / 1e6;
 const VERIFY_INSTRUCTIONS =
   "The assistant's query result answers the question as the person meant it: right set of works or things, right measure, nothing central missing or wrongly restricted.";
 
-export interface QueryTextRequest { text: string; currentQuery: string | null; institution: Institution | null }
+export interface QueryTextRequest { text: string; currentQuery: string | null; institution: Institution | null; history: Turn[] }
+
+/** Earlier turns kept as context: the page sends its last 6 (#1744); longer threads keep their newest. */
+export const MAX_HISTORY = 6;
+
+/** The page's chat history, `[{text, oql}]` oldest first; anything malformed is dropped, never an error. */
+export function parseHistory(raw: unknown): Turn[] {
+  if (!Array.isArray(raw)) return [];
+  const turns = raw.flatMap((h: any) => {
+    const text = typeof h?.text === "string" ? h.text.trim().slice(0, MAX_TEXT_CHARS) : "";
+    if (!text) return [];
+    const oql = typeof h?.oql === "string" && h.oql.trim() ? h.oql.trim().slice(0, 4000) : null;
+    return [{ text, oql }];
+  });
+  return turns.slice(-MAX_HISTORY);
+}
 
 /** Read a /query/text request, or say why it won't do (status 400/404/405). */
 export async function parseRequest(req: Request): Promise<QueryTextRequest | { status: number; error: string }> {
@@ -53,6 +71,7 @@ export async function parseRequest(req: Request): Promise<QueryTextRequest | { s
   let text = "";
   let currentQuery: string | null = null;
   let institution: Institution | null = null;
+  let history: Turn[] = [];
   if (req.method === "GET") {
     try {
       text = m[1] ? decodeURIComponent(m[1]) : (url.searchParams.get("text") ?? "");
@@ -72,13 +91,14 @@ export async function parseRequest(req: Request): Promise<QueryTextRequest | { s
     if (body?.institution && typeof body.institution.id === "string") {
       institution = { id: body.institution.id, name: String(body.institution.name ?? body.institution.id) };
     }
+    history = parseHistory(body?.history);
   } else {
     return { status: 405, error: "Use GET /query/text/<question> or POST /query/text." };
   }
   text = text.trim();
   if (!text) return { status: 400, error: "Say what you're looking for: GET /query/text/<question> or POST {\"text\": \"...\"}." };
   if (text.length > MAX_TEXT_CHARS) return { status: 400, error: `The question is too long (${text.length} characters; ${MAX_TEXT_CHARS} at most).` };
-  return { text, currentQuery, institution };
+  return { text, currentQuery, institution, history };
 }
 
 /** The caller's OpenAlex key, as the proxy passed it on (Authorization header, or the api_key parameter). */
@@ -177,9 +197,11 @@ export async function handle(
   let error: string | null = null;
   let turns = 0;
   let wordRetries = 0;
-  const out = await runChat({ anthropic, openalex, guide: deps.guide }, {
+  const effort = env.CHAT_EFFORT || CHAT_EFFORT;
+  const out = await runChat({ anthropic, openalex, guide: deps.guide, effort }, {
     messages: [{ role: "user", content: parsed.text }],
     currentQuery: parsed.currentQuery,
+    history: parsed.history,
     institution: parsed.institution,
   }, (e) => {
     if (e.type === "answer") answer = e;
@@ -194,7 +216,7 @@ export async function handle(
   const cost = costOf(preUsd + out.cost_usd + conf.costUsd);
   const meta = {
     path: "model", tried: routed.route === "help_desk" ? [...door.tried, "help_desk"] : door.tried,
-    model: CHAT_MODEL, effort: CHAT_EFFORT, turns, elapsed_ms: Date.now() - started, cost,
+    model: CHAT_MODEL, effort, turns, elapsed_ms: Date.now() - started, cost,
     // the no-new-words check: submits refused for new search words, and any left when the turns ran out
     word_retries: wordRetries, new_words: a?.new_words ?? [],
   };

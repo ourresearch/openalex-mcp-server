@@ -8,7 +8,7 @@
  *     --outfile=dist/harness.mjs --banner:js="import{createRequire}from'module';const require=createRequire(import.meta.url);"
  *   ANTHROPIC_API_KEY=... OPENALEX_API_KEY=... [TYPESAFE_API_KEY=...] node dist/harness.mjs \
  *     --rows rows.jsonl --out runs.jsonl --arm base [--workers 8] [--limit N] [--version <git sha>]
- * Row in: {id, input, institution?: {id, name}, current_query?}. Row out: {id, arm, oql, sort, note, check, count,
+ * Row in: {id, input, institution?: {id, name}, current_query?, history?: [{text, oql}]}. Row out: {id, arm, oql, sort, note, check, count,
  * preview, turns, seconds, cost_usd, error, status, route, answer, link, left_out, confidence, version, response}.
  * A rerun skips (id, arm) pairs already written, except transient failures (HTTP 5xx from the model).
  */
@@ -38,6 +38,8 @@ const env = {
   OPENALEX_API_BASE: process.env.OPENALEX_API_BASE ?? "https://api.openalex.org",
   ANTHROPIC_API_KEY: anthropicKey(),
   TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY,
+  // an arm's effort: --effort high (else the env's CHAT_EFFORT, else the Worker's default)
+  CHAT_EFFORT: arg("--effort", process.env.CHAT_EFFORT),
 };
 const KEY = process.env.OPENALEX_API_KEY ?? process.env.OPENALEX_ORG_API_KEY;
 
@@ -46,6 +48,7 @@ async function one(r: any): Promise<any> {
   const body: any = { text: r.input };
   if (r.institution) body.institution = r.institution;
   if (r.current_query) body.current_query = r.current_query;
+  if (r.history) body.history = r.history;
   const req = new Request("https://api.openalex.org/query/text", {
     method: "POST",
     headers: { Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" },

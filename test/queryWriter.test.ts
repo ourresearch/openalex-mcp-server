@@ -43,7 +43,7 @@ const post = (body: any, key = "k123") => new Request(BASE + "/query/text", {
 
 describe("parseRequest", () => {
   it("reads the question from the path", async () => {
-    expect(await parseRequest(get("/query/text/open%20access%20coffee"))).toEqual({ text: "open access coffee", currentQuery: null, institution: null });
+    expect(await parseRequest(get("/query/text/open%20access%20coffee"))).toEqual({ text: "open access coffee", currentQuery: null, institution: null, history: [] });
   });
   it("reads ?text= and ?current_query=", async () => {
     const r: any = await parseRequest(get("/query/text?text=kelp&current_query=get%20works"));
@@ -52,7 +52,14 @@ describe("parseRequest", () => {
   });
   it("reads a POST body", async () => {
     expect(await parseRequest(post({ text: " since 2020 ", current_query: "get works where title has kelp", institution: { id: "I146416000", name: "KU" } })))
-      .toEqual({ text: "since 2020", currentQuery: "get works where title has kelp", institution: { id: "I146416000", name: "KU" } });
+      .toEqual({ text: "since 2020", currentQuery: "get works where title has kelp", institution: { id: "I146416000", name: "KU" }, history: [] });
+  });
+  it("reads the chat's history, keeps the newest 6 and drops malformed turns", async () => {
+    const history = [{ text: "q0", oql: "get works about a" }, { text: "", oql: "x" }, "junk",
+      ...[1, 2, 3, 4, 5, 6].map((i) => ({ text: `q${i}`, oql: i === 3 ? null : `get works about b${i}` }))];
+    const r: any = await parseRequest(post({ text: "since 2020", history }));
+    expect(r.history.map((h: any) => h.text)).toEqual(["q1", "q2", "q3", "q4", "q5", "q6"]);
+    expect(r.history[2].oql).toBeNull();
   });
   it("refuses empty, long, non-JSON and wrong-method requests", async () => {
     expect(await parseRequest(get("/query/text/"))).toMatchObject({ status: 400 });

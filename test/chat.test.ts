@@ -71,6 +71,43 @@ describe("runOql", () => {
     expect(p.summary_all?.count).toBe(48213);
     expect(p.top_rows).toBeUndefined();
   });
+  it("runs and returns the new sentence (it keeps the order), with the older form kept for the word check", async () => {
+    const oa = fakeOpenAlex();
+    const sentence = "get [University of Kansas](I146416000)'s works about kelp, most cited first";
+    oa.checkOql = async (oql: string) => ({ oql: "get works where institution is (I146416000) and title-abstract-keywords has (kelp)", x_new_oql: sentence, validation: { valid: true } });
+    const p = await runOql(oa, "get [University of Kansas](I146416000)'s works about kelp, most cited first");
+    expect(p.canonical).toBe(sentence);
+    expect(p.pipeline).toContain("title-abstract-keywords has (kelp)");
+    expect(oa.calls.at(-1)).toContain("most cited first");
+  });
+  it("runs the text as written when the new sentence fails to run", async () => {
+    const oa = fakeOpenAlex();
+    oa.checkOql = async (oql: string) => ({ oql: "get works where x", x_new_oql: "broken render", validation: { valid: true } });
+    const post = oa.post;
+    oa.post = async (body: any) => { if (body.oql === "broken render") throw new Error("400"); return post(body); };
+    const p = await runOql(oa, "rank countries by count of works about kelp");
+    expect(p.ok).toBe(true);
+    expect(p.canonical).toBe("rank countries by count of works about kelp");
+  });
+});
+
+describe("history", () => {
+  it("puts earlier turns before the question and the page's query after it", async () => {
+    const anthropic = fakeAnthropic([[tool("t1", "submit", { oql: "get works where year >= 2020; then, group those works by country", note: "n" })]]);
+    await runChat({ anthropic, openalex: fakeOpenAlex() }, {
+      messages: [{ role: "user", content: "only open access" }],
+      currentQuery: "rank countries by count of works about kelp",
+      history: [{ text: "which countries publish most on kelp?", oql: "rank countries by count of works about kelp" }],
+    }, () => {});
+    const sent = anthropic.requests[0].messages[0].content as string;
+    expect(sent.indexOf("which countries publish most on kelp?")).toBeLessThan(sent.indexOf("only open access"));
+    expect(sent.indexOf("only open access")).toBeLessThan(sent.indexOf("currently shows this query"));
+  });
+  it("runs at the effort it is given", async () => {
+    const anthropic = fakeAnthropic([[tool("t1", "submit", { oql: "get works where year >= 2020; then, group those works by country", note: "n" })]]);
+    await runChat({ anthropic, openalex: fakeOpenAlex(), effort: "high" }, { messages: [{ role: "user", content: "kelp by country" }] }, () => {});
+    expect(anthropic.requests[0].output_config.effort).toBe("high");
+  });
 });
 
 describe("findEntity", () => {
