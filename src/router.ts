@@ -5,7 +5,7 @@
  * itself handles what only it can judge: two questions in one (answer the first, name the one left out), what's out of
  * reach (say so, offer the nearest query), and a how-to with a real subject (the query plus one line of how-to).
  */
-import { priceOf, type AnthropicLike } from "./chat";
+import { pageQueryNote, priceOf, type AnthropicLike } from "./chat";
 
 // Haiku: on #1494's router check (2026-10-11, tune half) it kept the most data questions on the query path (97-100%)
 // and sent 82% of #1618's how-tos to the help desk, at $0.00004 and 1.2 s (Sonnet: 93% / 94-95%; Opus low: 87% / 97%).
@@ -36,7 +36,7 @@ export interface RouteResult { route: "help_desk" | "data"; costUsd: number; err
 export async function routeQuestion(
   anthropic: AnthropicLike, text: string, currentQuery?: string | null, model = ROUTER_MODEL, effort: string | null = ROUTER_EFFORT,
 ): Promise<RouteResult> {
-  const content = currentQuery ? `${text}\n\n(The results page currently shows this query: ${currentQuery})` : text;
+  const content = currentQuery ? `${text}\n\n${pageQueryNote(currentQuery)}` : text;
   try {
     const res: any = await anthropic.messages.create({
       model, max_tokens: 4000,

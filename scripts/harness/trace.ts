@@ -6,17 +6,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { runChat } from "../../src/chat";
 import { OpenAlexClient } from "../../src/openalex";
-import { anthropicKey } from "./util";
+import { anthropicKey, arg, openalexKey } from "./util";
 
-function arg(name: string, fallback?: string): string | undefined {
-  const i = process.argv.indexOf(name);
-  return i >= 0 ? process.argv[i + 1] : fallback;
-}
 
 async function main() {
   const q = process.argv[2];
   const t0 = Date.now();
-  const openalex = new OpenAlexClient({ apiKey: (process.env.OPENALEX_API_KEY ?? process.env.OPENALEX_ORG_API_KEY)! });
+  const openalex = new OpenAlexClient({ apiKey: openalexKey()! });
   const anthropic = new Anthropic({ apiKey: anthropicKey() });
   await runChat({ anthropic, openalex, effort: arg("--effort") }, {
     messages: [{ role: "user", content: q }], currentQuery: arg("--current") ?? null,

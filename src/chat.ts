@@ -66,6 +66,12 @@ How to write good queries:
 
 export interface Institution { id: string; name: string }
 
+/** How a model is told the query the page shows now (the agent and the router; the router's prompt names it). */
+export const pageQueryNote = (q: string) => `(The results page currently shows this query: ${q})`;
+
+/** A preview as the model and the page see it: without the older form, which only the word check reads. */
+export const publicPreview = ({ pipeline: _pipeline, ...rest }: Preview): Preview => rest;
+
 /** The system prompt: rules, the person's institution when the page knows it, then the OQL guide. */
 export function systemPrompt(institution?: Institution | null, guide: string = CHAT_GUIDE, year: number = new Date().getUTCFullYear()): string {
   const who = institution
@@ -261,7 +267,7 @@ export async function runChat(
     return { cost_usd: 0, answered: false };
   }
   const before = historyContext(input.history);
-  const after = input.currentQuery ? `\n\n(The results page currently shows this query: ${input.currentQuery})` : "";
+  const after = input.currentQuery ? `\n\n${pageQueryNote(input.currentQuery)}` : "";
   if (before || after) {
     // Context for a follow-up, around the newest user turn only (earlier turns stay exactly as returned).
     const last = messages[messages.length - 1];
@@ -284,10 +290,8 @@ export async function runChat(
     if (!tried.has(key)) tried.set(key, runOql(deps.openalex, a.oql ?? "", a.sort || null));
     const p = await tried.get(key)!;
     if (!p.ok) tried.delete(key);   // a failure may be passing (a timeout): a retry runs it again
-    return { p, added: p.ok ? newWords(p.pipeline ?? p.canonical ?? a.oql ?? "", typed) : [] };
+    return { p: publicPreview(p), added: p.ok ? newWords(p.pipeline ?? "", typed) : [] };
   };
-  /** The preview without the older form (the model and the page see only the sentence). */
-  const shownPreview = ({ pipeline: _pipeline, ...rest }: Preview): Preview => rest;
   let wordRetries = 0;
   let turns = 0;
   let answered = false;
@@ -341,12 +345,12 @@ export async function runChat(
         await emit({ type: "step", tool: "run_oql", detail: String(a.oql ?? "").slice(0, 300) });
         const { p, added } = await trial(a);
         // the word check's feedback goes to the model only, never into the preview the page gets
-        const shown = added.length ? { ...shownPreview(p), new_search_words: added, word_rule: WORD_RULE } : shownPreview(p);
+        const shown = added.length ? { ...p, new_search_words: added, word_rule: WORD_RULE } : p;
         results.push({ type: "tool_result", tool_use_id: b.id, content: JSON.stringify(shown).slice(0, 4000) });
       } else if (b.name === "submit") {
         const { p, added } = await trial(a);
         if (!p.ok && !lastTurn) {
-          results.push({ type: "tool_result", tool_use_id: b.id, is_error: true, content: "Not submitted: this query fails. " + JSON.stringify(shownPreview(p)).slice(0, 1500) });
+          results.push({ type: "tool_result", tool_use_id: b.id, is_error: true, content: "Not submitted: this query fails. " + JSON.stringify(p).slice(0, 1500) });
           continue;
         }
         if (added.length && !lastTurn) {
@@ -358,7 +362,7 @@ export async function runChat(
           await emit({ type: "error", message: "The assistant's last query doesn't run." });
         } else {
           const opt = (v: any) => (typeof v === "string" && v.trim() ? v.trim() : null);
-          await emit({ type: "answer", oql: p.canonical ?? a.oql, sort: a.sort || null, note: a.note ?? "", preview: shownPreview(p), new_words: added,
+          await emit({ type: "answer", oql: p.canonical ?? a.oql, sort: a.sort || null, note: a.note ?? "", preview: p, new_words: added,
             left_out: opt(a.left_out), out_of_reach: opt(a.out_of_reach), howto: opt(a.howto) });
           answered = true;
         }

@@ -17,12 +17,8 @@ import { runOql } from "../../src/chat";
 import { frontDoor } from "../../src/frontDoor";
 import { OpenAlexClient } from "../../src/openalex";
 import { handle } from "../../src/queryText";
-import { anthropicKey, pool, readJsonl } from "./util";
+import { anthropicKey, arg, openalexKey, pool, readJsonl } from "./util";
 
-function arg(name: string, fallback?: string): string | undefined {
-  const i = process.argv.indexOf(name);
-  return i >= 0 ? process.argv[i + 1] : fallback;
-}
 
 const ROWS = arg("--rows")!;
 const OUT = arg("--out")!;
@@ -46,7 +42,7 @@ const env = {
   // the harness measures our cost, not the price
   PRICE_MULTIPLIER: "1",
 };
-const KEY = process.env.OPENALEX_API_KEY ?? process.env.OPENALEX_ORG_API_KEY;
+const KEY = openalexKey();
 
 async function one(r: any): Promise<any> {
   const t0 = Date.now();

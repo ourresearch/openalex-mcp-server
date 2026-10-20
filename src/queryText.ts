@@ -24,7 +24,7 @@
  * agreed with #1494's judge at AUROC 0.76-0.84).
  */
 import Anthropic from "@anthropic-ai/sdk";
-import { CHAT_EFFORT, CHAT_MODEL, runChat, runOql, type ChatEvent, type Institution, type Preview, type Turn } from "./chat";
+import { CHAT_EFFORT, CHAT_MODEL, publicPreview, runChat, runOql, type ChatEvent, type Institution, type Preview, type Turn } from "./chat";
 import { frontDoor } from "./frontDoor";
 import { HELP_EFFORT, HELP_MODEL, helpDesk, routeQuestion, type RouteResult } from "./router";
 import { OpenAlexClient } from "./openalex";
@@ -150,7 +150,6 @@ export async function confidence(
 /** Credits for a cost in dollars, rounded up (10,000 credits = $1). */
 export const creditsFor = (usd: number) => Math.max(0, Math.ceil(usd * 10000));
 
-/** A response's meta.cost: credits charged and dollars spent. */
 /** A response's meta.cost: the price, in credits and dollars (our model cost times the multiplier; the cost itself isn't shown). */
 const costOf = (usd: number, multiplier: number) => {
   const credits = creditsFor(usd * multiplier);
@@ -220,7 +219,7 @@ export async function handle(
   if (door.path !== "model") {
     return reply(200, {
       text: parsed.text, route: door.path, oql: door.oql, sort: null, note: door.note, confidence: null, count: door.preview.count ?? null,
-      preview: door.preview,
+      preview: publicPreview(door.preview),
       meta: { path: door.path, model: null, effort: null, turns: 0, elapsed_ms: Date.now() - started, cost: { credits: 0, usd: 0 } },
     }, 0);
   }
@@ -232,6 +231,7 @@ export async function handle(
   const followUp = !!parsed.currentQuery;
   const model = (followUp && env.FOLLOWUP_MODEL) || env.CHAT_MODEL || CHAT_MODEL;
   const effort = (followUp && env.FOLLOWUP_EFFORT) || env.CHAT_EFFORT || CHAT_EFFORT;
+  const multiplier = multiplierOf(env);
   const agent = (signal?: AbortSignal) => runAgent({ anthropic, openalex, guide: deps.guide, effort, model, signal }, parsed, started);
   const stop = new AbortController();
   const first = agent(stop.signal);
@@ -244,7 +244,7 @@ export async function handle(
     const help = await helpDesk(anthropic, parsed.text, deps.fetchImpl ?? fetch);
     preUsd += help.costUsd;
     if (help.text) {
-      const cost = costOf(preUsd, multiplierOf(env));
+      const cost = costOf(preUsd, multiplier);
       return reply(200, {
         text: parsed.text, route: "help_desk", answer: help.text, link: help.link || null, oql: null, sort: null, note: null,
         confidence: null, count: null, preview: null,
@@ -260,31 +260,30 @@ export async function handle(
   const conf = answer
     ? await confidence(env.TYPESAFE_API_KEY, parsed.text, answer, deps.fetchImpl ?? fetch)
     : { p: null, costUsd: 0 };
-  const a = answer as Extract<ChatEvent, { type: "answer" }> | null;
-  const cost = costOf(preUsd + run.costUsd + conf.costUsd, multiplierOf(env));
+  const cost = costOf(preUsd + run.costUsd + conf.costUsd, multiplier);
   const meta = {
     path: "model", tried: routed.route === "help_desk" ? [...door.tried, "help_desk"] : door.tried,
     model, effort, turns, elapsed_ms: Date.now() - started, cost,
     // the no-new-words check: submits refused for new search words, and any left when the turns ran out
-    word_retries: wordRetries, new_words: a?.new_words ?? [], steps,
+    word_retries: wordRetries, new_words: answer?.new_words ?? [], steps,
   };
-  if (!a) {
+  if (!answer) {
     const modelFailed = (error ?? "").startsWith("The model call failed");
     return reply(modelFailed ? 502 : 422, { text: parsed.text, error: error ?? "No query found.", meta }, cost.credits);
   }
   return reply(200, {
     text: parsed.text,
     route: "query",
-    oql: a.oql,
-    sort: a.sort,
-    note: a.note,
+    oql: answer.oql,
+    sort: answer.sort,
+    note: answer.note,
     // two questions in one: the one left out; what one query can't answer; a line of how-to when they asked how
-    left_out: a.left_out,
-    out_of_reach: a.out_of_reach,
-    howto: a.howto,
+    left_out: answer.left_out,
+    out_of_reach: answer.out_of_reach,
+    howto: answer.howto,
     confidence: conf.p,
-    count: a.preview.count ?? null,
-    preview: a.preview,
+    count: answer.preview.count ?? null,
+    preview: answer.preview,
     meta,
   }, cost.credits);
 }

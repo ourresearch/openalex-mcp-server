@@ -146,6 +146,7 @@ describe("handle", () => {
     expect(anthropic.requests).toHaveLength(0);
     const body: any = await res.json();
     expect(body).toMatchObject({ route: "search_string", oql: 'get works where title-abstract-keywords has (("kelp forest" OR seaweed) AND decline)', count: 5559 });
+    expect(body.preview).not.toHaveProperty("pipeline");   // the older form is for the word check only
     expect(body.note).toContain("run as written over titles, abstracts and keywords");
   });
 

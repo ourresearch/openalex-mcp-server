@@ -152,11 +152,11 @@ export interface Vocabulary { raw: Set<string>; stems: Set<string> }
 /** What the person typed, as words to match against: each word, its stem, and hyphenated words joined ("covid19"). */
 export function typedVocabulary(texts: Array<string | null | undefined>): Vocabulary {
   const raw = new Set<string>();
-  for (const raw0 of texts) {
-    if (!raw0) continue;
+  for (const text of texts) {
+    if (!text) continue;
     // A question mark that ends a word in prose ("...the hippocampus?") is punctuation, not a one-letter wildcard:
     // read it as the bare word too, or the last word of every question counts as never typed (2026-10-20).
-    const t = raw0 + " " + raw0.replace(/(?<=[\p{L}\p{N}])\?+(?=[\s"'’”)\].,;:!]|$)/gu, "");
+    const t = text + " " + text.replace(/(?<=[\p{L}\p{N}])\?+(?=[\s"'’”)\].,;:!]|$)/gu, "");
     for (const w of words(t)) raw.add(w);
     for (const w of words(t.replace(/(?<=[\p{L}\p{N}])[-‐–'’](?=[\p{L}\p{N}])/gu, ""))) raw.add(w);
   }
@@ -186,15 +186,16 @@ const TYPO_MIN = 5;
  */
 export function newWords(oql: string, typed: Array<string | null | undefined> | Vocabulary): string[] {
   const v = Array.isArray(typed) ? typedVocabulary(typed) : typed;
+  const typedWords = [...v.raw];
   const out = new Set<string>();
   for (const s of searchStrings(oql)) {
     for (const w of words(s)) {
       if (/[*?]/.test(w)) {
         const head = w.split(/[*?]/)[0];
-        if (!head || [...v.raw].some((t) => t.startsWith(head))) continue;
+        if (!head || typedWords.some((t) => t.startsWith(head))) continue;
         out.add(w);
       } else if (!v.raw.has(w) && !v.stems.has(stem(w))
-        && !(w.length >= TYPO_MIN && [...v.raw].some((t) => t.length >= TYPO_MIN && oneEdit(t, w)))) {
+        && !(w.length >= TYPO_MIN && typedWords.some((t) => t.length >= TYPO_MIN && oneEdit(t, w)))) {
         out.add(w);
       }
     }

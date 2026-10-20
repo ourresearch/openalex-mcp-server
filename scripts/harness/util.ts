@@ -9,3 +9,10 @@ export const readJsonl = (p: string): any[] =>
 
 /** The Anthropic key, under either name desk uses. */
 export const anthropicKey = () => process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_API_KEY;
+export const openalexKey = () => process.env.OPENALEX_API_KEY ?? process.env.OPENALEX_ORG_API_KEY;
+
+/** A command-line value: `--name value`, else the fallback. */
+export function arg(name: string, fallback?: string): string | undefined {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : fallback;
+}
