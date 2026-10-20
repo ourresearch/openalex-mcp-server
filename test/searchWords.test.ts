@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { newWords, searchStrings, stem, words } from "../src/searchWords";
+import { newWords, searchStrings, stem, words, oneEdit } from "../src/searchWords";
 
 describe("stem (Porter)", () => {
   it("matches Porter's own outputs", () => {
@@ -62,5 +62,14 @@ describe("newWords", () => {
   });
   it("counts the page's current query as typed (follow-ups)", () => {
     expect(newWords(q("kelp") + " and published since 2020", ["only since 2020", q("kelp")])).toEqual([]);
+  });
+  it("takes a typo's fix as the person's word, for words of 5+ letters", () => {
+    expect(newWords('get works where title-abstract-keywords has ("climate change")', ["ok and climate chnage per year?"])).toEqual([]);
+    expect(newWords("get works where title-abstract-keywords has (microplastics)", ["microplastic pollution"])).toEqual([]);
+    expect(newWords("get works where title-abstract-keywords has (cat)", ["cut"])).toEqual(["cat"]);
+    expect(newWords("get works where title-abstract-keywords has (warming)", ["climate chnage"])).toEqual(["warming"]);
+    expect(oneEdit("chnage", "change")).toBe(true);
+    expect(oneEdit("change", "chance")).toBe(true);
+    expect(oneEdit("change", "charge2")).toBe(false);
   });
 });

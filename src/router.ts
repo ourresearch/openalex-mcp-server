@@ -20,7 +20,7 @@ export const ROUTER_PROMPT = `You sort what people type into the chat panel besi
 
 route:
 - "help_desk": the person asks how to do something with OpenAlex, or about OpenAlex itself, and names no specific subject to look up. Examples: "how do I find seminal literature?", "how do I fix my author profile?", "does the API support full-text search?", "what does FWCI mean?", "how much does the API cost?", "can I group by month in the API?". Also messages that aren't a request for scholarly data at all.
-- "data": the person wants works, counts, lists, rankings or breakdowns about something real: a topic, a person, an institution, a journal, a country, a paper. This includes how-to questions that name a real subject ("how do I find papers citing Attention Is All You Need?", "how can I see which journals my university publishes in?"), search strings, pasted titles, names and bare topic words.
+- "data": the person wants works, counts, lists, rankings or breakdowns about something real: a topic, a person, an institution, a journal, a country, a paper. This includes how-to questions that name a real subject ("how do I find papers citing Attention Is All You Need?", "how can I see which journals my university publishes in?"), search strings, pasted titles, names and bare topic words. When the results page already shows a query (it follows the message), a message that narrows, widens or changes it is data, however short: "english only", "only open access", "since 2020", "now by country", "what about Stanford?".
 When unsure, choose "data".`;
 
 const ROUTE_SCHEMA = {

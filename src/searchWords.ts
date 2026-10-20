@@ -163,8 +163,24 @@ export function typedVocabulary(texts: Array<string | null | undefined>): Vocabu
   return { raw, stems: new Set([...raw].map(stem)) };
 }
 
+/** True when a and b differ by one edit: a letter changed, added or dropped, or two neighbours swapped ("chnage"). */
+export function oneEdit(a: string, b: string): boolean {
+  if (a === b || Math.abs(a.length - b.length) > 1) return false;
+  if (a.length === b.length) {
+    const diff = [...a].map((c, i) => (c === b[i] ? -1 : i)).filter((i) => i >= 0);
+    return diff.length === 1 || (diff.length === 2 && diff[1] === diff[0] + 1 && a[diff[0]] === b[diff[1]] && a[diff[1]] === b[diff[0]]);
+  }
+  const [long, short] = a.length > b.length ? [a, b] : [b, a];
+  for (let i = 0; i < long.length; i++) if (long.slice(0, i) + long.slice(i + 1) === short) return true;
+  return false;
+}
+
+/** The fewest letters a word needs before a one-edit typo fix counts as the person's word (shorter words collide). */
+const TYPO_MIN = 5;
+
 /**
  * The search words of a query that the person never typed (an empty list when the query uses only their words).
+ * A word one edit from a typed word of 5+ letters is that word with its typo fixed ("climate chnage" -> change).
  * A wildcard word passes when some typed word starts with its stem (`adolescen*` after "adolescents"). Pass a
  * Vocabulary (typedVocabulary) to check many queries against the same typed words.
  */
@@ -177,7 +193,8 @@ export function newWords(oql: string, typed: Array<string | null | undefined> | 
         const head = w.split(/[*?]/)[0];
         if (!head || [...v.raw].some((t) => t.startsWith(head))) continue;
         out.add(w);
-      } else if (!v.raw.has(w) && !v.stems.has(stem(w))) {
+      } else if (!v.raw.has(w) && !v.stems.has(stem(w))
+        && !(w.length >= TYPO_MIN && [...v.raw].some((t) => t.length >= TYPO_MIN && oneEdit(t, w)))) {
         out.add(w);
       }
     }

@@ -15,7 +15,7 @@ A type noun with modifiers, in this order:
 
 1. The institution, country or person the question is about, as a possessive: `[University of Kansas](I146416000)'s works`. Two or more people: `works co-authored by [A](A1) and [B](A2)`. Works with several places at once: `works from both [University of Oxford](I40120149) and [University of Cambridge](I241749)` (three or more: `from all of A, B, and C`).
 2. Yes/no words before the noun: `open access`, `retracted`, `top 1% cited`.
-3. The noun: works, articles, reviews, preprints, datasets, books, book chapters, conference papers, dissertations. Say `articles` when the user says papers or articles and means research articles; `works` counts every type (datasets too).
+3. The noun: works, articles, reviews, preprints, datasets, books, book chapters, conference papers, dissertations. Say `articles` when the user says articles (journal articles, research articles); papers, publications and research are `works`, which counts every type (datasets too).
 4. Time, right after the noun: `since 2020`, `from 2022`, `before 2010`, `from 2018–2025`. Prefer years; full dates only when the user gives exact dates (`from 2020-10-01 through 2021-09-30`). **Write a year only when the user gives one.**
 5. What it's about: `about kelp` searches title, abstract and keywords. One place: `with conjugal in the title` (also `in the abstract`, `in the full text`, `in the title or abstract`). Search strings use capital AND / OR / NOT, quotes for phrases, `*` for truncation: `about ((asthma OR wheeze) AND child*)`. **Use only the words the user gave; never add synonyms.** One word or one phrase needs no parentheses.
 6. `citing [title](W123)`; `citing works in the collection [name](col_x)`.
