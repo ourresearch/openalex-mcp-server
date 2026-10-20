@@ -31,6 +31,31 @@ function fakeAnthropic(turns: any[][], usage = USAGE) {
 }
 
 const tool = (id: string, name: string, input: any) => ({ type: "tool_use", id, name, input });
+
+/**
+ * A fake that answers by role, since the router runs beside the agent: the router (a JSON-schema call), the help desk
+ * (its read_help_page tool) and the agent (its submit tool), each from its own canned turns. `agentHangs`: the agent's
+ * call waits until it is stopped, like a real model call still thinking when the router says help desk.
+ */
+function fakeRoles(roles: { router?: any[][]; help?: any[][]; agent?: any[][]; agentHangs?: boolean }) {
+  const seen: Record<string, any[]> = { router: [], help: [], agent: [] };
+  const at: Record<string, number> = { router: 0, help: 0, agent: 0 };
+  return {
+    seen,
+    messages: {
+      async create(body: any, options?: { signal?: AbortSignal }) {
+        const role = body.output_config?.format ? "router" : (body.tools ?? []).some((t: any) => t.name === "read_help_page") ? "help" : "agent";
+        seen[role].push(JSON.parse(JSON.stringify(body)));
+        if (role === "agent" && roles.agentHangs) {
+          await new Promise((_, reject) => options?.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+        }
+        const turns = roles[role as "router" | "help" | "agent"] ?? [[]];
+        const content = turns[Math.min(at[role]++, turns.length - 1)];
+        return { id: `m`, type: "message", role: "assistant", model: body.model, content, stop_reason: content.some((b: any) => b.type === "tool_use") ? "tool_use" : "end_turn", stop_sequence: null, usage: USAGE } as any;
+      },
+    },
+  };
+}
 const DATA = async () => ({ route: "data" as const, costUsd: 0 });
 const SUBMIT = tool("s", "submit", { oql: "get works where title-abstract-keywords has (coffee AND health) and it's open access", sort: "", note: "All years." });
 
@@ -133,10 +158,10 @@ describe("handle", () => {
   });
 
   it("answers a how-to with no subject from the help site, with a link and no query", async () => {
-    const anthropic = fakeAnthropic([
+    const anthropic = fakeRoles({ agentHangs: true, agent: [[SUBMIT]], help: [
       [tool("p", "read_help_page", { url: "https://help.openalex.org/how-to/fixing-authors/" })],
       [tool("a", "answer", { text: "Claim your profile, then add or remove works yourself.", link: "https://help.openalex.org/how-to/fixing-authors/" })],
-    ]);
+    ] });
     const pages: string[] = [];
     const fetchImpl = (async (u: any) => { pages.push(String(u)); return new Response(String(u).endsWith("llms.txt") ? "# OpenAlex Help\n- [Fixing authors](https://help.openalex.org/how-to/fixing-authors/)" : "# Fixing authors\nClaim it."); }) as unknown as typeof fetch;
     const res = await handle(post({ text: "how do I fix my author profile?" }), { OPENALEX_API_BASE: BASE },
@@ -146,19 +171,32 @@ describe("handle", () => {
     expect(body).toMatchObject({ route: "help_desk", oql: null, link: "https://help.openalex.org/how-to/fixing-authors/" });
     expect(body.answer).toContain("Claim your profile");
     expect(pages).toContain("https://help.openalex.org/how-to/fixing-authors.md");
-    expect(anthropic.requests[0].system[0].text).toContain("# OpenAlex Help");
+    expect(anthropic.seen.help[0].system[0].text).toContain("# OpenAlex Help");
+    expect(anthropic.seen.agent.length).toBe(1);   // started beside the router, stopped when it said help desk
     expect(body.meta.cost.credits).toBe(Math.ceil((0.0003 + 2 * (1000 * 4 + 200 * 20 + 9000 * 0.2) / 1e6) * 10000));
   });
 
   it("routes with the router model and falls back to data when the router fails", async () => {
-    const anthropic = fakeAnthropic([[{ type: "text", text: '{"route": "data"}' }], [SUBMIT]]);
+    const anthropic = fakeRoles({ router: [[{ type: "text", text: '{"route": "data"}' }]], agent: [[SUBMIT]] });
     const res = await handle(post({ text: "open access articles about coffee and health" }), { OPENALEX_API_BASE: BASE }, { anthropic, openalex: fakeOpenAlex(), guide: "G" });
     expect(res.status).toBe(200);
-    expect(anthropic.requests[0].model).toBe("claude-haiku-5-5");
-    expect(anthropic.requests[0].output_config.format.schema.properties.route.enum).toEqual(["help_desk", "data"]);
-    expect(anthropic.requests[1].model).toBe("claude-opus-5-5");
-    const broken = fakeAnthropic([[{ type: "text", text: "not json" }], [SUBMIT]]);
+    expect(anthropic.seen.router[0].model).toBe("claude-haiku-5-5");
+    expect(anthropic.seen.router[0].output_config.format.schema.properties.route.enum).toEqual(["help_desk", "data"]);
+    expect(anthropic.seen.agent[0].model).toBe("claude-opus-5-5");
+    const broken = fakeRoles({ router: [[{ type: "text", text: "not json" }]], agent: [[SUBMIT]] });
     expect((await handle(post({ text: "open access articles about coffee and health" }), { OPENALEX_API_BASE: BASE }, { anthropic: broken, openalex: fakeOpenAlex(), guide: "G" })).status).toBe(200);
+  });
+
+  it("runs a follow-up on the follow-up model and effort when they are set", async () => {
+    const anthropic = fakeRoles({ agent: [[SUBMIT]] });
+    const env = { OPENALEX_API_BASE: BASE, FOLLOWUP_MODEL: "claude-sonnet-5-5", FOLLOWUP_EFFORT: "high" };
+    const res = await handle(post({ text: "only open access", current_query: "get works about coffee" }), env, { anthropic, openalex: fakeOpenAlex(), guide: "G", route: DATA });
+    const body: any = await res.json();
+    expect(anthropic.seen.agent[0].model).toBe("claude-sonnet-5-5");
+    expect(anthropic.seen.agent[0].output_config.effort).toBe("high");
+    expect(body.meta).toMatchObject({ model: "claude-sonnet-5-5", effort: "high" });
+    await handle(post({ text: "coffee and health" }), env, { anthropic, openalex: fakeOpenAlex(), guide: "G", route: DATA });
+    expect(anthropic.seen.agent.at(-1).model).toBe("claude-opus-5-5");   // a fresh question keeps the agent's model
   });
 
   it("returns the question left out, what's out of reach and a line of how-to", async () => {

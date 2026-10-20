@@ -155,6 +155,35 @@ function reply(status: number, body: Record<string, any>, credits: number): Resp
   });
 }
 
+interface AgentRun {
+  answer: Extract<ChatEvent, { type: "answer" }> | null;
+  error: string | null;
+  turns: number;
+  wordRetries: number;
+  /** what the agent did on the way (look up a name, try a query), for the page and for debugging slow answers */
+  steps: Array<{ tool: string; detail: string; ms: number }>;
+  costUsd: number;
+}
+
+/** The OQL agent on one question, its events collected. */
+async function runAgent(deps: Parameters<typeof runChat>[0], parsed: QueryTextRequest,
+  started: number): Promise<AgentRun> {
+  const run: AgentRun = { answer: null, error: null, turns: 0, wordRetries: 0, steps: [], costUsd: 0 };
+  const out = await runChat(deps, {
+    messages: [{ role: "user", content: parsed.text }],
+    currentQuery: parsed.currentQuery,
+    history: parsed.history,
+    institution: parsed.institution,
+  }, (e) => {
+    if (e.type === "step") run.steps.push({ tool: e.tool, detail: e.detail, ms: Date.now() - started });
+    else if (e.type === "answer") run.answer = e;
+    else if (e.type === "error" && !run.error) run.error = e.message;
+    else if (e.type === "done") ({ turns: run.turns, word_retries: run.wordRetries } = e);
+  });
+  run.costUsd = out.cost_usd;
+  return run;
+}
+
 /** One question to one answer. Exported for tests; the deps default to the real clients. */
 export async function handle(
   req: Request, env: QueryWriterEnv,
@@ -181,11 +210,22 @@ export async function handle(
     }, 0);
   }
 
-  // The router: a how-to with no subject goes to the help desk (an answer from help.openalex.org with a link, no
-  // query); anything else, or a help desk that fails, goes on to the OQL agent.
+  // The router (a how-to with no subject goes to the help desk: an answer from help.openalex.org with a link, no
+  // query) runs beside the agent rather than before it: nearly every message is a data question, so the agent's first
+  // turn doesn't wait the router's ~1 s. A help-desk route stops the agent; a help desk that fails runs it again.
+  // A follow-up edits the page's query, a smaller task than a fresh question: it may run on a faster model (#1494 evals).
+  const followUp = !!parsed.currentQuery;
+  const model = (followUp && env.FOLLOWUP_MODEL) || env.CHAT_MODEL || CHAT_MODEL;
+  const effort = (followUp && env.FOLLOWUP_EFFORT) || env.CHAT_EFFORT || CHAT_EFFORT;
+  const agent = (signal?: AbortSignal) => runAgent({ anthropic, openalex, guide: deps.guide, effort, model, signal }, parsed, started);
+  const stop = new AbortController();
+  const first = agent(stop.signal);
   const routed = deps.route ? await deps.route(parsed.text, parsed.currentQuery) : await routeQuestion(anthropic, parsed.text, parsed.currentQuery);
   let preUsd = routed.costUsd;
+  let run: AgentRun;
   if (routed.route === "help_desk") {
+    stop.abort();
+    preUsd += (await first).costUsd;   // what the stopped agent spent before it stopped
     const help = await helpDesk(anthropic, parsed.text, deps.fetchImpl ?? fetch);
     preUsd += help.costUsd;
     if (help.text) {
@@ -196,35 +236,17 @@ export async function handle(
         meta: { path: "help_desk", model: HELP_MODEL, effort: HELP_EFFORT, turns: help.turns, elapsed_ms: Date.now() - started, cost },
       }, cost.credits);
     }
+    run = await agent();
+  } else {
+    run = await first;
   }
-
-  let answer: Extract<ChatEvent, { type: "answer" }> | null = null;
-  let error: string | null = null;
-  let turns = 0;
-  let wordRetries = 0;
-  // what the agent did on the way (look up a name, try a query), for the page and for debugging slow answers
-  const steps: Array<{ tool: string; detail: string; ms: number }> = [];
-  // A follow-up edits the page's query, a smaller task than a fresh question: it may run on a faster model (#1494 evals).
-  const followUp = !!parsed.currentQuery;
-  const model = (followUp && env.FOLLOWUP_MODEL) || env.CHAT_MODEL || CHAT_MODEL;
-  const effort = (followUp && env.FOLLOWUP_EFFORT) || env.CHAT_EFFORT || CHAT_EFFORT;
-  const out = await runChat({ anthropic, openalex, guide: deps.guide, effort, model }, {
-    messages: [{ role: "user", content: parsed.text }],
-    currentQuery: parsed.currentQuery,
-    history: parsed.history,
-    institution: parsed.institution,
-  }, (e) => {
-    if (e.type === "step") steps.push({ tool: e.tool, detail: e.detail, ms: Date.now() - started });
-    else if (e.type === "answer") answer = e;
-    else if (e.type === "error" && !error) error = e.message;
-    else if (e.type === "done") ({ turns, word_retries: wordRetries } = e);
-  });
+  const { answer, error, turns, wordRetries, steps } = run;
 
   const conf = answer
     ? await confidence(env.TYPESAFE_API_KEY, parsed.text, answer, deps.fetchImpl ?? fetch)
     : { p: null, costUsd: 0 };
   const a = answer as Extract<ChatEvent, { type: "answer" }> | null;
-  const cost = costOf(preUsd + out.cost_usd + conf.costUsd);
+  const cost = costOf(preUsd + run.costUsd + conf.costUsd);
   const meta = {
     path: "model", tried: routed.route === "help_desk" ? [...door.tried, "help_desk"] : door.tried,
     model, effort, turns, elapsed_ms: Date.now() - started, cost,

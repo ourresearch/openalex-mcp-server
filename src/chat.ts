@@ -124,7 +124,7 @@ export interface OpenAlexLike {
 
 /** The Anthropic call the agent needs (an Anthropic client satisfies it; tests pass a fake). */
 export interface AnthropicLike {
-  messages: { create(body: any): Promise<Anthropic.Message> };
+  messages: { create(body: any, options?: { signal?: AbortSignal }): Promise<Anthropic.Message> };
 }
 
 export interface Preview {
@@ -248,7 +248,9 @@ function userTexts(messages: Anthropic.MessageParam[]): string[] {
  * conversation and the model cost. Throws nothing a caller must catch: failures become an `error` event.
  */
 export async function runChat(
-  deps: { anthropic: AnthropicLike; openalex: OpenAlexLike; guide?: string; effort?: string; model?: string },
+  deps: { anthropic: AnthropicLike; openalex: OpenAlexLike; guide?: string; effort?: string; model?: string;
+    /** Stops the agent between steps (and its model call in flight): the caller found the question isn't for it. */
+    signal?: AbortSignal },
   input: ChatInput,
   emit: (e: ChatEvent) => void | Promise<void>,
 ): Promise<{ cost_usd: number; answered: boolean }> {
@@ -283,6 +285,10 @@ export async function runChat(
   let turns = 0;
   let answered = false;
   for (; turns < MAX_TURNS && !answered; turns++) {
+    if (deps.signal?.aborted) {
+      await emit({ type: "error", message: "Stopped." });
+      break;
+    }
     const lastTurn = turns === MAX_TURNS - 1;
     let res: Anthropic.Message;
     try {
@@ -293,7 +299,7 @@ export async function runChat(
         tools: TOOLS,
         messages: lastTurn ? addNudge(messages) : messages,
         output_config: { effort },
-      });
+      }, deps.signal ? { signal: deps.signal } : undefined);
     } catch (e: any) {
       await emit({ type: "error", message: `The model call failed: ${e?.message ?? e}` });
       break;
@@ -311,6 +317,11 @@ export async function runChat(
     const uses = res.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
     if (!uses.length) {
       await emit({ type: "error", message: "The assistant stopped without a query." });
+      break;
+    }
+    // stopped while the model was thinking: run none of its tool calls (they would spend the person's credits)
+    if (deps.signal?.aborted) {
+      await emit({ type: "error", message: "Stopped." });
       break;
     }
     const results: Anthropic.ToolResultBlockParam[] = [];
