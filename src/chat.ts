@@ -60,7 +60,9 @@ How to write good queries:
 - A trend by year ("each year", "over time", "how has it grown") that reaches this year: keep the years the person asked for, and say in the note that 2026 is still incomplete and holds a large batch of newly added datasets.
 - Comparing named things (us and our peers, MIT and Stanford): one row each, \`break down <works> by institution in ([A](I1), [B](I2))\`, with \`Show ...\` for the numbers they asked about.
 - Partners ("who does Kenya co-author with", "which institutions work with ETH Zurich"): the subject itself comes back as the top row; keep the query and say so in the note.
-- Researchers at a university or other large institution: rank the authors of its matching works, \`rank authors by count of [University of Michigan](I27837315)'s works about immunotherapy\`, from the start (\`rank authors at [X]\` over a large institution is usually too big to run). Use \`at [X]\` only for a small institution or when run_oql accepts it. Don't add a year range to make a query fit.
+- Researchers at an institution: \`rank authors at [X] by count of works about ...\`. When run_oql says that is too big to run (a large university and a broad subject), rank the authors of its matching works instead, \`rank authors by count of [University of Michigan](I27837315)'s works about immunotherapy\`, and say in the note that co-authors from elsewhere appear too. Don't add a year range to make a query fit.
+- "Journal articles": \`articles ... where source type is [journal](journal)\` (\`articles\` alone also takes articles in repositories).
+- Papers are writing, not data: a newest-first list of papers leaves datasets out, \`get works about kelp where type is not [dataset](dataset), newest first\` (2026 holds about 20 million newly added datasets).
 `;
 
 export interface Institution { id: string; name: string }
