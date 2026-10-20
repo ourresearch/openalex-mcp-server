@@ -274,9 +274,16 @@ export async function runChat(
   const model = deps.model || CHAT_MODEL;
   // The words the person typed (this turn, earlier turns, and the page's query): searches may use only these (searchWords.ts)
   const typed = typedVocabulary([...userTexts(input.messages), ...(input.history ?? []).map((h) => h.text), input.currentQuery ?? ""]);
-  /** Run a query the model wrote, and the search words in it the person never typed (read from the older form). */
+  /**
+   * Run a query the model wrote, and the search words in it the person never typed (read from the older form). A
+   * query already tried in this chat isn't run again (a submit of what run_oql just ran: about a second saved).
+   */
+  const tried = new Map<string, Promise<Preview>>();
   const trial = async (a: any) => {
-    const p = await runOql(deps.openalex, a.oql ?? "", a.sort || null);
+    const key = `${a.oql ?? ""}\u0000${a.sort || ""}`;
+    if (!tried.has(key)) tried.set(key, runOql(deps.openalex, a.oql ?? "", a.sort || null));
+    const p = await tried.get(key)!;
+    if (!p.ok) tried.delete(key);   // a failure may be passing (a timeout): a retry runs it again
     return { p, added: p.ok ? newWords(p.pipeline ?? p.canonical ?? a.oql ?? "", typed) : [] };
   };
   /** The preview without the older form (the model and the page see only the sentence). */

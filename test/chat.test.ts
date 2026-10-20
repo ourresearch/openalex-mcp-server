@@ -91,6 +91,18 @@ describe("runOql", () => {
   });
 });
 
+describe("runChat reuse", () => {
+  it("doesn't run a query again when the model submits what it just tried", async () => {
+    const q = "get works where year >= 2020; then, group those works by country";
+    const anthropic = fakeAnthropic([[tool("r", "run_oql", { oql: q })], [tool("s", "submit", { oql: q, note: "n" })]]);
+    const oa = fakeOpenAlex();
+    let answered = false;
+    await runChat({ anthropic, openalex: oa }, { messages: [{ role: "user", content: "works since 2020 by country" }] }, (e) => { if (e.type === "answer") answered = true; });
+    expect(answered).toBe(true);
+    expect(oa.calls.filter((c: string) => c.startsWith("POST")).length).toBe(1);
+  });
+});
+
 describe("history", () => {
   it("puts earlier turns before the question and the page's query after it", async () => {
     const anthropic = fakeAnthropic([[tool("t1", "submit", { oql: "get works where year >= 2020; then, group those works by country", note: "n" })]]);
