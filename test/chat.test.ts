@@ -80,31 +80,14 @@ describe("runOql", () => {
     expect(p.pipeline).toContain("title-abstract-keywords has (kelp)");
     expect(oa.calls.at(-1)).toContain("most cited first");
   });
-  it("writes a sort given beside the query into the sentence, and then runs it without the separate sort", async () => {
-    const oa: any = fakeOpenAlex();
-    oa.checkOql = async () => ({ oql: "get authors who published works where x; then, summarize each author using count", x_new_oql: "get authors who published works where x; then, summarize each author using count", oqo: { get_rows: "works" }, validation: { valid: true } });
-    oa.parse = async (body: any) => ({ x_new_oql: body.oqo.sort_by[0].column_id === "count" ? "rank authors by count of works about x" : "" });
-    const p = await runOql(oa, "get authors who published works where x; then, summarize each author using count", "count:desc");
-    expect(p.canonical).toBe("rank authors by count of works about x");
-    expect(p.sort_in_text).toBe(true);
-    expect(oa.calls.at(-1)).toBe("POST rank authors by count of works about x ");
-  });
-  it("keeps the sort beside the query when the sentence can't say it", async () => {
-    const oa: any = fakeOpenAlex();
-    oa.checkOql = async () => ({ oql: "get works where x", x_new_oql: "get works about x", oqo: {}, validation: { valid: true } });
-    oa.parse = async () => ({ x_new_oql: "get works about x" });
-    const p = await runOql(oa, "get works where x", "fwci:desc");
-    expect(p.sort_in_text).toBeUndefined();
-    expect(oa.calls.at(-1)).toContain("fwci:desc");
-  });
-  it("runs the text as written when the new sentence fails to run", async () => {
+  it("reports a canonical form that fails to run, without retrying another form", async () => {
     const oa = fakeOpenAlex();
-    oa.checkOql = async (oql: string) => ({ oql: "get works where x", x_new_oql: "broken render", validation: { valid: true } });
+    oa.checkOql = async () => ({ oql: "get works where x", x_new_oql: "broken render", validation: { valid: true } });
     const post = oa.post;
     oa.post = async (body: any) => { if (body.oql === "broken render") throw new Error("400"); return post(body); };
-    const p = await runOql(oa, "rank countries by count of works about kelp");
-    expect(p.ok).toBe(true);
-    expect(p.canonical).toBe("rank countries by count of works about kelp");
+    const p = await runOql(oa, "get works about x");
+    expect(p.ok).toBe(false);
+    expect(p.canonical).toBe("broken render");
   });
 });
 
@@ -119,6 +102,14 @@ describe("history", () => {
     const sent = anthropic.requests[0].messages[0].content as string;
     expect(sent.indexOf("which countries publish most on kelp?")).toBeLessThan(sent.indexOf("only open access"));
     expect(sent.indexOf("only open access")).toBeLessThan(sent.indexOf("currently shows this query"));
+  });
+  it("runs on the model it is given, priced as that model", async () => {
+    const anthropic = fakeAnthropic([[tool("t1", "submit", { oql: "get works where year >= 2020; then, group those works by country", note: "n" })]]);
+    let cost = -1;
+    await runChat({ anthropic, openalex: fakeOpenAlex(), model: "claude-sonnet-5-5" }, { messages: [{ role: "user", content: "kelp by country" }] },
+      (e) => { if (e.type === "done") cost = e.cost_usd; });
+    expect(anthropic.requests[0].model).toBe("claude-sonnet-5-5");
+    expect(cost).toBeGreaterThanOrEqual(0);
   });
   it("runs at the effort it is given", async () => {
     const anthropic = fakeAnthropic([[tool("t1", "submit", { oql: "get works where year >= 2020; then, group those works by country", note: "n" })]]);

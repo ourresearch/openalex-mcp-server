@@ -113,11 +113,6 @@ export class OpenAlexClient {
     }
   }
 
-  /** POST /query: an OQL or OQO in, its canonical forms out (oql, x_new_oql, oqo). Free; no results. */
-  async parse<T = any>(body: Record<string, any>): Promise<T> {
-    return await this.request<T>(this.baseUrl + "/query", { method: "POST", body: JSON.stringify(body), contentType: "application/json" });
-  }
-
   /**
    * The free OQL check (GET /query/oql/<q>, #1533): parse, canonical text, validation, and for queries the
    * new executor runs, a `check` block with limits, time estimate and price. A refused query comes back as

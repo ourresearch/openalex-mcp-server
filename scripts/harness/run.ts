@@ -40,6 +40,9 @@ const env = {
   TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY,
   // an arm's effort: --effort high (else the env's CHAT_EFFORT, else the Worker's default)
   CHAT_EFFORT: arg("--effort", process.env.CHAT_EFFORT),
+  CHAT_MODEL: arg("--model", process.env.CHAT_MODEL),
+  FOLLOWUP_MODEL: arg("--followup-model", process.env.FOLLOWUP_MODEL),
+  FOLLOWUP_EFFORT: arg("--followup-effort", process.env.FOLLOWUP_EFFORT),
 };
 const KEY = process.env.OPENALEX_API_KEY ?? process.env.OPENALEX_ORG_API_KEY;
 

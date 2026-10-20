@@ -36,6 +36,11 @@ export interface QueryWriterEnv {
   TYPESAFE_API_KEY?: string;
   /** The agent's effort (low | medium | high | xhigh); unset = CHAT_EFFORT. A wrangler var, so it changes without code. */
   CHAT_EFFORT?: string;
+  /** The agent's model; unset = CHAT_MODEL (Opus 5.5). */
+  CHAT_MODEL?: string;
+  /** A follow-up (the page already shows a query): its own model and effort, for speed; unset = the agent's. */
+  FOLLOWUP_MODEL?: string;
+  FOLLOWUP_EFFORT?: string;
 }
 
 export const MAX_TEXT_CHARS = 2000;
@@ -199,8 +204,11 @@ export async function handle(
   let wordRetries = 0;
   // what the agent did on the way (look up a name, try a query), for the page and for debugging slow answers
   const steps: Array<{ tool: string; detail: string; ms: number }> = [];
-  const effort = env.CHAT_EFFORT || CHAT_EFFORT;
-  const out = await runChat({ anthropic, openalex, guide: deps.guide, effort }, {
+  // A follow-up edits the page's query, a smaller task than a fresh question: it may run on a faster model (#1494 evals).
+  const followUp = !!parsed.currentQuery;
+  const model = (followUp && env.FOLLOWUP_MODEL) || env.CHAT_MODEL || CHAT_MODEL;
+  const effort = (followUp && env.FOLLOWUP_EFFORT) || env.CHAT_EFFORT || CHAT_EFFORT;
+  const out = await runChat({ anthropic, openalex, guide: deps.guide, effort, model }, {
     messages: [{ role: "user", content: parsed.text }],
     currentQuery: parsed.currentQuery,
     history: parsed.history,
@@ -219,7 +227,7 @@ export async function handle(
   const cost = costOf(preUsd + out.cost_usd + conf.costUsd);
   const meta = {
     path: "model", tried: routed.route === "help_desk" ? [...door.tried, "help_desk"] : door.tried,
-    model: CHAT_MODEL, effort, turns, elapsed_ms: Date.now() - started, cost,
+    model, effort, turns, elapsed_ms: Date.now() - started, cost,
     // the no-new-words check: submits refused for new search words, and any left when the turns ran out
     word_retries: wordRetries, new_words: a?.new_words ?? [], steps,
   };
