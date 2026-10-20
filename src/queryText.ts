@@ -197,6 +197,8 @@ export async function handle(
   let error: string | null = null;
   let turns = 0;
   let wordRetries = 0;
+  // what the agent did on the way (look up a name, try a query), for the page and for debugging slow answers
+  const steps: Array<{ tool: string; detail: string; ms: number }> = [];
   const effort = env.CHAT_EFFORT || CHAT_EFFORT;
   const out = await runChat({ anthropic, openalex, guide: deps.guide, effort }, {
     messages: [{ role: "user", content: parsed.text }],
@@ -204,7 +206,8 @@ export async function handle(
     history: parsed.history,
     institution: parsed.institution,
   }, (e) => {
-    if (e.type === "answer") answer = e;
+    if (e.type === "step") steps.push({ tool: e.tool, detail: e.detail, ms: Date.now() - started });
+    else if (e.type === "answer") answer = e;
     else if (e.type === "error" && !error) error = e.message;
     else if (e.type === "done") ({ turns, word_retries: wordRetries } = e);
   });
@@ -218,7 +221,7 @@ export async function handle(
     path: "model", tried: routed.route === "help_desk" ? [...door.tried, "help_desk"] : door.tried,
     model: CHAT_MODEL, effort, turns, elapsed_ms: Date.now() - started, cost,
     // the no-new-words check: submits refused for new search words, and any left when the turns ran out
-    word_retries: wordRetries, new_words: a?.new_words ?? [],
+    word_retries: wordRetries, new_words: a?.new_words ?? [], steps,
   };
   if (!a) {
     const modelFailed = (error ?? "").startsWith("The model call failed");

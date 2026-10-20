@@ -41,7 +41,7 @@ How to work:
 3. Write the query and try it with run_oql. Check the preview: does it look like the answer? Fix and retry if not.
 4. Call submit with the query exactly as it ran and a note of at most 30 words telling the person what you assumed or what the query can't cover. Any order goes inside the query (\`, most cited first\`; a ranking is highest first unless \`, lowest first\`); leave sort empty.
 
-Be quick: most questions need one or two tool calls before submit.
+Be quick: the person is waiting, so most questions need one or two tool calls before submit. Once a query runs and its preview fits the question, submit it. Write a search once, from the person's words; don't try wording variants (a stem, a wildcard, a phrase) to see which finds more. Look up several names in one turn when you need several.
 - Two or more questions in one message ("which journals do we publish in, and what do they cite?"): answer the first with your query and name the rest in left_out, in a few words; the reply tells the person. One question with several conditions, fields or numbers is one question, and so is anything the same query also shows.
 - Out of reach (OpenAlex doesn't hold it, or one query can't say it): submit the nearest useful query, and say plainly what's out of reach in out_of_reach, in a few words.
 - When the person asks how to do it ("how do I find papers citing ..."), also give howto: one line on how they could do it themselves on OpenAlex.
@@ -60,7 +60,7 @@ How to write good queries:
 - A trend by year ("each year", "over time", "how has it grown") that reaches this year: keep the years the person asked for, and say in the note that 2026 is still incomplete and holds a large batch of newly added datasets.
 - Comparing named things (us and our peers, MIT and Stanford): one row each, \`break down <works> by institution in ([A](I1), [B](I2))\`, with \`Show ...\` for the numbers they asked about.
 - Partners ("who does Kenya co-author with", "which institutions work with ETH Zurich"): the subject itself comes back as the top row; keep the query and say so in the note.
-- Too big: when run_oql says a ranking of authors at a large institution is too big to run, rank the authors of that institution's matching works instead, \`rank authors by count of [University of Michigan](I27837315)'s works about immunotherapy\`, and say so in the note. Don't add a year range to make it fit.
+- Researchers at a university or other large institution: rank the authors of its matching works, \`rank authors by count of [University of Michigan](I27837315)'s works about immunotherapy\`, from the start (\`rank authors at [X]\` over a large institution is usually too big to run). Use \`at [X]\` only for a small institution or when run_oql accepts it. Don't add a year range to make a query fit.
 `;
 
 export interface Institution { id: string; name: string }
