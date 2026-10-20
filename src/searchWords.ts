@@ -152,8 +152,11 @@ export interface Vocabulary { raw: Set<string>; stems: Set<string> }
 /** What the person typed, as words to match against: each word, its stem, and hyphenated words joined ("covid19"). */
 export function typedVocabulary(texts: Array<string | null | undefined>): Vocabulary {
   const raw = new Set<string>();
-  for (const t of texts) {
-    if (!t) continue;
+  for (const raw0 of texts) {
+    if (!raw0) continue;
+    // A question mark that ends a word in prose ("...the hippocampus?") is punctuation, not a one-letter wildcard:
+    // read it as the bare word too, or the last word of every question counts as never typed (2026-10-20).
+    const t = raw0 + " " + raw0.replace(/(?<=[\p{L}\p{N}])\?+(?=[\s"'’”)\].,;:!]|$)/gu, "");
     for (const w of words(t)) raw.add(w);
     for (const w of words(t.replace(/(?<=[\p{L}\p{N}])[-‐–'’](?=[\p{L}\p{N}])/gu, ""))) raw.add(w);
   }

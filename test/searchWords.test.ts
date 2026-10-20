@@ -55,6 +55,11 @@ describe("newWords", () => {
     expect(newWords('get works where title-abstract has ((adolescen* OR teen*) AND depress*)', ["teen depression"])).toEqual(["adolescen*"]);
     expect(newWords(q('"machine learning" OR "deep learning"'), ["machine learning in health"])).toEqual(["deep"]);
   });
+  it("reads a question mark that ends a word as punctuation, and keeps it as a wildcard inside a search", () => {
+    expect(newWords(q("hippocampus"), ["Which German institutions publish the most papers mentioning the hippocampus?"])).toEqual([]);
+    expect(newWords(q("kelp"), ["what about kelp?)"])).toEqual([]);
+    expect(newWords(q("colo?r"), ["colo?r AND blindness"])).toEqual([]);
+  });
   it("counts the page's current query as typed (follow-ups)", () => {
     expect(newWords(q("kelp") + " and published since 2020", ["only since 2020", q("kelp")])).toEqual([]);
   });
