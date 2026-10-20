@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { runChat, runOql, findEntity, systemPrompt, costUsd, MAX_TURNS, type ChatEvent, type OpenAlexLike } from "../src/chat";
 
+/** A request message's text, whether sent as a string or as blocks (the newest carries a cache mark). */
+const textOf = (c: any): string => (typeof c === "string" ? c : c.map((b: any) => b.text ?? "").join("\n"));
+
+
 // A fake OpenAlex: /query check refuses anything containing "bogus"; runs return a fixed grouped or summary answer.
 function fakeOpenAlex(): OpenAlexLike & { calls: string[] } {
   const calls: string[] = [];
@@ -103,6 +107,28 @@ describe("runChat reuse", () => {
   });
 });
 
+describe("runChat speed", () => {
+  it("runs a turn's lookups together and keeps their results in order", async () => {
+    const anthropic = fakeAnthropic([[tool("a", "find_entity", { type: "institutions", name: "Kansas" }), tool("b", "find_entity", { type: "institutions", name: "Oxford" })],
+      [tool("s", "submit", { oql: "get works where year >= 2020; then, group those works by country", note: "n" })]]);
+    const oa: any = fakeOpenAlex();
+    let open = 0, most = 0;
+    const get = oa.get;
+    oa.get = async (...args: any[]) => { open++; most = Math.max(most, open); await new Promise((r) => setTimeout(r, 5)); open--; return get(...args); };
+    await runChat({ anthropic, openalex: oa }, { messages: [{ role: "user", content: "Kansas and Oxford" }] }, () => {});
+    expect(most).toBe(2);
+    const results = anthropic.requests[1].messages[2].content;
+    expect(results.map((r: any) => r.tool_use_id)).toEqual(["a", "b"]);
+  });
+  it("marks the newest block for caching on the request only", async () => {
+    const anthropic = fakeAnthropic([[tool("s", "submit", { oql: "get works where year >= 2020; then, group those works by country", note: "n" })]]);
+    let stored: any[] = [];
+    await runChat({ anthropic, openalex: fakeOpenAlex() }, { messages: [{ role: "user", content: "kelp by country" }] }, (e) => { if (e.type === "done") stored = e.messages; });
+    expect(anthropic.requests[0].messages[0].content.at(-1).cache_control).toEqual({ type: "ephemeral" });
+    expect(JSON.stringify(stored)).not.toContain("cache_control");
+  });
+});
+
 describe("history", () => {
   it("puts earlier turns before the question and the page's query after it", async () => {
     const anthropic = fakeAnthropic([[tool("t1", "submit", { oql: "get works where year >= 2020; then, group those works by country", note: "n" })]]);
@@ -111,7 +137,7 @@ describe("history", () => {
       currentQuery: "rank countries by count of works about kelp",
       history: [{ text: "which countries publish most on kelp?", oql: "rank countries by count of works about kelp" }],
     }, () => {});
-    const sent = anthropic.requests[0].messages[0].content as string;
+    const sent = textOf(anthropic.requests[0].messages[0].content);
     expect(sent.indexOf("which countries publish most on kelp?")).toBeLessThan(sent.indexOf("only open access"));
     expect(sent.indexOf("only open access")).toBeLessThan(sent.indexOf("currently shows this query"));
   });
@@ -217,7 +243,7 @@ describe("runChat", () => {
     await runChat({ anthropic, openalex: fakeOpenAlex(), guide: "G" }, { messages: history, currentQuery: "get works where title-abstract-keywords has kelp" }, () => {});
     const sent = anthropic.requests[0].messages;
     expect(sent[0].content).toBe("works on kelp");
-    expect(sent[2].content).toContain("The results page currently shows this query: get works where title-abstract-keywords has kelp");
+    expect(textOf(sent[2].content)).toContain("The results page currently shows this query: get works where title-abstract-keywords has kelp");
     expect(history[2].content).toBe("only open access"); // the caller's array is not mutated
   });
 

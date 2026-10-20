@@ -290,6 +290,8 @@ export async function runChat(
     if (!tried.has(key)) tried.set(key, runOql(deps.openalex, a.oql ?? "", a.sort || null));
     const p = await tried.get(key)!;
     if (!p.ok) tried.delete(key);   // a failure may be passing (a timeout): a retry runs it again
+    // the echo is what the model sees and is told to submit: that text reuses this run too
+    else if (p.canonical) tried.set(`${p.canonical}\u0000${a.sort || ""}`, tried.get(key)!);
     return { p: publicPreview(p), added: p.ok ? newWords(p.pipeline ?? "", typed) : [] };
   };
   let wordRetries = 0;
@@ -308,7 +310,7 @@ export async function runChat(
         max_tokens: 16000,
         system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
         tools: TOOLS,
-        messages: lastTurn ? addNudge(messages) : messages,
+        messages: cacheMarked(lastTurn ? addNudge(messages) : messages),
         output_config: { effort },
       }, deps.signal ? { signal: deps.signal } : undefined);
     } catch (e: any) {
@@ -335,15 +337,21 @@ export async function runChat(
       await emit({ type: "error", message: "Stopped." });
       break;
     }
+    // a turn's lookups and trial runs go out together (results still in order); a submit waits for them
+    const pending = uses.map((b) => {
+      const a: any = b.input ?? {};
+      return b.name === "find_entity" ? findEntity(deps.openalex, a.type ?? "institutions", a.name ?? "")
+        : b.name === "run_oql" ? trial(a) : null;
+    });
     const results: Anthropic.ToolResultBlockParam[] = [];
-    for (const b of uses) {
+    for (const [i, b] of uses.entries()) {
       const a: any = b.input ?? {};
       if (b.name === "find_entity") {
         await emit({ type: "step", tool: "find_entity", detail: `${a.type}: ${a.name}` });
-        results.push({ type: "tool_result", tool_use_id: b.id, content: await findEntity(deps.openalex, a.type ?? "institutions", a.name ?? "") });
+        results.push({ type: "tool_result", tool_use_id: b.id, content: await (pending[i] as Promise<string>) });
       } else if (b.name === "run_oql") {
         await emit({ type: "step", tool: "run_oql", detail: String(a.oql ?? "").slice(0, 300) });
-        const { p, added } = await trial(a);
+        const { p, added } = await (pending[i] as ReturnType<typeof trial>);
         // the word check's feedback goes to the model only, never into the preview the page gets
         const shown = added.length ? { ...p, new_search_words: added, word_rule: WORD_RULE } : p;
         results.push({ type: "tool_result", tool_use_id: b.id, content: JSON.stringify(shown).slice(0, 4000) });
@@ -378,6 +386,17 @@ export async function runChat(
   const cost = priceOf(model, usage);
   await emit({ type: "done", messages, cost_usd: cost, usage, turns, word_retries: wordRetries });
   return { cost_usd: cost, answered };
+}
+
+/**
+ * The request's copy of the conversation with a cache mark on its newest block, so the next turn reads everything
+ * before it from cache (the system prompt has its own mark). The stored conversation is never changed.
+ */
+function cacheMarked(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+  const last = messages[messages.length - 1];
+  const blocks: any[] = typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...last.content];
+  blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: { type: "ephemeral" } };
+  return [...messages.slice(0, -1), { ...last, content: blocks }];
 }
 
 /**

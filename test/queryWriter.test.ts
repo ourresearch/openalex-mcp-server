@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest";
 import { parseRequest, callerKey, creditsFor, handle, confidence, PRICE_MULTIPLIER } from "../src/queryText";
 import { costUsd } from "../src/chat";
 
+/** A request message's text, whether sent as a string or as blocks (the newest carries a cache mark). */
+const textOf = (c: any): string => (typeof c === "string" ? c : c.map((b: any) => b.text ?? "").join("\n"));
+
+
 const BASE = "https://api.openalex.org";
 
 function fakeOpenAlex() {
@@ -231,7 +235,7 @@ describe("handle", () => {
     expect(res.status).toBe(200);
     expect(anthropic.requests).toHaveLength(3);
     expect(JSON.stringify(anthropic.requests[1].messages)).not.toContain("Last turn");
-    expect(anthropic.requests[0].messages[0].content).toContain("The results page currently shows this query: get works where title has (coffee AND health)");
+    expect(textOf(anthropic.requests[0].messages[0].content)).toContain("The results page currently shows this query: get works where title has (coffee AND health)");
     const body: any = await res.json();
     expect(body.meta.cost.credits).toBe(Math.ceil(3 * costUsd(pricey) * PRICE_MULTIPLIER * 10000));
     expect(body.confidence).toBeNull(); // no Jev key configured
