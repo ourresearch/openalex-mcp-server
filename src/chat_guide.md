@@ -1,116 +1,113 @@
-# OQL on one page (v6, thing-first as built 2026-10-09)
+# OQL on one page (v8, tables of groups, 2026-10-20)
 
-The guide a model gets when it turns a question into OpenAlex's query language, OQL. Every example is written the way OpenAlex echoes it back.
+OQL is OpenAlex's query language. It reads like plain English. A statement is one main sentence, sometimes followed by a short `Show ...` or `Only ...` sentence. Every query returns one of two shapes: **a list of records** (works, or things by their own fields) or **a table of groups** (numbers about a set of works, one row per group).
 
-## Shape
+## Two kinds of sentence, both start with `get`
 
-A query starts with `get` and what to start from: `get works where <conditions>` (or `get authors where ...`, `get institutions where ...`, `get sources where ...`). Each later step follows a semicolon and opens with `then,`; the last of two or more opens with `finally,`. A summary, if any, is always the last step, and names what it summarizes: `summarize all those works using ...` (one row for the set), `summarize each author using ...` (one row per author); after a split, `summarize using ...`.
+- **A list:** `get <works>[, <order>]`, or things by their own fields: `get authors at [University of British Columbia](I141945490) with an h-index above 50, highest h-index first`.
+- **A table of groups:** `get the <numbers> of <works> by <splits>[, <order>]`. One number is the smallest table: `get the count of [University of Kansas](I146416000)'s works`. With splits: `get the count of works about kelp by author at [University of British Columbia](I141945490)`.
 
-`get works where institution is [MIT](I63966007) and published since 2020; then, group those works by year; finally, summarize using count and mean FWCI`
+The sentence never changes with the order: the order is only the words after the last comma. Never write `rank` or `break down`: they are not OQL (a query that starts with them is refused).
 
-## Values
+## Describing works
 
-- Entities are links: the name in brackets, the OpenAlex ID in parentheses: `[MIT](I63966007)`, `[CRISPR and Genetic Engineering](T10878)`, `[Nature](S137773608)`. The name is optional: `(I63966007)`. Countries, types, languages and statuses are links too, by their codes: `[Kenya](KE)`, `[article](article)`, `[gold](gold)`. Other schemes' ids go in their own fields: `ORCID is 0000-0002-1825-0097`, `DOI is 10.1234/x`, `ROR ID is 00ghzk478`.
-- One value needs no parentheses: `published since 2020`, `type is not [review](review)`. Several go in one pair, joined by `or` (any of them) or `and` (all of them, for things a work has many of): `institution is ([MIT](I63966007) or [Stanford University](I97018004))`, `country is ([United States](US) and [China](CN))`.
-- Join conditions with `and` / `or`; group them with parentheses. Negate on the verb: `institution is not [MIT](I63966007)`, `type is not ([review](review) or [editorial](editorial))`. A yes/no field reads as a sentence: `it's open access`, `it's not retracted`, `it has a DOI`, `it doesn't have an abstract`.
-- Search fields use `has`, with a portable search string in parentheses and its own capital AND/OR/NOT: `title-abstract has ((asthma OR wheeze) NOT (pediatric OR child))`; quotes make a phrase: `title-abstract has ("graphene oxide" AND battery)`; one wildcard word needs no parentheses: `title has adolescen*`.
+A type noun with modifiers, in this order:
 
-## Two moves: stay inside, or walk out
+1. The institution, country or person the question is about, as a possessive: `[University of Kansas](I146416000)'s works`. Two or more people: `works co-authored by [A](A1) and [B](A2)`. Works with several places at once: `works from both [University of Oxford](I40120149) and [University of Cambridge](I241749)` (three or more: `from all of A, B, and C`).
+2. Yes/no words before the noun: `open access`, `retracted`, `top 1% cited`.
+3. The noun: works, articles, reviews, preprints, datasets, books, book chapters, conference papers, dissertations. Say `articles` when the user says papers or articles and means research articles; `works` counts every type (datasets too).
+4. Time, right after the noun: `since 2020`, `from 2022`, `before 2010`, `from 2018–2025`. Prefer years; full dates only when the user gives exact dates (`from 2020-10-01 through 2021-09-30`). **Write a year only when the user gives one.**
+5. What it's about: `about kelp` searches title, abstract and keywords. One place: `with conjugal in the title` (also `in the abstract`, `in the full text`, `in the title or abstract`). Search strings use capital AND / OR / NOT, quotes for phrases, `*` for truncation: `about ((asthma OR wheeze) AND child*)`. **Use only the words the user gave; never add synonyms.** One word or one phrase needs no parentheses.
+6. `citing [title](W123)`; `citing works in the collection [name](col_x)`.
+7. `from [institution, country or continent]` (when not the possessive); `co-authored with [institution]`; `by [author]`; `with [person](A1) as corresponding author`.
+8. `in [journal](S123)`; classifications name their kind: `in SDG [Climate action](13)`, `in the topic [..](T123)`, `in the subfield [..](1702)`, `in the field [..](17)`; `in the collection [name](col_x)`.
+9. `published by [publisher](P123)`, `funded by [funder](F123)` (several: `funded by [A](F1) or [B](F2)`), `under the [CC BY](cc-by) license`.
+10. Anything that doesn't fit goes last, after `where`, as `field is value` conditions.
 
-- **Start with the things, or split** (`get authors who published works where ...`, `group those works by year`): every number counts only the works you have.
-- **Walk** (`get each author of those works`) moves to the related things themselves; `get all that author's works` then takes everything by each one, not just the works you had.
+Entities are links: name in brackets, OpenAlex ID in parentheses, the ID from find_entity. Countries use their two-letter code (`[Kenya](KE)`), continents their ID (`[Africa](Q15)`, `[Europe](Q46)`).
 
-"Each MIT author's mean FWCI on their MIT papers" starts with the authors (below); "each MIT author's mean FWCI on all their papers" is a walk.
+## Tables of groups
 
-## Steps
+`get the <numbers> of <works> by <split>[ and <split>][, <order>]`
 
-- **Split:** `group those works by <field>` gives one group per value of a field that isn't a thing (year, type, open access status, language, institution type, source type, subfield, field, domain, keyword, SDG, license, and the yes/no fields). Split by two or three in the same step: `group those works by year and type`. To get one row per author, institution, source, publisher, funder, country or topic, start with that thing (see "Start with the thing you want").
-- **Split numbers into bins:** `group those works into citation count bins at (1, 10, 100)` gives `0`, `1-9`, `10-99`, `100+`; `into FWCI bins of 0.5` gives equal widths.
-- **Compare named things, one row each:** `compare institution [MIT](I63966007) versus [Stanford University](I97018004) versus [Harvard University](I136199984)`. Write the field once when every item shares it; `is` goes unsaid inside a comparison, but `is not` is written out. Different fields: `compare institution [KU Leuven](I99464096) versus country [Belgium](BE)`. Searches: `compare title-abstract has "machine learning" versus "edge AI"`. Periods and other conditions: `compare published from 2016 through 2019 versus published since 2021`; a yes/no field alone means true: `compare open access versus not open access`. Inside one item `and` / `or` are logic. Rows can overlap. Up to 100 items; for more, save them as a collection and compare its members: `compare each institution in the collection [Our peers](col_peers)`.
-- **A comparison is always between two or more things,** never one thing alone. To set one thing against everything else, compare it with the rest: `compare country [India](IN) versus country is not [India](IN)`. Us against our peers: name each peer, or put the peers in a collection to get them as one row: `compare institution [MIT](I63966007) versus institution is in the collection [Our peers](col_peers)`.
-- **Measure a comparison** inside the same step with `using`, and **break it down** with `by` after that: `compare institution [MIT](I63966007) versus [Stanford University](I97018004) using count and mean FWCI by year and type` (up to three splits in all, the comparison counting as one). A comparison comes before any other split and ends the query: no `summarize` step after it.
-- **Every grouped result also has a summary row** for the whole starting set, with the same numbers, so start from the widest set you compare against (the world, a country, a field), not from your own institution.
-- **Walk out to related things:** `get each <thing> of those works` gives one result per thing (author, institution, source, publisher, funder, topic, subfield, field, domain, keyword, SDG, country); `get <things> of those works` gives one combined set. Filter them by their own fields: `get each author of those works where h-index is above 20`. Walk before any split; one walk out per query.
-- **Walk back to everything they did:** `get all that <thing>'s works` after `get each <thing>` (one result per thing), or `get all those <things>' works` after `get <things>` (one combined list of works, which you can then split). Add conditions: `get all those authors' works where published since 2026-08-01`. After `get each`, summarize directly (no split).
-- **Summarize (always last; after a comparison the measures go inside it with `using`):** `summarize using <measure>, <measure>`: `count`; `mean`, `median`, `sum`, `min`, `max` of a number field (`mean FWCI`, `median citation count`, `sum APC paid`); `percent` of a yes/no field (`percent open access`, `percent retracted`); `percent of those works`, each group's share of the set it came from; `min date` / `max date`. A field of the works always needs a calculation (`mean authors count`, never `authors count`). A field of the things themselves, when the query starts with them, is shown beside each row: `get authors who published works where title-abstract has kelp; then, summarize each author using count and h-index`.
+**Numbers**, joined with `and` (Oxford comma for three): `count`, `share` (each row's slice of the group one level up: of the whole set with one split, of each year with `by year and country`), `sum of citations` (takes `to`: `the sum of citations to works ...`), `sum of APCs paid` (takes `for`), `mean FWCI`, `median FWCI`, `mean citations`, `median citations`, `percent open access`, `percent retracted`, `percent with an abstract`, `percent top 10% cited`, any `percent <yes/no word>`. A number covers the matching works.
 
-## Start with the thing you want
+**Splits** (one or two): `year`, `field`, `subfield`, `domain`, `topic`, `SDG`, `type`, `open access`, `open access status`, `language`, `corresponding author`, and things: `author`, `institution`, `company`, `country`, `journal`, `source`, `publisher`, `funder`. With year, the year range follows it: `by year since 2004`.
 
-To get one row per author, institution, source, publisher, funder, country or topic, start the query with that thing, then say which works count:
+**Which groups**, right after the split word:
+- the things' own record: `by author at [University of British Columbia](I141945490)` (authors whose record lists UBC, with all their matching works wherever they wrote them; different from `works from [UBC] by author`, which counts everyone on UBC's papers), `by institution in [Sweden](SE)`, `by institution in [Africa](Q15)`, `by author with an h-index above 40`;
+- a list: `by country in ([United States](US), [China](CN))`, `by institution in the collection [My peers](col_x)`;
+- leaving some out: `by country except [Kenya](KE)`, `by institution except ([ETH Zurich](I35440088), [Board of the Swiss Federal Institutes of Technology](I2799323385))`. Use it when the subject would top its own partner list.
 
-`get authors at [University of British Columbia](I141945490) since 2022 who published works where title-abstract has kelp; then, summarize each author using count, mean FWCI, and h-index`
+**A count floor** is its own sentence after the main one: `Only institutions with at least 10 works about kelp.` (the same works as the table).
 
-- Each row is one author; `count` is how many of the matching works (kelp works) that author has; `mean FWCI` is over those works; the author's own fields (`h-index`, `last known institution`) sit beside them.
-- `at [institution]` reads the author's own record (the institutions listed on their profile, with years), not the papers' affiliations: `at [UBC](I141945490) since 2022` (UBC in their record in 2022 or later), `ever at [UBC](I141945490)`. Stricter: `at [UBC](I141945490) in 2+ years since 2022` (UBC in at least two of those years).
-- `in [country or continent]`: `get authors in [Brazil](BR) who published works where ...`; `get institutions in [Asia](Q48) that published works where topic is [Livestock and Poultry Management](T13294) and published since 2016`.
-- Proximity inside a search: `title has (smart and phone within 3 words of each other)`.
-- A list of authors by their record, no works: `get authors in [Brazil](BR) since 2022 where h-index is above 30`; when a place has too many authors to check the years, the error says how to narrow it (or `ever in [Brazil](BR)`, any year).
-- Without a place, every author of the matching works: `get authors who published works where institution is [MIT](I63966007)`.
-- The verb fits the thing: `get institutions that published works where ...`, `get sources that published works where ...`, `get funders that funded works where ...`, `get countries that published works where ...`, `get topics of works where ...`.
-- The thing's own fields go in a `where` before the verb: `get authors where h-index is above 20 who published works where ...`; `get institutions where type is [education](education) that published works where ...`; `get authors where co-author is not [Jane Smith](A5023888391) who published works where ...`.
-- How many of the matching works each has: `get authors who published more than 5 works where title-abstract has kelp` (`at least`, `fewer than`, `at most`). There is no filter on other calculations (a mean FWCI): get the rows and read them.
-- Split each one's works further: `get institutions in [Asia](Q48) that published works where ...; then, group each institution's works by year; finally, summarize using count`.
-- A role on the works: `get authors who were corresponding authors of works where author is [Jane Smith](A5023888391)`; `get institutions that were corresponding institutions of works where ...`.
-- The authors as one set: `then, summarize all those authors using count` (how many distinct authors).
+**A thing's own fields** (h-index, works count) are not numbers of the works: add them with `Show h-index.`, or order by them (`, highest h-index first`), which shows them.
 
-## Sets
+**Order**, after a comma at the end; leave it out for the default (most works first; years oldest first):
+`, highest <number> first`, `, lowest <number> first` (one number: `, highest first`), `, fewest works first`, `, most works first` (only needed with a year split), `, newest first` (years), `, alphabetical by <split>`, `, highest h-index first`.
 
-- A set defined by a query: `author is in the set (authors of works where title-abstract has (kelp))`; the set phrase names the things (`works where ...`, `authors of works where ...`). Citations: `it cites a work in the set (works where institution is [University of Kansas](I146416000))` (works citing any of Kansas's works); `it's cited by a work in the set (...)` (works that Kansas's works cite). Negate on the verb: `it doesn't cite any work in the set (...)`, `author is not in the set (...)`.
-- A saved collection (a list the asker has: names, DOIs, a ranking OpenAlex doesn't hold): `topic is in the collection [Climate topics](col_abc123)`; start from one: `get works in the collection [My list](col_mylist)`, `get each author in the collection [Panel](col_panel)` (each author with all their fields).
-- Co-authorship as a filter: `get authors where co-author is [Jane Smith](A5023888391)`; `get institutions where collaborator is not [MIT](I63966007)`.
+A percent or mean ordered highest first puts tiny groups at the top (5 works, 100% open access). When the user asks who is highest on a rate or mean, add a count floor: `Only institutions with at least 500 works.`
 
-## Words
+Examples:
+- `get the count of works since 2020 about (archaeology AND "deep learning") by journal`
+- `get the count and mean FWCI of works about kelp by institution in [Sweden](SE), highest mean FWCI first. Only institutions with at least 10 works about kelp.`
+- `get the count of works about "latent dirichlet allocation" by author. Show h-index.`
+- `get the count of works about kelp by author at [University of British Columbia](I141945490), highest h-index first`
+- `get the sum of citations to works since 2018 about oleogel* by author, highest first`
+- `get the count and share of all works by SDG`
+- `get the count of [University of Florida](I33213144)'s works by year since 2004`
+- `get the count and percent retracted of works in [Heliyon](S2898612692) by year and field`
+- `get the count and share of top 1% cited articles by year and country in ([United States](US), [China](CN))` (the US share of each year's top articles)
+- `get the count of works since 2015 co-authored with [Kiel University](I32021983) by company`
+- `get the count of works from [Kenya](KE) by country except [Kenya](KE)`
+- `get the count and mean FWCI of works since 2015 by institution in ([Indian Institute of Technology Bombay](I162827531), [Indian Institute of Technology Delhi](I68891433))`
+- One number: `get the count and mean citations of works from 2022 in the field [Computer Science](17)`; `get the sum of APCs paid for [University of Kansas](I146416000)'s works`.
 
-- **Works, searches:** title, title-abstract, title-abstract-keywords, abstract, full text, raw affiliation.
-- **Works, fields:** year, date (`published since 2020`, `published in 2023`, `published from 2015 through 2024`, `published before 2020`, `published since 2024-01-01`); numbers in words: `citation count is above 10`, `is at least`, `is below`, `is at most`; type (article, review, book, book-chapter, dataset, preprint, dissertation, editorial, letter, ...), language, open access, open access status, license, retracted, has DOI, has abstract, has fulltext, has ORCID, global south, top 1% cited, top 10% cited; institution, institution type, institution country, country, continent, author, corresponding author, source, source type, publisher, funder, awards, topic (the work's primary topic; `topics` matches any of its topics), subfield, field, domain, keyword, SDG; citation count, FWCI, citation percentile by subfield, reference count, authors count, institutions count, countries count, APC paid; DOI, PMID, ISSN, ORCID.
-- **Authors:** h-index, i10-index, works count, citation count, last known institution, has ORCID, topic, subfield, field, domain, co-author.
-- **Institutions:** country, continent, type, region, city, global south, works count, h-index, subfield, field, domain, collaborator.
-- **Sources:** type, publisher, ISSN, works count, h-index, 2-year mean citedness, subfield, field, domain.
+## Lists
 
-## Not in the language yet
+End a list of works with `, most cited first`, `, least cited first`, `, newest first`, `, oldest first`, `, best matches first`, `, highest FWCI first`, or `, alphabetical by title`. Things by their own fields: `get institutions in [Austria](AT), most cited first`; `get authors at [University of British Columbia](I141945490) with an h-index above 50, highest h-index first`.
 
-Splitting each walked thing's works further (walk to the combined set instead); a second walk out in one query; a query inside a query inside parentheses. No sorting or top N (the result comes back sorted by count; ask for all groups and read the top). Nothing OpenAlex doesn't hold.
+## Fields for `where`
 
-## Mistakes to avoid
+Anything the phrases above don't say goes after `where` at the end of the works phrase, as `field is value` conditions joined with `and` / `or`: `get works about kelp where source type is [journal](journal) and language is [English](en)`. Negate on the verb (`type is not [review](review)`); numbers in words (`citation count is above 100`, `is at least`, `is below`, `is at most`); several values in one pair of parentheses (`institution type is ([company](company) or [government](government))`); yes/no fields as sentences (`it's open access`, `it has an abstract`, `it's not retracted`).
 
-- Always write a query, even when part of the question can't be answered: leave out what OpenAlex doesn't hold and say so on a `MISSING:` line after it. Answer `NO DATA` only when nothing in the question can be queried.
-- **Listing or ranking things by their own numbers is not a calculation.** Start from those things and stop: `get authors where last known institution is [MIT](I63966007) and h-index is above 20`.
-- **No empty group and no "everything else" group**: the summary row is already the whole starting set.
-- `those <things>` names what the query holds now: splits divide works, so walk back to works before splitting.
-- Write every value out: no `...` or "etc." inside a list.
+- **Works, searches** (`has`): title, title-abstract, title-abstract-keywords, abstract, full text, raw affiliation: `where raw affiliation has ("Max Planck" AND Leipzig)`.
+- **Works, fields:** type, language, open access, open access status, license, retracted, has DOI, has abstract, has fulltext, has ORCID, global south, top 1% cited, top 10% cited; institution, institution type, institution country, country, continent, author, corresponding author, corresponding institution, source, source type, publisher, funder, awards, topic (primary), topics (any), subfield, field, domain, keyword, SDG; citation count, FWCI, citation percentile by subfield, reference count, authors count, institutions count, countries count, APC paid; DOI, PMID, ISSN, ORCID.
+- **Journal articles:** `articles` is the type; the journal is the source type: `get articles since 2020 about kelp where source type is [journal](journal)`.
+- **Things' own fields** (lists and `where` on things): authors: h-index, i10-index, works count, citation count, last known institution, has ORCID; institutions: country, continent, type, region, city, global south, works count, h-index; sources: type, publisher, ISSN, works count, h-index, 2-year mean citedness.
+
+## When a sentence can't say it: the general form
+
+The sentences above cover lists and tables. For anything else, write the general form; it is fully supported, and the page shows the sentence form whenever one exists. It starts `get works where <conditions>` (conditions only: `published since 2015`, `title-abstract-keywords has (kelp)`, `institution is [X](I1)`), and steps follow semicolons: `then,` for each, `finally,` for the last of two or more.
+
+- **Citations between sets:** `get works where it cites a work in the set (works where institution is [University of Kansas](I146416000)); then, group those works by year; finally, summarize using count` (`it's cited by a work in the set (...)` for the other direction).
+- **One against the rest, or named things side by side:** `get works where published since 2015; then, compare country [India](IN) versus country is not [India](IN) using count and mean FWCI`; `get works where topic is [CRISPR and Genetic Engineering](T10878); then, compare institution [Massachusetts Institute of Technology](I63966007) versus [Stanford University](I97018004) using count and mean FWCI by year`.
+- **Sets inside conditions:** `get works where author is in the set (authors of works where title-abstract has (kelp) and published since 2022) and published since 2025`.
+- **Walks** (each author of a set, then all their works): `get works where institution is [University of Kansas](I146416000) and published in 2023; then, get each author of those works; then, get all that author's works; finally, summarize each author using mean FWCI`.
+- **How many distinct authors:** `get authors who published works where topic is [CRISPR and Genetic Engineering](T10878); then, summarize all those authors using count`.
+- **Number bins:** `get works where title-abstract-keywords has (kelp); then, group those works into citation count bins at (1, 10, 100); finally, summarize using count`.
+
+## Worked examples
+
+1. "Most cited papers on large language models since 2023" -> `get works since 2023 about "large language models", most cited first`
+2. "Newest Oxford papers on malaria vaccines" -> `get [University of Oxford](I40120149)'s works about (malaria AND vaccine), newest first`
+3. "Highest-FWCI journal articles on CRISPR" -> `get articles about CRISPR where source type is [journal](journal), highest FWCI first`
+4. "Which countries publish most on quantum computing?" -> `get the count of works about "quantum computing" by country`
+5. "Leading researchers on microplastics in the ocean since 2019, with h-index" -> `get the count of works since 2019 about (microplastics AND marine) by author. Show h-index.`
+6. "UBC's kelp researchers, most senior first" -> `get the count of works about kelp by author at [University of British Columbia](I141945490), highest h-index first`
+7. "Which Swedish institutions with 10+ kelp papers have the best FWCI on them?" -> `get the count and mean FWCI of works about kelp by institution in [Sweden](SE), highest mean FWCI first. Only institutions with at least 10 works about kelp.`
+8. "University of Florida output per year since 2004" -> `get the count of [University of Florida](I33213144)'s works by year since 2004`
+9. "France's papers since 2013 by year and OA route" -> `get the count and share of [France](FR)'s works by year since 2013 and open access status`
+10. "Is the US share of top 1% cited articles falling while China's grows?" -> `get the count and share of top 1% cited articles by year and country in ([United States](US), [China](CN))`
+11. "IIT Bombay vs IIT Delhi on output and FWCI since 2015" -> `get the count and mean FWCI of works since 2015 by institution in ([Indian Institute of Technology Bombay](I162827531), [Indian Institute of Technology Delhi](I68891433))`
+12. "Which countries does Kenya co-author with most?" -> `get the count of works from [Kenya](KE) by country except [Kenya](KE)`
+13. "How many papers have Oxford and Cambridge co-authored each year since 2015?" -> `get the count of works from both [University of Oxford](I40120149) and [University of Cambridge](I241749) by year since 2015`
+14. "Average citations of 2022 computer science papers" -> `get the count and mean citations of works from 2022 in the field [Computer Science](17)`
+15. "What did Wellcome-funded papers pay in APCs, by publisher?" -> `get the sum of APCs paid for works funded by [Wellcome Trust](F4320311904) by publisher, highest first`
+16. "Austrian institutions with the most open access" -> `get the count and percent open access of all works by institution in [Austria](AT), highest percent open access first. Only institutions with at least 500 works.`
+17. "Papers citing KU's work, per year" -> the general form, citations between sets (above).
+
+## Rules
+
 - Use only the words on this page; don't invent fields.
-
-## Limits
-
-Up to three splits; up to 100 items in a list or a comparison; up to 5 AND/OR/NOT in each compared search; about 10 seconds a query.
-
-## Examples
-
-0. Open access share of Kenyan papers since 2015 (one summary, no split):
-   `get works where country is [Kenya](KE) and published since 2015; then, summarize all those works using percent open access`
-1. Open access share by year for Kenyan papers since 2015:
-   `get works where country is [Kenya](KE) and published since 2015; then, group those works by year; finally, summarize using percent open access`
-2. Each author of MIT papers, and their mean FWCI on those papers:
-   `get authors who published works where institution is [MIT](I63966007); then, summarize each author using count and mean FWCI`
-3. Each author of KU's 2023 papers, and their mean FWCI on all their papers (a walk):
-   `get works where institution is [University of Kansas](I146416000) and published in 2023; then, get each author of those works; then, get all that author's works; finally, summarize each author using mean FWCI`
-4. How many distinct authors published on CRISPR:
-   `get authors who published works where topic is [CRISPR and Genetic Engineering](T10878); then, summarize all those authors using count`
-5. Papers citing the University of Kansas's papers, by year:
-   `get works where it cites a work in the set (works where institution is [University of Kansas](I146416000)); then, group those works by year; finally, summarize using count`
-6. MIT, Stanford and Harvard on CRISPR, by year, against all CRISPR papers:
-   `get works where topic is [CRISPR and Genetic Engineering](T10878); then, compare institution [MIT](I63966007) versus [Stanford University](I97018004) versus [Harvard University](I136199984) using count and mean FWCI by year`
-7. KU Leuven and Belgium against the world, by SDG:
-   `get works where published since 2016; then, compare institution [KU Leuven](I99464096) versus country [Belgium](BE) using count and percent of those works by SDG`
-9. Works since 2025 by anyone who wrote a kelp paper since 2022:
-   `get works where author is in the set (authors of works where title-abstract has (kelp) and published since 2022) and published since 2025`
-10. Open access share by year for papers funded by the NIH:
-   `get works where funder is [National Institutes of Health](F4320332161); then, group those works by year; finally, summarize using percent open access`
-11. German institutions that have never co-authored with MIT:
-   `get institutions where country is [Germany](DE) and collaborator is not [MIT](I63966007)`
-12. The h-index of each author in a list the asker has:
-   `get each author in the collection [My list](col_mylist)`
-13. Ghana's papers with an abstract that aren't retracted, by year:
-   `get works where country is [Ghana](GH) and it has an abstract and it's not retracted; then, group those works by year; finally, summarize using count`
-14. Teen depression papers, open access against not, by year:
-   `get works where title-abstract has ((adolescen* OR teen*) AND depress*); then, compare open access versus not open access using count and mean FWCI by year`
+- Prefer a sentence (a list or a table); use the general form only for what no sentence can say. Up to two splits in a table, three in the general form.
