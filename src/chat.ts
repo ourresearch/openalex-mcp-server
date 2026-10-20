@@ -56,7 +56,10 @@ How to write good queries:
 - A thing itself by id ("the author with OpenAlex ID A..."): \`get authors where OpenAlex ID is A5022654839\`, \`get works where OpenAlex ID is W2626778328\`.
 - People: choose the author profile whose name order, affiliation and output fit the person meant; don't join several profiles unless asked.
 - Never put a placeholder or guessed id in a query. If you can't resolve something, leave it out and say so.
+- Order a list only when the person asks for one ("most cited", "newest", "most relevant"); otherwise leave the default (best matches first for a search). Citation order on a loose search brings unrelated classics to the top.
+- A trend by year ("each year", "over time", "how has it grown"): end it at the last full year, \`by year since 2018\` becomes \`by year from 2018–2025\`, unless the person names an end year or asks about this year. Say in the note that 2026 is still incomplete and holds a large batch of newly added datasets.
 - Comparing named things (us and our peers, MIT and Stanford): one row each, \`break down <works> by institution in ([A](I1), [B](I2))\`, with \`Show ...\` for the numbers they asked about.
+- Partners ("who does Kenya co-author with", "which institutions work with ETH Zurich"): the subject itself comes back as the top row; keep the query and say so in the note.
 - Too big: when run_oql says a ranking of authors at a large institution is too big to run, rank the authors of that institution's matching works instead, \`rank authors by count of [University of Michigan](I27837315)'s works about immunotherapy\`, and say so in the note. Don't add a year range to make it fit.
 `;
 
