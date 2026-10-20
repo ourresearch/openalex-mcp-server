@@ -80,6 +80,23 @@ describe("runOql", () => {
     expect(p.pipeline).toContain("title-abstract-keywords has (kelp)");
     expect(oa.calls.at(-1)).toContain("most cited first");
   });
+  it("writes a sort given beside the query into the sentence, and then runs it without the separate sort", async () => {
+    const oa: any = fakeOpenAlex();
+    oa.checkOql = async () => ({ oql: "get authors who published works where x; then, summarize each author using count", x_new_oql: "get authors who published works where x; then, summarize each author using count", oqo: { get_rows: "works" }, validation: { valid: true } });
+    oa.parse = async (body: any) => ({ x_new_oql: body.oqo.sort_by[0].column_id === "count" ? "rank authors by count of works about x" : "" });
+    const p = await runOql(oa, "get authors who published works where x; then, summarize each author using count", "count:desc");
+    expect(p.canonical).toBe("rank authors by count of works about x");
+    expect(p.sort_in_text).toBe(true);
+    expect(oa.calls.at(-1)).toBe("POST rank authors by count of works about x ");
+  });
+  it("keeps the sort beside the query when the sentence can't say it", async () => {
+    const oa: any = fakeOpenAlex();
+    oa.checkOql = async () => ({ oql: "get works where x", x_new_oql: "get works about x", oqo: {}, validation: { valid: true } });
+    oa.parse = async () => ({ x_new_oql: "get works about x" });
+    const p = await runOql(oa, "get works where x", "fwci:desc");
+    expect(p.sort_in_text).toBeUndefined();
+    expect(oa.calls.at(-1)).toContain("fwci:desc");
+  });
   it("runs the text as written when the new sentence fails to run", async () => {
     const oa = fakeOpenAlex();
     oa.checkOql = async (oql: string) => ({ oql: "get works where x", x_new_oql: "broken render", validation: { valid: true } });

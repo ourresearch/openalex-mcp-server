@@ -120,6 +120,8 @@ export interface OpenAlexLike {
   get(path: string, params?: Record<string, string | number | boolean | undefined | null>): Promise<any>;
   post(body: Record<string, any>): Promise<any>;
   checkOql(oql: string): Promise<any>;
+  /** POST /query (OQL or OQO in, canonical forms out); used to write a sort into the sentence. */
+  parse?(body: Record<string, any>): Promise<any>;
 }
 
 /** The Anthropic call the agent needs (an Anthropic client satisfies it; tests pass a fake). */
@@ -133,6 +135,8 @@ export interface Preview {
   canonical?: string;
   /** The older pipeline form of the same query (`title-abstract-keywords has (...)`): what the word check reads. */
   pipeline?: string;
+  /** True when the sort given beside the query now reads inside `canonical` (the answer's sort is then null). */
+  sort_in_text?: boolean;
   count?: number | null;
   groups_count?: number | null;
   measures?: string[];
@@ -193,7 +197,24 @@ export async function runOql(oa: OpenAlexLike, oql: string, sort?: string | null
   }
   const pipeline: string = check.oql;
   let canonical: string = check.x_new_oql || pipeline;
-  const run = (q: string) => oa.post({ oql: q, per_page: 5, ...(sort ? { sort } : {}) });
+  // A sort given beside the query goes into the sentence (`..., most cited first`, `rank ... by count`), the way the
+  // NL page folds it: set the OQO's sort_by and ask /query for its sentence. Kept beside the query when the sentence
+  // can't say it (the text comes back unchanged).
+  let sortInText = false;
+  if (sort && oa.parse && check.oqo) {
+    const i = sort.lastIndexOf(":");
+    const [col, dir] = i > 0 ? [sort.slice(0, i), sort.slice(i + 1)] : [sort, "desc"];
+    try {
+      const j: any = await oa.parse({ oqo: { ...check.oqo, sort_by: [{ column_id: col, direction: dir || "desc" }] } });
+      if (typeof j?.x_new_oql === "string" && j.x_new_oql && j.x_new_oql !== canonical) {
+        canonical = j.x_new_oql;
+        sortInText = true;
+      }
+    } catch {
+      // keep the sort beside the query
+    }
+  }
+  const run = (q: string) => oa.post({ oql: q, per_page: 5, ...(sort && !sortInText ? { sort } : {}) });
   let r: any;
   try {
     r = await run(canonical);
@@ -202,6 +223,7 @@ export async function runOql(oa: OpenAlexLike, oql: string, sort?: string | null
     let err = e;
     if (canonical !== oql) {
       try {
+        sortInText = false;   // the text as written carries no folded sort
         r = await run(oql);
         canonical = oql;
         err = null;
@@ -217,6 +239,7 @@ export async function runOql(oa: OpenAlexLike, oql: string, sort?: string | null
   }
   const m = r?.meta ?? {};
   const p: Preview = { ok: true, canonical, pipeline, count: m.count ?? null, groups_count: m.groups_count ?? null };
+  if (sortInText) p.sort_in_text = true;
   if (Array.isArray(m.measures) && m.measures.length) p.measures = m.measures.map((x: any) => x.key);
   // A calculation with no split answers in summary.all alone (group_by and results are empty).
   if (r?.summary?.all) p.summary_all = r.summary.all;
@@ -352,7 +375,7 @@ export async function runChat(
           await emit({ type: "error", message: "The assistant's last query doesn't run." });
         } else {
           const opt = (v: any) => (typeof v === "string" && v.trim() ? v.trim() : null);
-          await emit({ type: "answer", oql: p.canonical ?? a.oql, sort: a.sort || null, note: a.note ?? "", preview: shownPreview(p), new_words: added,
+          await emit({ type: "answer", oql: p.canonical ?? a.oql, sort: p.sort_in_text ? null : (a.sort || null), note: a.note ?? "", preview: shownPreview(p), new_words: added,
             left_out: opt(a.left_out), out_of_reach: opt(a.out_of_reach), howto: opt(a.howto) });
           answered = true;
         }
