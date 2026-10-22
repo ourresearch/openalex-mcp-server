@@ -40,7 +40,8 @@ await call("search_works", { oql: "get works where title has (kelp) and year >= 
 await call("search_works", { oql: "get works where title has (kelp) and year >= (2024)", preview: true, preview_limit: 3, preview_sample: "random" });
 await call("group_works", { oql: "get works where topic is (T10878); finally, summarize using count, mean FWCI", group_by: "oa_status" });
 await call("group_works", { oql: "get works where topic is (T10878)", group_by: "year", limit: 3 });
-// what agents paste back after the API's launch flip (every echo in the pipeline form; preview with ?oql_style=pipeline)
+// what agents paste back: the step-form echo, and after #1555's default flip the new form (`get non-retracted works ...`;
+// preview it with OQL_STYLE=core in the client options)
 await call("search_works", { oql: "get works where title has (kelp) and retracted is (false)", preview: true, preview_limit: 2 });
 await call("search_works", { oql: "get works where title has (kelp)", preview: true, preview_limit: 2, preview_sample: "random" });
 await call("group_works", { oql: "get works where title has (kelp);\nthen group those works by year", group_by: "year", limit: 3 });

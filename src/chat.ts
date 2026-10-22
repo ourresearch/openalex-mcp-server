@@ -125,7 +125,7 @@ export const TOOLS: Anthropic.Tool[] = [
 export interface OpenAlexLike {
   get(path: string, params?: Record<string, string | number | boolean | undefined | null>): Promise<any>;
   post(body: Record<string, any>): Promise<any>;
-  checkOql(oql: string): Promise<any>;
+  checkOql(oql: string, style?: string): Promise<any>;
 }
 
 /** The Anthropic call the agent needs (an Anthropic client satisfies it; tests pass a fake). */
@@ -190,7 +190,8 @@ export async function findEntity(oa: OpenAlexLike, type: string, name: string): 
 export async function runOql(oa: OpenAlexLike, oql: string, sort?: string | null): Promise<Preview> {
   let check: any;
   try {
-    check = await oa.checkOql(oql);
+    // `pipeline`: the word check reads today's step form whatever the API's default echo is (the flip, #1555)
+    check = await oa.checkOql(oql, "pipeline");
   } catch (e: any) {
     return { ok: false, errors: e?.message ?? String(e) };
   }

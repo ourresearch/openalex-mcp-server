@@ -50,3 +50,24 @@ describe("OpenAlexClient", () => {
     expect(err.message).toContain("https://openalex.org/pricing");
   });
 });
+
+describe("oql_style (previews the API's new-form echo before its flip, #1555)", () => {
+  it("rides on POST / and the check when set; never otherwise", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (u: any) => { urls.push(String(u)); return jsonResponse(200, { meta: {} }); }));
+    const core = new OpenAlexClient({ apiKey: "k", oqlStyle: "core" });
+    await core.post({ oql: "get works about kelp" });
+    await core.checkOql("get works about kelp");
+    await core.checkOql("get works about kelp", "pipeline");
+    await core.get("/works", { filter: "x" });
+    const plain = new OpenAlexClient({ apiKey: "k" });
+    await plain.post({ oql: "x" });
+    await plain.checkOql("x");
+    expect(urls[0]).toBe("https://api.openalex.org/?oql_style=core");
+    expect(urls[1]).toContain("?oql_style=core");
+    expect(urls[2]).toContain("?oql_style=pipeline");
+    expect(urls[3]).not.toContain("oql_style");
+    expect(urls[4]).toBe("https://api.openalex.org/");
+    expect(urls[5]).not.toContain("oql_style");
+  });
+});

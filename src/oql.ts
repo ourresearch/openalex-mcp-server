@@ -9,9 +9,10 @@ const ENTITIES = ["works", "authors", "institutions", "sources", "funders", "pub
  */
 export function normalizeOql(input: string, entity = "works"): string {
   const s = input.trim().replace(/\s+/g, " ");
-  const [first = "", second = ""] = s.toLowerCase().split(" ");
-  if (ENTITIES.includes(first)) return s;
-  if (first === "get" && ENTITIES.includes(second.replace(/;$/, ""))) return s;
+  const first = s.toLowerCase().split(" ")[0] ?? "";
+  // every `get` statement passes: `get works ...`, and the new form's `get the count of ...`, `get non-retracted works`,
+  // `get [UBC](I141945490)'s articles` (#1555)
+  if (ENTITIES.includes(first) || first === "get") return s;
   return `${entity} where ${s}`;
 }
 
@@ -19,8 +20,8 @@ export function normalizeOql(input: string, entity = "works"): string {
 // The pipeline language (oxjobs #1530, #1537, #1555): `get works where ...; then, group those works by ...; finally,
 // summarize using ...`, or `...; then, compare A versus B using ...`. A step opens with `then` (`then,`), `finally,`
 // or nothing (`compare`, `summarize`); `calculate` is gone (#1555).
-// Until the API's launch flip, a query the classic form can say echoes classic; after it, every echo is a
-// pipeline. Everything here reads both.
+// The string handling here reads today's forms (classic and this step form). The API's echo is the new form once its
+// default flips (#1555): a new-form sentence is translated to the step form first (`prepareAnyOql`, below).
 // ---------------------------------------------------------------------------
 
 /** Split a query into its steps at top-level semicolons (outside parentheses and quotes). One step for a classic query. */
@@ -51,9 +52,15 @@ const STEP_OPENER = String.raw`^(?:(?:then|finally|next|lastly),?\s+)?`;
 const SUMMARY_STEP = new RegExp(STEP_OPENER + String.raw`(?:summarize\s+using|calculate)\b`, "i");
 const COMPARE_STEP = new RegExp(STEP_OPENER + String.raw`compare\b`, "i");
 
-/** Does the query calculate: a `summarize using ...` step, or a `compare ... using ...` step? */
+/** A new-form number or table: `get the count of works about kelp by year` (#1555). */
+export function oqlIsNumbers(oql: string): boolean {
+  return /^\s*get\s+the\s/i.test(oql);
+}
+
+/** Does the query calculate: a new-form number or table, a `summarize using ...` step, or a `compare ... using ...` step? */
 export function oqlHasCalculate(oql: string): boolean {
-  return splitOqlSteps(oql).slice(1).some((s) => SUMMARY_STEP.test(s) || (COMPARE_STEP.test(s) && /\busing\b/i.test(s)));
+  return oqlIsNumbers(oql)
+    || splitOqlSteps(oql).slice(1).some((s) => SUMMARY_STEP.test(s) || (COMPARE_STEP.test(s) && /\busing\b/i.test(s)));
 }
 
 /**
@@ -82,7 +89,8 @@ export function splitOqlSort(oql: string): { oql: string; sort?: "relevance" | "
 
 /** Does the query contain a text-search clause (so relevance sorting is meaningful)? */
 export function oqlHasSearch(oql: string): boolean {
-  return /\bhas\b|\bis similar to\b/i.test(oql);
+  // the new form searches `about kelp` and `with kelp in the title` (#1555)
+  return /\bhas\b|\bsimilar to\b|\babout\b|\bwith\b[^;]*?\bin the (?:title|abstract|full text)\b/i.test(oql);
 }
 
 export function oqlHasGroupBy(oql: string): boolean {
@@ -157,9 +165,13 @@ export const OQL_GROUP_DIMS: Record<string, string> = {
 // Retractions (oxjob #1281): works queries hide retracted works unless the query says otherwise.
 // ---------------------------------------------------------------------------
 
-/** Does the query already carry its own retracted filter (`retracted is (…)`, `is_retracted`, `it's retracted`)? */
+// the new form says it before the noun: `get non-retracted works`, `get retracted articles` (#1555)
+const NEW_FORM_RETRACTED = new RegExp(String.raw`\bnon-retracted\b|\bretracted\s+(?:works|articles|reviews|preprints|books|book chapters|datasets|conference papers|dissertations|editorials|letters|reports)\b`, "i");
+
+/** Does the query already carry its own retracted filter (`retracted is (…)`, `is_retracted`, `it's retracted`, `non-retracted`)? */
 export function oqlMentionsRetracted(oql: string): boolean {
-  return /\bretracted\s+is\b|\bis_retracted\b|\bit'?s\s+(?:not\s+)?retracted\b|\bnot\s+retracted\b/i.test(oql);
+  return /\bretracted\s+is\b|\bis_retracted\b|\bit'?s\s+(?:not\s+)?retracted\b|\bnot\s+retracted\b/i.test(oql)
+    || NEW_FORM_RETRACTED.test(oql);
 }
 
 const TAIL_RE = /^(?:group\s+by|sort\s+by|sample\s+\d|return\b|limit\b)/i;
@@ -205,6 +217,55 @@ export function oqlExcludeRetracted(oql: string): { oql: string; applied: boolea
   const [clause, tail] = whereMatch ? splitOqlTail(whereMatch[1]!) : ["", body];
   const where = clause ? `${lead} where (${clause}) and retracted is (false)` : `${lead} where retracted is (false)`;
   return { oql: [tail ? `${where} ${tail}` : where, ...rest].join("; "), applied: true };
+}
+
+// ---------------------------------------------------------------------------
+// The new form (OQL core v3, oxjob #1555): one `get` sentence (`get works about kelp since 2020`, `get the count of
+// non-retracted works about kelp by year, highest first`) plus `Only ...` / `Show ...` sentences. Once the API's
+// default flips, its echo reads this way and agents paste it back. The string handling above reads today's forms, so
+// a sentence is translated to today's step form first, by the API's free check (`?oql_style=pipeline`); the order a
+// sentence states travels as the sort param, since the step form has none.
+// ---------------------------------------------------------------------------
+
+/** `get <entity> where ...` (or `;`, or nothing), optionally from a collection: today's start of a statement. */
+const TODAYS_HEAD = new RegExp(
+  String.raw`^get\s+(?:${ENTITIES.join("|")})\b(?:\s+in\s+(?:the\s+)?(?:collection|set)\s+(?:\[[^\]]*\])?\([^)]*\))?\s*(?:where\b|;|$)`, "i");
+
+/** Is this a new-form sentence (rather than one of today's forms)? */
+export function oqlIsSentence(oql: string): boolean {
+  const q = oql.trim();
+  return /^get\s/i.test(q) && splitOqlSteps(q).length === 1 && !TODAYS_HEAD.test(q) && oqlThingFirst(q) === null;
+}
+
+/** The free check, which also translates a query to the form asked for. */
+export interface OqlChecker { checkOql(oql: string, style?: string): Promise<any> }
+
+/** An OQO's sort_by as the API's sort param (`publication_date:desc`), or undefined. */
+function sortParam(sortBy: any): string | undefined {
+  if (!Array.isArray(sortBy) || !sortBy.length) return undefined;
+  return sortBy.map((s: any) => `${s.column_id}:${s.direction === "asc" ? "asc" : "desc"}`).join(",");
+}
+
+/**
+ * A sentence in today's step form, with the order it states as a sort param. The text is unchanged when the API can't
+ * read it, so the run reports the API's own error.
+ */
+export async function sentenceInTodaysForm(api: OqlChecker, oql: string): Promise<{ oql: string; sort?: string }> {
+  try {
+    const r = await api.checkOql(oql, "pipeline");
+    const text = oneLine(r?.oql);
+    if (text) return { oql: text, sort: sortParam(r?.oqo?.sort_by) };
+  } catch {
+    /* the run reports it */
+  }
+  return { oql };
+}
+
+/** `prepareOql` for any form: a new-form sentence goes to today's step form first (one free API call). */
+export async function prepareAnyOql(api: OqlChecker, input: string, includeRetracted: boolean) {
+  const q = input.trim();
+  const t = oqlIsSentence(q) ? await sentenceInTodaysForm(api, q) : { oql: q };
+  return { ...prepareOql(t.oql, includeRetracted), statedSort: t.sort, fromSentence: t.oql !== q };
 }
 
 /**

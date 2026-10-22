@@ -32,6 +32,8 @@ import { OpenAlexClient } from "./openalex";
 export interface QueryWriterEnv {
   ENVIRONMENT?: string;
   OPENALEX_API_BASE: string;
+  /** `core` previews the API's new-form OQL echo before its default flips (#1555). */
+  OQL_STYLE?: string;
   ANTHROPIC_API_KEY?: string;
   TYPESAFE_API_KEY?: string;
   /** The agent's effort (low | medium | high | xhigh); unset = CHAT_EFFORT. A wrangler var, so it changes without code. */
@@ -211,7 +213,7 @@ export async function handle(
   if (!env.ANTHROPIC_API_KEY && !deps.anthropic) return reply(503, { error: "The query writer isn't configured." }, 0);
 
   const anthropic = deps.anthropic ?? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  const openalex = deps.openalex ?? new OpenAlexClient({ apiKey: key, baseUrl: env.OPENALEX_API_BASE, keyLabel: "your OpenAlex key" });
+  const openalex = deps.openalex ?? new OpenAlexClient({ apiKey: key, baseUrl: env.OPENALEX_API_BASE, oqlStyle: env.OQL_STYLE, keyLabel: "your OpenAlex key" });
 
   // Before any model: a pasted title a lookup confirms, or a Boolean search string, runs as typed (frontDoor.ts).
   // No model, so no model cost; the searches themselves are charged by the proxy like any call.

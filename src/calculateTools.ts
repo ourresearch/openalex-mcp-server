@@ -8,7 +8,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { OpenAlexClient, ListResponse } from "./openalex";
 import { compact, shapeEntity, type EntityKind } from "./shape";
-import { prepareOql, oqlHasGroupBy, oqlHasCalculate, oqlHasSample, oqlThingFirst, splitOqlSteps, queryEcho } from "./oql";
+import { prepareAnyOql, oneLine, oqlIsNumbers, oqlHasGroupBy, oqlHasCalculate, oqlHasSample, oqlThingFirst, splitOqlSteps, queryEcho } from "./oql";
 import { shapeCalculation, calculationResult, shapeCheck } from "./calculate";
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
@@ -57,18 +57,20 @@ export function registerCalculateTools(server: McpServer, deps: CalculateDeps): 
     },
     async (args) =>
       run("calculate_works", async () => {
-        const prep = prepareOql(args.oql, !!args.include_retracted);
+        const prep = await prepareAnyOql(client, args.oql, !!args.include_retracted);
         let q = prep.oql;
+        const order = prep.statedSort ? { sort: prep.statedSort } : {};   // a sentence's own order (#1555)
         const limit = args.limit ?? 50;
         const page = args.page ?? 1;
         const steps = splitOqlSteps(q);
-        // a thing-first start (`get authors ... who published works where ...`) is works, split by the thing (#1555)
-        const start = oqlThingFirst(steps[0]!) ? "works" : steps[0]!.match(/^(?:get\s+)?(\w+)/i)?.[1]?.toLowerCase() ?? "works";
+        // a thing-first start (`get authors ... who published works where ...`) is works, split by the thing, and so is a
+        // new-form number or table the API couldn't read (`get the ...`): the run reports the API's own error (#1555)
+        const start = oqlThingFirst(steps[0]!) || oqlIsNumbers(q) ? "works" : steps[0]!.match(/^(?:get\s+)?(\w+)/i)?.[1]?.toLowerCase() ?? "works";
         const bare = steps.length === 1 && !oqlHasGroupBy(q) && !oqlHasSample(q);
         if (start !== "works" && bare) {
           const kind = start as EntityKind;
           if (!LIST_KINDS.includes(kind)) return fail(`calculate_works lists ${LIST_KINDS.join(", ")} with their own fields; "${start}" isn't one of them.`);
-          const data = await client.post<ListResponse>({ oql: q, per_page: limit, page });
+          const data = await client.post<ListResponse>({ oql: q, per_page: limit, page, ...order });
           return deps.ok(compact({
             ...queryEcho(data), total_results: data.meta.count,
             page, next_page: page * limit < (data.meta.count ?? 0) ? page + 1 : null,
@@ -76,7 +78,7 @@ export function registerCalculateTools(server: McpServer, deps: CalculateDeps): 
           }));
         }
         if (bare && !oqlHasCalculate(q)) q = `${q}; then summarize using count`;
-        const data = await client.post<ListResponse>({ oql: q, per_page: limit, page });
+        const data = await client.post<ListResponse>({ oql: q, per_page: limit, page, ...order });
         return calculationResult(compact({
           retracted_works: start === "works" ? prep.retractedWorks : undefined,
           ...shapeCalculation(data, { page, sortBy: args.sort ?? prep.sort.by, ascending: args.sort ? false : prep.sort.ascending }),
@@ -99,11 +101,12 @@ export function registerCalculateTools(server: McpServer, deps: CalculateDeps): 
     },
     async (args) =>
       run("check_oql", async () => {
-        const prep = prepareOql(args.oql, !!args.include_retracted);
+        const prep = await prepareAnyOql(client, args.oql, !!args.include_retracted);
         const body = await client.checkOql(prep.oql);
         return deps.ok(compact({
           ...shapeCheck(body),
-          checked_oql: prep.oql,
+          // a sentence was checked in today's step form; show it back in the API's own form
+          checked_oql: prep.fromSentence ? oneLine(body?.oql) ?? prep.oql : prep.oql,
           retracted_works: prep.retractedWorks,
           sort_note: prep.sort.stripped ? "OQL has no sort; the trailing sort was removed (calculate_works' sort orders a page of rows by a calculated column)." : undefined,
           cost_of_this_check: "free",

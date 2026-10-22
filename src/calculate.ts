@@ -128,7 +128,7 @@ function messageAndFix(msg: string): { message: string; fix?: string } {
 /**
  * The free check's verdict for an agent: valid or not, every problem with its fix, the time estimate and the price,
  * and the canonical text (with entity names, so the agent can confirm each ID means what it thinks).
- * A query the classic form can say has no `check` block until the API's launch flip; it costs 1 credit flat.
+ * A plain list (no steps, no numbers) has no `check` block; it costs 1 credit flat.
  */
 export function shapeCheck(body: any): Record<string, any> {
   const v = body?.validation ?? {};

@@ -49,7 +49,7 @@ export const workFilterShape = {
   core_sources_only: z.boolean().optional()
     .describe("Only works published in 'core' sources: reputable, well-indexed journals and repositories (see https://help.openalex.org/data/sources/). Useful to exclude low-quality venues."),
   include_retracted: z.boolean().optional()
-    .describe("Include retracted works. Default false: retracted works are hidden and the response says so (retracted_works). Also honoured with oql, where the default adds a `retracted is (false)` clause unless the query has its own."),
+    .describe("Include retracted works. Default false: retracted works are hidden and the response says so (retracted_works). Also honoured with oql, where the default leaves them out unless the query says otherwise (the echo then reads `it's not retracted`, or `non-retracted works` in the new form)."),
   raw_filter: z.string().max(2000).optional()
     .describe("Escape hatch: extra OpenAlex filter expression appended verbatim, using the syntax documented at https://help.openalex.org/api/filtering/ (e.g. \"has_abstract:true,primary_topic.field.id:17\"). Combined with the structured filters above using AND."),
 };

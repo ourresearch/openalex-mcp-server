@@ -3,21 +3,43 @@
  * Usage: MCP_URL=http://localhost:8788/mcp USERS_API_BASE=http://localhost:8000 \
  *        SMOKE_USER_API_KEY=<a real user's OpenAlex key> npx tsx scripts/smoke.ts
  * The user key stands in for the browser step on the consent page (see oauth-login.ts).
+ *
+ * SMOKE_LOCAL=1 runs the same tool checks in process instead (no OAuth, no Worker; production's tool set), against the
+ * production API: `SMOKE_LOCAL=1 [OQL_STYLE=core] SMOKE_USER_API_KEY=... npx tsx --import ./scripts/md-loader.mjs scripts/smoke.ts`.
+ * OQL_STYLE=core previews the API's new-form echo before its default flips (#1555).
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { oauthLogin, expectInvalidGrant } from "./oauth-login";
 
+const local = process.env.SMOKE_LOCAL === "1";
 const url = process.env.MCP_URL ?? "http://localhost:8788/mcp";
 const usersApiBase = process.env.USERS_API_BASE ?? "https://user.openalex.org";
 const userKey = process.env.SMOKE_USER_API_KEY;
-// The echo says yes/no fields as sentences (oxjob #1555): the default reads back as `it's not retracted`.
-const NOT_RETRACTED = /retracted is \(false\)|it's not retracted/;
+// The echo says yes/no fields as sentences (oxjob #1555): the default reads back as `it's not retracted`, or in the
+// new form before the noun, `get non-retracted works`.
+const NOT_RETRACTED = /retracted is \(false\)|it's not retracted|\bnon-retracted\b/;
 if (!userKey) {
   console.error("SMOKE_USER_API_KEY is required (an OpenAlex user's API key; stands in for the consent click)");
   process.exit(2);
 }
 
+const client = new Client({ name: "smoke", version: "0.0.0" });
+if (local) {
+  const { createServer } = await import("../src/server");
+  const { OpenAlexClient } = await import("../src/openalex");
+  const { UsersApiClient } = await import("../src/users");
+  const server = createServer({
+    client: new OpenAlexClient({ apiKey: userKey, oqlStyle: process.env.OQL_STYLE }),
+    users: new UsersApiClient({ apiKey: userKey, baseUrl: usersApiBase }),
+    features: { findExperts: false, keywordSearch: true, alertTools: false },   // production's (wrangler.jsonc)
+  });
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  await server.connect(st);
+  await client.connect(ct);
+  console.log(`in process${process.env.OQL_STYLE ? `, oql_style=${process.env.OQL_STYLE}` : ""}`);
+} else {
 // ---- OAuth flow ------------------------------------------------------------
 const login = await oauthLogin({ mcpUrl: url, usersApiBase, userApiKey: userKey });
 console.log(`oauth ok: client ${login.clientId.slice(0, 8)}…, key_kind=${login.keyKind}${login.organizationName ? ` (${login.organizationName})` : ""}`);
@@ -34,8 +56,8 @@ if (badTok.status !== 401) throw new Error(`garbage bearer: expected 401, got ${
 console.log("garbage bearer → 401");
 
 const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { Authorization: `Bearer ${login.accessToken}` } } });
-const client = new Client({ name: "smoke", version: "0.0.0" });
 await client.connect(transport);
+}
 
 const { tools } = await client.listTools();
 console.log(`connected to ${url}; ${tools.length} tools`);
@@ -73,7 +95,7 @@ const calls: Array<[string, Record<string, any>, (r: any) => void]> = [
   ["search_works", { oql: 'works where title-abstract has "microplastics"', limit: 3, include_abstracts: false }, (r) => { if (r.error || !r.results?.length || !(r.sort_note || r.rerank_note)) throw new Error("quoted-phrase OQL should run in relevance or citation order, and say which: " + (r.error ?? JSON.stringify(r).slice(0, 120))); }],
   ["search_works", { oql: "works where year is (2020)", from_year: 2019 }, (r) => { if (!r.error) throw new Error("expected exclusivity error"); }],
   ["search_works", { query: "CRISPR off-target effects", from_year: 2020, preview: true, preview_limit: 3 }, (r) => { if (!r.preview || r.results.length !== 3 || !r.oql) throw new Error("bad structured preview"); }],
-  ["group_works", { group_by: "institution", oql: 'title-abstract has ((vaping or "vape*" or "electronic cigarette*") and ("adolescen*" or youth)) and year >= (2018)', limit: 5 }, (r) => { if (!r.groups?.length || !r.oql || !/group (those works )?by institution|get institutions (that|who) published works/.test(r.oql)) throw new Error("bad oql group " + r.oql); }],
+  ["group_works", { group_by: "institution", oql: 'title-abstract has ((vaping or "vape*" or "electronic cigarette*") and ("adolescen*" or youth)) and year >= (2018)', limit: 5 }, (r) => { if (!r.groups?.length || !r.oql || !/group (those works )?by institution|get institutions (that|who) published works|\bby institution\b/.test(r.oql)) throw new Error("bad oql group " + r.oql); }],
   ["read_docs", { topic: "oql", section: "Combining and nesting" }, (r) => { if (!/exclude on the verb/i.test(JSON.stringify(r))) throw new Error("negation section missing"); }],
   ["read_docs", { topic: "oql_spec", section: "Diagnostics" }, (r) => { if (!/OQL_SHORT_WILDCARD_PREFIX/.test(JSON.stringify(r))) throw new Error("spec section missing"); }],
   ["get_work", { id: "10.7717/peerj.4375" }, (r) => { if (r.id !== "W2741809807") throw new Error("wrong work " + r.id); if (!r.abstract) throw new Error("no abstract"); }],
@@ -155,6 +177,16 @@ const calls: Array<[string, Record<string, any>, (r: any) => void]> = [
   ["check_oql", { oql: "get works where topic is (T10878); then, group those works by FWCI; finally, summarize using count" }, (r) => { if (r.valid !== false || !r.problems?.[0]?.fix) throw new Error("bad check " + JSON.stringify(r).slice(0, 300)); }],
   ["check_oql", { oql: "get works where topic is (T10878); then, group those works by year; finally, summarize using count and mean FWCI" }, (r) => { if (r.valid !== true || !r.price?.credits || typeof r.estimated_seconds !== "number") throw new Error("bad check " + JSON.stringify(r).slice(0, 300)); }],
   ["search_works", { oql: "get works where topic is (T10878); then, summarize using count and mean FWCI" }, (r) => { if (!r.summary?.all?.count || r.results) throw new Error("pipeline calculation not shaped " + JSON.stringify(r).slice(0, 300)); }],
+  // The new form (OQL core v3, #1555): the API's echo once its default flips, which agents paste back
+  ["search_works", { oql: "get works since 2020 with hydroxychloroquine in the title", preview: true }, (r) => { if (r.error || !r.total_results || !NOT_RETRACTED.test(r.oql) || !/excluded by default/.test(r.retracted_works ?? "")) throw new Error("sentence list " + JSON.stringify(r).slice(0, 300)); }],
+  ["search_works", { oql: "get non-retracted works about kelp since 2020, newest first", limit: 5, include_abstracts: false }, (r) => { const y = (r.results ?? []).map((w: any) => w.publication_date ?? String(w.year)); if (r.error || y.length < 2 || [...y].sort().reverse().join() !== y.join() || (r.oql.match(/retracted/g) ?? []).length !== 1) throw new Error("sentence order " + JSON.stringify(r).slice(0, 300)); }],
+  ["search_works", { oql: "get open access articles about kelp", preview: true, preview_sample: "random", preview_limit: 5 }, (r) => { if (r.error || r.results?.length !== 5 || r.total_results <= 5) throw new Error("sentence random preview " + JSON.stringify(r).slice(0, 300)); }],
+  ["search_works", { oql: "get the count of works about kelp by year" }, (r) => { if (r.error || !r.groups?.length || !r.summary?.all?.count) throw new Error("sentence table in search_works " + JSON.stringify(r).slice(0, 300)); }],
+  ["group_works", { oql: "get works about kelp since 2015", group_by: "year", limit: 20 }, (r) => { if (r.error || (r.groups?.length ?? 0) < 5 || !NOT_RETRACTED.test(r.oql)) throw new Error("sentence group_works " + JSON.stringify(r).slice(0, 300)); }],
+  ["calculate_works", { oql: "get the count and mean FWCI of works in the topic (T10878) by country, highest mean FWCI first", limit: 5 }, (r) => { const v = (r.groups ?? []).map((g: any) => g["mean FWCI"]); if (r.error || v.length !== 5 || [...v].sort((a, b) => b - a).join() !== v.join() || !NOT_RETRACTED.test(r.oql)) throw new Error("sentence calculation " + JSON.stringify(r).slice(0, 300)); }],
+  ["calculate_works", { oql: "get the count of works in the topic (T10005) by journal. Only journals with at least 50 works in the topic (T10005).", limit: 3 }, (r) => { if (r.error || !r.groups?.length || r.groups.some((g: any) => g.count < 50)) throw new Error("sentence floor " + JSON.stringify(r).slice(0, 300)); }],
+  ["calculate_works", { oql: "get the count and mean FWCI of works about kelp by country, highest first" }, (r) => { if (!/name it/.test(r.error ?? "")) throw new Error("expected the API's own refusal, got " + JSON.stringify(r).slice(0, 300)); }],
+  ["check_oql", { oql: "get the count of works about kelp by year" }, (r) => { if (r.valid !== true || !r.price?.credits || !r.checked_oql) throw new Error("sentence check " + JSON.stringify(r).slice(0, 300)); }],
   ["list_citations", { work_id: "W2741809807", limit: 3 }, (r) => { if (!/excluded by default/.test(r.retracted_works ?? "")) throw new Error("no retracted_works note"); }],
   ["analyze_works", { institution_ids: ["I27837315"], from_year: 2023, sections: ["by_type"] }, (r) => { if (!/excluded by default/.test(r.retracted_works ?? "")) throw new Error("no retracted_works note"); }],
 ];

@@ -12,7 +12,7 @@ import {
   retractedNote, RETRACTED_PER_QUERY_NOTE,
 } from "./filters";
 import { titleCoverage, queryCoverage, extractYear, extractDoi, guessTitle, guessSurnames } from "./text";
-import { oqlHasSearch, oqlHasGroupBy, oqlHasSample, OQL_GROUP_DIMS, oqlIsPipeline, oqlHasCalculate, oqlAddSample, oqlAddGroupBy, prepareOql, queryEcho } from "./oql";
+import { oqlHasSearch, oqlHasGroupBy, oqlHasSample, OQL_GROUP_DIMS, oqlIsPipeline, oqlHasCalculate, oqlAddSample, oqlAddGroupBy, prepareAnyOql, queryEcho } from "./oql";
 import { registerCalculateTools, PIPELINE_GUIDE } from "./calculateTools";
 import { shapeCalculation, calculationResult } from "./calculate";
 import OQL_DOC from "./docs/oql.md";
@@ -308,8 +308,10 @@ export function createServer(ctx: ServerContext): McpServer {
           const disallowed = usedStructured.filter((k) => k !== "sort" && k !== "page" && k !== "include_retracted");
           if (disallowed.length) return fail(`oql is a complete query; put year, type and other filters inside it instead of using: ${disallowed.join(", ")}.`);
           const body: Record<string, any> = {};
-          const prep = prepareOql(args.oql, includeRetracted);
+          const prep = await prepareAnyOql(client, args.oql, includeRetracted);
           const sortSplit = prep.sort;
+          // the order a new-form sentence states (`, newest first`) rides as the sort param (#1555)
+          const stated = args.sort === undefined ? prep.statedSort : undefined;
           let q = prep.oql;
           const retractedWorks = prep.retractedWorks;
           const oqlSortNote = sortSplit.stripped ? "Sorting is not part of OQL; the trailing \"sort by …\" was removed" + (sortSplit.sort && args.sort === undefined ? ` and applied as sort=${sortSplit.sort}.` : ". Use the sort parameter instead.") : undefined;
@@ -318,7 +320,7 @@ export function createServer(ctx: ServerContext): McpServer {
           let totalCount: Promise<ListResponse> | undefined;
           // A pipeline that splits or calculates returns groups, not works: same answer as calculate_works (#1537).
           if (oqlIsPipeline(q) && (oqlHasGroupBy(q) || oqlHasCalculate(q))) {
-            const data = await client.post<ListResponse>({ oql: q, per_page: Math.min(args.limit ?? 50, 200), page: args.page ?? 1 });
+            const data = await client.post<ListResponse>({ oql: q, per_page: Math.min(args.limit ?? 50, 200), page: args.page ?? 1, ...(stated ? { sort: stated } : {}) });
             return calculationResult(compact({
               note: "This query calculates over groups of works, so it returns groups; calculate_works is the tool for these (paging, sort by a column) and check_oql checks them for free.",
               retracted_works: retractedWorks,
@@ -333,7 +335,7 @@ export function createServer(ctx: ServerContext): McpServer {
           const hasSearch = oqlHasSearch(q);
           const sortKey = args.sort ?? (hasSearch ? "relevance" : "cited_by_count");
           const sampled = previewRandom;
-          if (!sampled) body.sort = sortKey === "relevance" ? (hasSearch ? "relevance_score:desc" : "cited_by_count:desc") : `${sortKey}:desc`;
+          if (!sampled) body.sort = stated ?? (sortKey === "relevance" ? (hasSearch ? "relevance_score:desc" : "cited_by_count:desc") : `${sortKey}:desc`);
           if (body.sort === "relevance_score:desc" && args.rerank !== false && !oqlHasGroupBy(q)) body.rerank = true;
           body.per_page = preview ? previewLimit : Math.min(args.limit ?? 15, 50);
           body.page = args.page ?? 1;
@@ -365,7 +367,7 @@ export function createServer(ctx: ServerContext): McpServer {
           const reranked = (data.meta as any)?.reranked === true;
           return ok(compact({
             preview: preview || null,
-            sample_basis: preview ? (previewRandom ? `random ${results.length} of all matches` : `top ${results.length} by ${sortNote ? "cited_by_count" : sortKey}${reranked ? " (reranked)" : ""}`) : null,
+            sample_basis: preview ? (previewRandom ? `random ${results.length} of all matches` : `top ${results.length} by ${sortNote ? "cited_by_count" : stated ?? sortKey}${reranked ? " (reranked)" : ""}`) : null,
             sort_note: [sortNote, oqlSortNote].filter(Boolean).join(" ") || undefined,
             reranked: body.rerank ? reranked : undefined,
             rerank_note: reranked && (args.page ?? 1) === 1 ? RERANK_NOTE : undefined,
@@ -735,14 +737,14 @@ export function createServer(ctx: ServerContext): McpServer {
         if (args.oql !== undefined) {
           const used = ["query", "mode", "search_in", ...Object.keys(workFilterShape)].filter((k) => k !== "include_retracted" && (args as any)[k] !== undefined);
           if (used.length) return fail(`oql is a complete query; put filters inside it instead of using: ${used.join(", ")}.`);
-          const { oql: prepared, retractedWorks } = prepareOql(args.oql, !!args.include_retracted);
+          const { oql: prepared, retractedWorks, statedSort } = await prepareAnyOql(client, args.oql, !!args.include_retracted);
           let q = prepared;
           if (!oqlHasGroupBy(q)) {
             const dim = OQL_GROUP_DIMS[args.group_by as string];
             if (!dim) return fail(`group_by "${args.group_by}" is not available with oql; use one of: ${Object.keys(OQL_GROUP_DIMS).join(", ")}.`);
             q = oqlAddGroupBy(q, dim);
           }
-          const data = await client.post<ListResponse>({ oql: q, per_page: limit });
+          const data = await client.post<ListResponse>({ oql: q, per_page: limit, ...(statedSort ? { sort: statedSort } : {}) });
           // A calculation (the pipeline engine answers with meta.measures) keeps its columns and summary (#1537, #1550).
           if ((data.meta as any)?.measures) {
             const out = shapeCalculation(data);

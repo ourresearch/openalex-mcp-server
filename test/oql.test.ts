@@ -164,3 +164,61 @@ describe("thing-first", () => {
     expect(oqlExcludeRetracted("get authors where h-index is above 20").applied).toBe(false);
   });
 });
+
+// The new form (OQL core v3, #1555): the API's echo once its default flips, so agents paste it back.
+import { oqlIsSentence, prepareAnyOql, sentenceInTodaysForm } from "../src/oql";
+
+describe("new-form sentences", () => {
+  it("pass through as written", () => {
+    for (const s of ["get non-retracted works about kelp", "get the count of works about kelp by year", "get [UBC](I141945490)'s articles since 2020"]) {
+      expect(normalizeOql(s)).toBe(s);
+    }
+  });
+  it("are told from today's forms", () => {
+    for (const s of ["get works about kelp", "get the count of works about kelp by year", "get non-retracted works since 2020",
+      "get [UBC](I141945490)'s works", "get works in the collection (col_x) about kelp", "get authors at [UBC](I141945490), highest h-index first",
+      "get the count of works in the topic (T10005) by journal. Only journals with at least 50 works in the topic (T10005)."]) {
+      expect(oqlIsSentence(s), s).toBe(true);
+    }
+    for (const s of ["works where title has (kelp)", "get works", "get works where title has (kelp)", "get authors where h-index > (50)",
+      "get works where title has (kelp); then group those works by year", "get works in the collection [Our lab](col_x) where year >= (2020)",
+      "get authors at [UBC](I141945490) since 2022 who published works where title-abstract has kelp"]) {
+      expect(oqlIsSentence(s), s).toBe(false);
+    }
+  });
+  it("say retracted before the noun", () => {
+    expect(oqlMentionsRetracted("get non-retracted works about kelp")).toBe(true);
+    expect(oqlMentionsRetracted("get retracted articles since 2020")).toBe(true);
+    expect(oqlMentionsRetracted("get the count of retracted works by year")).toBe(true);
+    expect(oqlMentionsRetracted("get works about kelp")).toBe(false);
+  });
+  it("calculate when they start `get the`", () => {
+    expect(oqlHasCalculate("get the count of works about kelp by year")).toBe(true);
+    expect(oqlHasCalculate("get works about kelp")).toBe(false);
+  });
+  it("are read in today's step form, the order they state kept as a sort", async () => {
+    const calls: Array<[string, string | undefined]> = [];
+    const api = { async checkOql(oql: string, style?: string) {
+      calls.push([oql, style]);
+      return { oql: "get works where title-abstract-keywords has (kelp)\n  and published since 2020", oqo: { sort_by: [{ column_id: "publication_date", direction: "desc" }] } };
+    } };
+    expect(await sentenceInTodaysForm(api, "get works since 2020 about kelp, newest first"))
+      .toEqual({ oql: "get works where title-abstract-keywords has (kelp) and published since 2020", sort: "publication_date:desc" });
+    expect(calls).toEqual([["get works since 2020 about kelp, newest first", "pipeline"]]);
+    const prep = await prepareAnyOql(api, "get works since 2020 about kelp, newest first", false);
+    expect(prep.oql).toBe("get works where (title-abstract-keywords has (kelp) and published since 2020) and retracted is (false)");
+    expect(prep.statedSort).toBe("publication_date:desc");
+    expect(prep.fromSentence).toBe(true);
+  });
+  it("leave today's forms alone, with no API call", async () => {
+    const api = { async checkOql(): Promise<any> { throw new Error("not called"); } };
+    const prep = await prepareAnyOql(api, "works where title has (kelp)", false);
+    expect(prep.oql).toBe("works where (title has (kelp)) and retracted is (false)");
+    expect(prep.statedSort).toBeUndefined();
+    expect(prep.fromSentence).toBe(false);
+  });
+  it("run as written when the API can't read them (it reports its own error)", async () => {
+    const api = { async checkOql(): Promise<any> { return { validation: { valid: false, errors: [{ message: "bad" }] } }; } };
+    expect(await sentenceInTodaysForm(api, "get the frobs of works")).toEqual({ oql: "get the frobs of works" });
+  });
+});

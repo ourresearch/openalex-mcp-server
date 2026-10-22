@@ -13,6 +13,11 @@ export interface OpenAlexClientOptions {
   /** Called once when OpenAlex rejects the key (401/403): the grant holding it is stale. */
   onUnauthorized?: () => void;
   timeoutMs?: number;
+  /**
+   * `oql_style` for the OQL routes (POST / and /query): "core" previews the API's new-form echo before its
+   * default flips (oxjob #1555), for local runs and the smoke. Unset in production.
+   */
+  oqlStyle?: string;
 }
 
 export interface Budget {
@@ -57,6 +62,7 @@ export class OpenAlexClient {
   private readonly onUnauthorized?: () => void;
   private unauthorizedFired = false;
   private readonly timeoutMs: number;
+  private readonly oqlStyle?: string;
   /** Credits spent through this client instance (sum of X-RateLimit-Credits-Used). */
   creditsUsed = 0;
   /** Last seen daily budget headers (X-RateLimit-Remaining/Limit/Reset). */
@@ -68,6 +74,7 @@ export class OpenAlexClient {
     this.keyLabel = opts.keyLabel ?? "your OpenAlex key";
     this.onUnauthorized = opts.onUnauthorized;
     this.timeoutMs = opts.timeoutMs ?? 25_000;
+    this.oqlStyle = opts.oqlStyle || undefined;
   }
 
   /**
@@ -102,12 +109,14 @@ export class OpenAlexClient {
 
   /** POST an OQL/OQO query to the API root (no URL length limit). Same retry policy as get(). */
   async post<T = any>(body: Record<string, any>): Promise<T> {
+    const url = this.buildUrl("/", { oql_style: this.oqlStyle });
+    const init = { method: "POST" as const, body: JSON.stringify(body), contentType: "application/json" };
     try {
-      return await this.request<T>(this.baseUrl + "/", { method: "POST", body: JSON.stringify(body), contentType: "application/json" });
+      return await this.request<T>(url, init);
     } catch (e) {
       if (e instanceof OpenAlexError && e.transient) {
         await new Promise((r) => setTimeout(r, Math.min(3000, (e.retryAfterSeconds ?? 1) * 1000 + 200)));
-        return await this.request<T>(this.baseUrl + "/", { method: "POST", body: JSON.stringify(body), contentType: "application/json" });
+        return await this.request<T>(url, init);
       }
       throw e;
     }
@@ -116,11 +125,12 @@ export class OpenAlexClient {
   /**
    * The free OQL check (GET /query/oql/<q>, #1533): parse, canonical text, validation, and for queries the
    * new executor runs, a `check` block with limits, time estimate and price. A refused query comes back as
-   * HTTP 400 with the same body, so it is returned here rather than thrown.
+   * HTTP 400 with the same body, so it is returned here rather than thrown. `style` asks for the echo in one form
+   * (`pipeline` = today's step form, which the tools' string handling reads; #1555).
    */
-  async checkOql<T = any>(oql: string): Promise<T> {
+  async checkOql<T = any>(oql: string, style?: string): Promise<T> {
     try {
-      return await this.getOnce<T>("/query/oql/" + encodeURIComponent(oql));
+      return await this.getOnce<T>("/query/oql/" + encodeURIComponent(oql), { oql_style: style ?? this.oqlStyle });
     } catch (e) {
       if (e instanceof OpenAlexError && e.status === 400 && e.body && typeof e.body === "object") return e.body as T;
       throw e;

@@ -23,6 +23,8 @@ import { reportError, withErrorReporting, type SentryEnv } from "./sentry";
 export interface Env extends AuthEnv, SentryEnv {
   ENVIRONMENT: string;
   OPENALEX_API_BASE: string;
+  /** `core` previews the API's new-form OQL echo before its default flips (#1555); unset in wrangler.jsonc. */
+  OQL_STYLE?: string;
   /** Exact public MCP endpoint URL; doubles as the OAuth resource identifier (RFC 9728). */
   MCP_PUBLIC_URL: string;
   /** "true" to register find_experts (staging only until oxjob #1274 v2). */
@@ -193,6 +195,7 @@ async function handleMcp(c: any) {
   const client = new OpenAlexClient({
     apiKey: props.apiKey,
     baseUrl: env.OPENALEX_API_BASE,
+    oqlStyle: env.OQL_STYLE,
     keyLabel: keyLabel(props),
     onUnauthorized: () => {
       // The user rotated (or lost) the key we hold: drop every grant so the client re-authenticates.
