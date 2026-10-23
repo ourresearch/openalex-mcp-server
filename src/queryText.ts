@@ -51,6 +51,11 @@ export interface QueryWriterEnv {
 export const PRICE_MULTIPLIER = 3;
 
 export const MAX_TEXT_CHARS = 2000;
+/** The page's query: the OQL cap the MCP tools use. It goes into every model turn, so it is capped like the question. */
+export const MAX_QUERY_CHARS = 20000;
+/** The person's institution, which goes into the agent's system prompt. */
+export const MAX_INSTITUTION_ID_CHARS = 100;
+export const MAX_INSTITUTION_NAME_CHARS = 300;
 export const JEV_URL = "https://api.typesafe.ai/v1/systemone";
 export const JEV_MODEL = "jev-1.13.0";
 export const JEV_USD_PER_INPUT_TOKEN = 0.042 / 1e6;
@@ -110,6 +115,13 @@ export async function parseRequest(req: Request): Promise<QueryTextRequest | { s
   text = text.trim();
   if (!text) return { status: 400, error: "Say what you're looking for: GET /query/text/<question> or POST {\"text\": \"...\"}." };
   if (text.length > MAX_TEXT_CHARS) return { status: 400, error: `The question is too long (${text.length} characters; ${MAX_TEXT_CHARS} at most).` };
+  // Refused before any model call, so a caller can't set the input size of the model runs we pay for (#1762).
+  if (currentQuery && currentQuery.length > MAX_QUERY_CHARS) {
+    return { status: 400, error: `current_query is too long (${currentQuery.length} characters; ${MAX_QUERY_CHARS} at most).` };
+  }
+  if (institution && (institution.id.length > MAX_INSTITUTION_ID_CHARS || institution.name.length > MAX_INSTITUTION_NAME_CHARS)) {
+    return { status: 400, error: `institution is too long (id ${MAX_INSTITUTION_ID_CHARS} characters at most, name ${MAX_INSTITUTION_NAME_CHARS}).` };
+  }
   return { text, currentQuery, institution, history };
 }
 
