@@ -57,7 +57,8 @@ const authorShort = (id: string | null | undefined): string | null => {
 /** Why curation `id` may not be cancelled here, or null when it is the user's own pending curation on their claimed profile. */
 function cancelRefusal(id: string, row: CurationRow, userId: string, aid: string): string | null {
   if (!row || row.user_id !== userId) return `Curation ${id} is not one of yours; only your own curations can be cancelled.`;
-  if (row.status !== "pending") return `Curation ${id} is ${row.status}, not pending; only pending curations can be cancelled. To undo it, submit the opposite action.`;
+  // users-api labels a pending row older than 7 days "timed_out" (display only; it can still apply), so both are unapplied.
+  if (row.status !== "pending" && row.status !== "timed_out") return `Curation ${id} is ${row.status}, not pending; only pending curations can be cancelled. To undo it, submit the opposite action.`;
   const target = row.entity === "works" ? authorShort(row.value) : row.entity === "authors" ? authorShort(row.entity_id) : null;
   if (target !== aid) return `Curation ${id} is not on your claimed profile ${aid}.`;
   return null;
