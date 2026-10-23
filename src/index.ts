@@ -8,6 +8,7 @@
  */
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { OAuthProvider, AuthorizationError } from "@cloudflare/workers-oauth-provider";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createServer, SERVER_NAME, SERVER_VERSION } from "./server";
@@ -15,7 +16,7 @@ import { OpenAlexClient } from "./openalex";
 import { UsersApiClient } from "./users";
 import {
   type AuthEnv, type GrantProps, SCOPE, storePending, takePending, consentUrl, exchangeCode, ExchangeError,
-  grantIdOf, keyLabel,
+  grantIdOf, keyLabel, pendingCookieName, isPendingCookie, PENDING_TTL_SECONDS,
 } from "./auth";
 import { ICON_PNG_BASE64 } from "./icon";
 import { reportError, withErrorReporting, type SentryEnv } from "./sentry";
@@ -92,6 +93,9 @@ publicApp.get("/health", (c) =>
   c.json({ ok: true, env: c.env.ENVIRONMENT, oauth: true, exchange_secret: Boolean(c.env.OAUTH_EXCHANGE_SECRET) })
 );
 
+/** The pending-request cookie (see pendingCookieName): `__Host-`, so Secure, Path=/ and no Domain. */
+const PENDING_COOKIE = { prefix: "host", httpOnly: true, secure: true, sameSite: "Lax", path: "/" } as const;
+
 /** OAuth authorization endpoint: validate, park the request, send the user to openalex.org to consent. */
 publicApp.get("/authorize", async (c) => {
   const env = c.env;
@@ -110,6 +114,8 @@ publicApp.get("/authorize", async (c) => {
   const client = await env.OAUTH_PROVIDER.lookupClient(request.clientId);
   const clientName = (client?.clientName ?? "An MCP client").slice(0, 120);
   const id = await storePending(env, request, clientName);
+  // Lax survives the consent page's top-level GET back from openalex.org; see pendingCookieName.
+  setCookie(c, pendingCookieName(id), id, { ...PENDING_COOKIE, maxAge: PENDING_TTL_SECONDS });
   const callback = new URL("/oauth/callback", c.req.url).toString();
   return c.redirect(consentUrl(env, id, clientName, callback), 302);
 });
@@ -118,10 +124,18 @@ publicApp.get("/authorize", async (c) => {
 publicApp.get("/oauth/callback", async (c) => {
   const env = c.env;
   const q = new URL(c.req.url).searchParams;
-  const pending = await takePending(env, q.get("request"));
+  const requestId = q.get("request");
+  // Only the browser that started this sign-in at /authorize: otherwise a bare callback link would redirect anyone to
+  // the client's self-registered redirect_uri with no step of theirs (an open redirector). Checked before the single
+  // use, so a stray link can't spend someone else's sign-in.
+  if (!requestId || !isPendingCookie(requestId, getCookie(c, pendingCookieName(requestId), "host"))) {
+    return c.html(errorPage("This sign-in link didn't start in this browser, or it has expired. Go back to your app and connect again."), 400);
+  }
+  const pending = await takePending(env, requestId);
   if (!pending) {
     return c.html(errorPage("This sign-in link has expired or was already used. Go back to Claude and connect again."), 400);
   }
+  deleteCookie(c, pendingCookieName(requestId), PENDING_COOKIE);
   const back = (error: string, description: string) => {
     const u = new URL(pending.request.redirectUri);
     u.searchParams.set("error", error);
@@ -136,7 +150,7 @@ publicApp.get("/oauth/callback", async (c) => {
 
   let identity;
   try {
-    identity = await exchangeCode(env, code, q.get("request")!);
+    identity = await exchangeCode(env, code, requestId);
   } catch (e: any) {
     const status = e instanceof ExchangeError ? e.status : 500;
     console.error("oauth exchange failed", status, e?.message);

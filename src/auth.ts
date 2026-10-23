@@ -63,6 +63,18 @@ export async function storePending(env: AuthEnv, request: AuthRequest, clientNam
   return id;
 }
 
+/**
+ * The browser binding for a pending request (#1762): /authorize sets this cookie (as `__Host-<name>`, value = the id)
+ * and /oauth/callback acts only for the browser that holds it, so a bare callback link can't bounce someone to a
+ * client's self-registered redirect_uri. One cookie per request, so two sign-ins at once don't clobber each other.
+ */
+export const pendingCookieName = (id: string) => `oauth_${id.slice(0, 16)}`;
+
+/** Does this browser hold the cookie /authorize set for this request id? */
+export function isPendingCookie(id: string | null | undefined, cookie: string | undefined): boolean {
+  return !!id && ID_RE.test(id) && cookie === id;
+}
+
 /** Load and delete (single use). */
 export async function takePending(env: AuthEnv, id: string | null | undefined): Promise<Pending | null> {
   if (!id || !ID_RE.test(id)) return null;

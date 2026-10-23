@@ -91,7 +91,10 @@ export async function oauthLogin(opts: LoginOptions): Promise<LoginResult> {
     response_type: "code", client_id: clientId, redirect_uri: redirectUri, scope: "openalex:query", state,
     code_challenge: challengeS256, code_challenge_method: "S256", resource: opts.mcpUrl,
   }).toString();
-  const consent = locationOf(await fetch(authz, { redirect: "manual" }), "/authorize");
+  const authzRes = await fetch(authz, { redirect: "manual" });
+  const consent = locationOf(authzRes, "/authorize");
+  // The callback acts only for the browser that started the sign-in: carry /authorize's cookie, as a browser would.
+  const cookie = authzRes.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
   if (!/\/oauth\/consent$/.test(consent.pathname)) throw new Error(`/authorize sent us to ${consent}`);
   const requestId = consent.searchParams.get("request");
   const returnUrl = consent.searchParams.get("return");
@@ -112,7 +115,7 @@ export async function oauthLogin(opts: LoginOptions): Promise<LoginResult> {
   const cb = new URL(returnUrl);
   cb.searchParams.set("request", requestId);
   cb.searchParams.set("code", consentRes.code);
-  const back = locationOf(await fetch(cb, { redirect: "manual" }), "/oauth/callback");
+  const back = locationOf(await fetch(cb, { redirect: "manual", headers: { cookie } }), "/oauth/callback");
   if (back.searchParams.get("error")) throw new Error(`callback error: ${back.searchParams.get("error")}: ${back.searchParams.get("error_description")}`);
   if (back.origin + back.pathname !== redirectUri) throw new Error(`callback redirected to ${back}`);
   if (back.searchParams.get("state") !== state) throw new Error("state mismatch");

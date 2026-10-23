@@ -70,3 +70,52 @@ describe("/authorize errors", () => {
     expect(kv.size).toBe(1);
   });
 });
+
+// The callback acts only for the browser /authorize set its cookie in: a bare callback link must not redirect anyone
+// to the client's self-registered redirect_uri (#1762).
+describe("/oauth/callback browser binding", () => {
+  const start = async () => {
+    const kv = new Map<string, string>();
+    const e = env(async () => ({ responseType: "code", clientId: "c1", redirectUri: "https://elsewhere.example/landing", scope: [], state: "s1" }), kv);
+    const res = await authorize(e);
+    const id = new URL(res.headers.get("location")!).searchParams.get("request")!;
+    return { e, kv, id, setCookie: res.headers.get("set-cookie") ?? "" };
+  };
+  const callback = (e: any, query: string, cookie?: string) =>
+    worker.fetch(new Request(`https://mcp.example.test/oauth/callback?${query}`, { headers: cookie ? { cookie } : {} }), e, ctx);
+
+  it("sets a __Host-, HttpOnly, Secure, SameSite=Lax cookie holding the pending id", async () => {
+    const { id, setCookie } = await start();
+    expect(setCookie).toContain(`__Host-oauth_${id.slice(0, 16)}=${id}`);
+    expect(setCookie).toMatch(/Max-Age=600/);
+    expect(setCookie).toMatch(/Path=\//);
+    expect(setCookie).toMatch(/HttpOnly/);
+    expect(setCookie).toMatch(/Secure/);
+    expect(setCookie).toMatch(/SameSite=Lax/);
+  });
+
+  it("redirects the browser that holds the cookie back to the client with the error, and clears the cookie", async () => {
+    for (const extra of ["&error=access_denied", ""]) {
+      const { e, id, setCookie } = await start();
+      const res = await callback(e, `request=${id}${extra}`, setCookie.split(";")[0]);
+      expect(res.status).toBe(302);
+      const loc = new URL(res.headers.get("location")!);
+      expect(loc.origin + loc.pathname).toBe("https://elsewhere.example/landing");
+      expect(loc.searchParams.get("error")).toBe("access_denied");
+      expect(loc.searchParams.get("state")).toBe("s1");
+      expect(res.headers.get("set-cookie")).toMatch(new RegExp(`__Host-oauth_${id.slice(0, 16)}=;.*Max-Age=0`));
+    }
+  });
+
+  it("shows the error page, with no redirect and the sign-in left unspent, to a browser without the matching cookie", async () => {
+    const { e, kv, id } = await start();
+    const other = await start();
+    for (const cookie of [undefined, `__Host-oauth_${id.slice(0, 16)}=${other.id}`, other.setCookie.split(";")[0], `oauth_${id.slice(0, 16)}=${id}`]) {
+      const res = await callback(e, `request=${id}`, cookie);
+      expect(res.status).toBe(400);
+      expect(res.headers.get("location")).toBeNull();
+      expect(await res.text()).toContain("didn't start in this browser");
+    }
+    expect(kv.size).toBe(1);
+  });
+});
