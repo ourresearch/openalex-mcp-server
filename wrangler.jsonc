@@ -41,11 +41,11 @@
       "name": "openalex-mcp-server-production",
       "workers_dev": false,
       // oxjob #1685: every log line also goes to Better Stack (source cf-mcp-server) through the account's OTLP
-      // destination betterstack-mcp-server. persist stays true (Workers Logs) until ox-logs reads Better Stack.
+      // destination betterstack-mcp-server. persist: false since 2026-10-23 (Jason's yes): Better Stack is the only copy.
       "observability": {
         "enabled": true,
         "head_sampling_rate": 1,
-        "logs": { "enabled": true, "head_sampling_rate": 1, "invocation_logs": true, "destinations": ["betterstack-mcp-server"] }
+        "logs": { "persist": false, "enabled": true, "head_sampling_rate": 1, "invocation_logs": true, "destinations": ["betterstack-mcp-server"] }
       },
       "version_metadata": { "binding": "CF_VERSION_METADATA" },
       "routes": [{ "pattern": "mcp.openalex.org", "custom_domain": true }],
