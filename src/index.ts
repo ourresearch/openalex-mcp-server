@@ -100,16 +100,10 @@ publicApp.get("/authorize", async (c) => {
     request = await env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
   } catch (e: any) {
     if (e instanceof AuthorizationError) {
-      // redirectUri is only set once the client and redirect_uri validated (never redirect blind).
-      if (e.redirectUri) {
-        const u = new URL(e.redirectUri);
-        u.searchParams.set("error", e.code);
-        u.searchParams.set("error_description", e.description);
-        if (e.state) u.searchParams.set("state", e.state);
-        if (e.issuer) u.searchParams.set("iss", e.issuer);
-        return c.redirect(u.toString(), 302);
-      }
-      return c.json({ error: e.code, error_description: e.description }, 400);
+      // Never redirect an error to e.redirectUri. Every client here registered itself (open DCR, or CIMD, where the
+      // client's own document names its URIs), so a redirect_uri that matched proves only that the requester chose
+      // it: redirecting there would make this host an open redirector (RFC 9700 section 4.11.2). Show it here instead.
+      return c.html(errorPage(`This connection request is not valid (${e.code}: ${e.description}). Go back to your app and connect again.`), 400);
     }
     return c.json({ error: "invalid_request", error_description: e?.message ?? String(e) }, 400);
   }
