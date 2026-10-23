@@ -80,6 +80,9 @@ export function systemPrompt(institution?: Institution | null, guide: string = C
   return basePrompt(year) + who + "\nThe OQL guide follows.\n\n" + guide;
 }
 
+/** What find_entity may look up. The tool schema lists them, but the model's input isn't held to it: findEntity checks. */
+export const ENTITY_TYPES = ["institutions", "authors", "sources", "publishers", "funders", "topics", "subfields", "fields", "keywords", "countries"];
+
 export const TOOLS: Anthropic.Tool[] = [
   {
     name: "find_entity",
@@ -87,7 +90,7 @@ export const TOOLS: Anthropic.Tool[] = [
     input_schema: {
       type: "object",
       properties: {
-        type: { type: "string", enum: ["institutions", "authors", "sources", "publishers", "funders", "topics", "subfields", "fields", "keywords", "countries"] },
+        type: { type: "string", enum: ENTITY_TYPES },
         name: { type: "string" },
       },
       required: ["type", "name"],
@@ -164,8 +167,12 @@ export function costUsd(u: Usage): number {
   return priceOf(CHAT_MODEL, u);
 }
 
-/** find_entity: the same fields the harness gave the model. */
+/**
+ * find_entity: the same fields the harness gave the model. `type` becomes the request path on the caller's key, so
+ * anything outside ENTITY_TYPES is refused before any request (a "query/text/..." type would start a paid run; #1762).
+ */
 export async function findEntity(oa: OpenAlexLike, type: string, name: string): Promise<string> {
+  if (!ENTITY_TYPES.includes(type)) return JSON.stringify({ error: `type must be one of: ${ENTITY_TYPES.join(", ")}.` });
   const select = "id,display_name,works_count" + (type === "institutions" ? ",country_code" : "") + (type === "authors" ? ",last_known_institutions" : "");
   try {
     const d: any = await oa.get(`/${type}`, { search: name, "per-page": 6, select });

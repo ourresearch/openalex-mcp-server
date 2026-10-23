@@ -135,6 +135,23 @@ describe("findEntity", () => {
     const out = JSON.parse(await findEntity(fakeOpenAlex(), "institutions", "Kansas"));
     expect(out[0]).toEqual({ id: "I146416000", name: "University of Kansas", works: 120000, country: "US" });
   });
+  it("refuses a type outside the enum before any request (#1762)", async () => {
+    const oa = fakeOpenAlex();
+    for (const type of ["query/text/count works about kelp", "authors/../query/text/q2", "works", "", "authors?x=1"]) {
+      expect(JSON.parse(await findEntity(oa, type, "Kansas")).error).toMatch(/^type must be one of/);
+    }
+    expect(oa.calls).toEqual([]);
+  });
+  it("refuses it inside a run too: the model gets the error, the API gets nothing", async () => {
+    const anthropic = fakeAnthropic([
+      [tool("t1", "find_entity", { type: "query/text/x", name: "y" })],
+      [tool("t2", "submit", { oql: "get works where year >= 2020; then, group those works by country", sort: "", note: "ok" })],
+    ]);
+    const oa = fakeOpenAlex();
+    await runChat({ anthropic, openalex: oa, guide: "G" }, { messages: [{ role: "user", content: "q" }] }, () => {});
+    expect(oa.calls.filter((c) => c.startsWith("GET"))).toEqual([]);
+    expect(JSON.parse(anthropic.requests[1].messages.at(-1).content[0].content).error).toMatch(/^type must be one of/);
+  });
 });
 
 describe("runChat", () => {
