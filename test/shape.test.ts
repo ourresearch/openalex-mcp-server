@@ -38,6 +38,30 @@ describe("ids", () => {
     expect(normalizeEntityId("institutions", "ror:02y3ad647")).toBe("ror:02y3ad647");
     expect(normalizeEntityId("sources", "wikidata:Q180445")).toBe("wikidata:Q180445");
   });
+  it("still reads the forms the API resolved before the id check: ROR and Wikidata URLs, openalex:, website URLs", () => {
+    for (const kind of ["institutions", "funders", "publishers"] as const) {
+      expect(normalizeEntityId(kind, "https://ror.org/021nxhr62")).toBe("https://ror.org/021nxhr62");
+      expect(normalizeEntityId(kind, "ror.org/021nxhr62")).toBe("https://ror.org/021nxhr62");
+      expect(entityPath(kind, "https://ror.org/021nxhr62")).toBe(`/${kind}/https://ror.org/021nxhr62`);
+    }
+    for (const kind of ["institutions", "sources", "funders", "publishers"] as const) {
+      expect(normalizeEntityId(kind, "https://www.wikidata.org/wiki/Q49108")).toBe("wikidata:Q49108");
+      expect(normalizeEntityId(kind, "http://www.wikidata.org/entity/q49108")).toBe("wikidata:Q49108");
+    }
+    expect(normalizeEntityId("authors", "https://www.wikidata.org/wiki/Q49108")).toBeNull();
+    expect(normalizeEntityId("authors", "openalex:A5067184382")).toBe("A5067184382");
+    expect(normalizeWorkId("openalex:W2741809807")).toBe("W2741809807");
+    expect(normalizeWorkId("https://openalex.org/works/W2741809807")).toBe("W2741809807");
+    expect(workPath("https://openalex.org/works/w2741809807")).toBe("/works/W2741809807");
+    expect(normalizeEntityId("authors", "https://openalex.org/authors/A5067184382")).toBe("A5067184382");
+    expect(normalizeEntityId("institutions", "https://openalex.org/institutions/I27837315")).toBe("I27837315");
+    // the wrong kind, and anything that would leave a dot segment, are still refused
+    expect(normalizeEntityId("institutions", "https://openalex.org/authors/A5067184382")).toBeNull();
+    for (const bad of ["https://openalex.org/works/../snapshots/credentials", "openalex:../snapshots/credentials", "https://openalex.org/works/..", "openalex:."]) {
+      expect(() => workPath(bad)).toThrow(InvalidIdError);
+      expect(() => entityPath("funders", bad)).toThrow(InvalidIdError);
+    }
+  });
   it("refuses anything that is not an id, so no request is built (#1762)", () => {
     const bad = ["../snapshots/credentials", ".", "..", "/snapshots/credentials", "W1/../../snapshots/credentials", "pmcid:../../x", "hello world"];
     for (const s of bad) {
