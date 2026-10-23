@@ -11,6 +11,14 @@ export function shortId(id: string | null | undefined): string | null {
 }
 
 /**
+ * The id inside an OpenAlex reference, for the path normalizers: "openalex:W1", "https://openalex.org/W1" and the
+ * website's "https://openalex.org/works/W1" all give "W1". Anything left that isn't an id is refused after this.
+ */
+function stripOpenAlex(input: string): string {
+  return input.trim().replace(/^openalex:/i, "").replace(/^https?:\/\/openalex\.org\/(?:(?:works|authors|institutions|sources|topics|funders|publishers)\/)?/i, "");
+}
+
+/**
  * A DOI that is safe to put in a URL path: no whitespace, and no "." or ".." segment, which URL parsing would resolve
  * out of /works/ into another API path (oxjob #1762).
  */
@@ -23,8 +31,7 @@ export function isSafeDoi(doi: string): boolean {
  * Anything else is null: an unrecognized string must never become a path.
  */
 export function normalizeWorkId(input: string): string | null {
-  let s = input.trim();
-  s = s.replace(OPENALEX_PREFIX, "");
+  const s = stripOpenAlex(input);
   if (/^w\d+$/i.test(s)) return s.toUpperCase();
   // DOI in any common form
   const doiMatch = s.match(/(10\.\d{4,9}\/[^\s]+)/i);
@@ -53,20 +60,28 @@ export const ENTITY_PREFIX: Record<EntityType, string> = {
 /** `<namespace>:<value>` external ids the API resolves at /{entity}/{id}; the value has no "/", so it stays one path segment. */
 const EXTERNAL_ID_RE = /^(?:mag|orcid|ror|grid|issn|issn_l|wikidata|scopus|fatcat|crossref):[a-z0-9._-]+$/i;
 
+/** The entities with ROR ids, and those with Wikidata ids, in OpenAlex. */
+const ROR_ENTITIES: EntityType[] = ["institutions", "funders", "publishers"];
+const WIKIDATA_ENTITIES: EntityType[] = ["institutions", "sources", "funders", "publishers"];
+
 /**
  * Normalize a user-supplied non-work identifier for /{entity}/{id}: the entity's OpenAlex id, an ORCID (authors), a
- * ROR (institutions), an ISSN (sources) or another `<namespace>:<value>` id. Anything else is null.
+ * ROR (institutions, funders, publishers), a Wikidata URL, an ISSN (sources) or another `<namespace>:<value>` id.
+ * Anything else is null.
  */
 export function normalizeEntityId(entity: EntityType, input: string): string | null {
-  let s = input.trim().replace(OPENALEX_PREFIX, "");
+  const s = stripOpenAlex(input);
   const prefix = ENTITY_PREFIX[entity];
   if (new RegExp(`^${prefix}\\d+$`, "i").test(s)) return s.toUpperCase();
   // ORCID
   const orcid = s.match(/(\d{4}-\d{4}-\d{4}-\d{3}[\dX])/i);
   if (entity === "authors" && orcid) return "https://orcid.org/" + orcid[1].toUpperCase();
-  // ROR
+  // ROR: the URL form institutions have always been looked up by
   const ror = s.match(/ror\.org\/([0-9a-z]+)/i) ?? (entity === "institutions" && /^0[0-9a-z]{8}$/i.test(s) ? [s, s] : null);
-  if (entity === "institutions" && ror) return "https://ror.org/" + ror[1];
+  if (ROR_ENTITIES.includes(entity) && ror) return "https://ror.org/" + ror[1];
+  // Wikidata URL
+  const wikidata = s.match(/wikidata\.org\/(?:wiki|entity)\/(Q\d+)$/i);
+  if (WIKIDATA_ENTITIES.includes(entity) && wikidata) return "wikidata:" + wikidata[1].toUpperCase();
   // ISSN
   if (entity === "sources" && /^\d{4}-\d{3}[\dX]$/i.test(s)) return "issn:" + s.toUpperCase();
   if (EXTERNAL_ID_RE.test(s)) return s;
