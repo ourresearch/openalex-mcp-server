@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRequest, callerKey, creditsFor, handle, confidence, PRICE_MULTIPLIER } from "../src/queryText";
+import { parseRequest, callerKey, creditsFor, handle, confidence, PRICE_MULTIPLIER, MAX_QUERY_CHARS } from "../src/queryText";
 import { costUsd } from "../src/chat";
 
 const BASE = "https://api.openalex.org";
@@ -67,6 +67,20 @@ const post = (body: any, key = "k123") => new Request(BASE + "/query/text", {
 });
 
 describe("parseRequest", () => {
+  it("refuses an over-long current_query or institution, on GET and POST, before any model call (#1762)", async () => {
+    const long = "x".repeat(MAX_QUERY_CHARS + 1);
+    expect(await parseRequest(post({ text: "kelp", current_query: long }))).toMatchObject({ status: 400, error: expect.stringMatching(/current_query is too long/) });
+    expect(await parseRequest(get(`/query/text?text=kelp&current_query=${long}`))).toMatchObject({ status: 400 });
+    expect(await parseRequest(post({ text: "kelp", institution: { id: "I".repeat(101), name: "KU" } }))).toMatchObject({ status: 400, error: expect.stringMatching(/institution/) });
+    expect(await parseRequest(post({ text: "kelp", institution: { id: "I1", name: "K".repeat(301) } }))).toMatchObject({ status: 400 });
+    expect(await parseRequest(post({ text: "kelp", current_query: "x".repeat(MAX_QUERY_CHARS), institution: { id: "I".repeat(100), name: "K".repeat(300) } })))
+      .toMatchObject({ text: "kelp", currentQuery: "x".repeat(MAX_QUERY_CHARS) });
+    const anthropic = fakeAnthropic([[SUBMIT]]);
+    const res = await handle(post({ text: "kelp", current_query: long }), { OPENALEX_API_BASE: BASE }, { anthropic, openalex: fakeOpenAlex(), guide: "G", route: DATA });
+    expect(res.status).toBe(400);
+    expect(res.headers.get("X-Credits-Cost")).toBe("0");
+    expect(anthropic.requests).toHaveLength(0);
+  });
   it("reads the question from the path", async () => {
     expect(await parseRequest(get("/query/text/open%20access%20coffee"))).toEqual({ text: "open access coffee", currentQuery: null, institution: null, history: [] });
   });
