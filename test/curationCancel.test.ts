@@ -13,6 +13,8 @@ const ROWS: Record<string, any> = {
   "cur-foreign": { id: "cur-foreign", user_id: "U2", status: "applied", entity: "works", entity_id: "https://openalex.org/W2", value: "https://openalex.org/A9" },
   "cur-foreign-pending": { id: "cur-foreign-pending", user_id: "U2", status: "pending", entity: "works", entity_id: "https://openalex.org/W3", value: "https://openalex.org/A1" },
   "cur-own-other": { id: "cur-own-other", user_id: "U1", status: "pending", entity: "authors", entity_id: "https://openalex.org/A9", value: "x" },
+  "cur-own-old": { id: "cur-own-old", user_id: "U1", status: "timed_out", entity: "works", entity_id: "https://openalex.org/W5", value: "https://openalex.org/A1" },
+  "cur-own-superseded": { id: "cur-own-superseded", user_id: "U1", status: "superseded", entity: "works", entity_id: "https://openalex.org/W6", value: "https://openalex.org/A1" },
   "cur-own-applied": { id: "cur-own-applied", user_id: "U1", status: "applied", entity: "works", entity_id: "https://openalex.org/W4", value: "https://openalex.org/A1" },
 };
 
@@ -45,7 +47,9 @@ describe("submit_curations cancel", () => {
     const { mcp, users } = await connect();
     expect(await cancel(mcp, "cur-own")).toMatchObject({ status: "cancelled", deleted: true });
     expect(await cancel(mcp, "cur-own-name")).toMatchObject({ status: "cancelled" });
-    expect(users.deleteCuration.mock.calls.map((c: any) => c[0])).toEqual(["cur-own", "cur-own-name"]);
+    // pending for over 7 days: users-api shows it as timed_out, but it is still unapplied
+    expect(await cancel(mcp, "cur-own-old")).toMatchObject({ status: "cancelled" });
+    expect(users.deleteCuration.mock.calls.map((c: any) => c[0])).toEqual(["cur-own", "cur-own-name", "cur-own-old"]);
   });
 
   it("refuses anyone else's, a finished one, one on another profile, or an unknown id, with no DELETE", async () => {
@@ -53,6 +57,7 @@ describe("submit_curations cancel", () => {
     expect(await cancel(mcp, "cur-foreign")).toMatchObject({ status: "error", error: expect.stringMatching(/not one of yours/) });
     expect(await cancel(mcp, "cur-foreign-pending")).toMatchObject({ status: "error", error: expect.stringMatching(/not one of yours/) });
     expect(await cancel(mcp, "cur-own-applied")).toMatchObject({ status: "error", error: expect.stringMatching(/applied, not pending/) });
+    expect(await cancel(mcp, "cur-own-superseded")).toMatchObject({ status: "error", error: expect.stringMatching(/superseded, not pending/) });
     expect(await cancel(mcp, "cur-own-other")).toMatchObject({ status: "error", error: expect.stringMatching(/not on your claimed profile A1/) });
     expect(await cancel(mcp, "cur-missing")).toMatchObject({ status: "error", error: expect.stringMatching(/not found/) });
     expect(users.deleteCuration).not.toHaveBeenCalled();
