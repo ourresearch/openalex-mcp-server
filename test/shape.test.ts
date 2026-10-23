@@ -44,11 +44,11 @@ describe("ids", () => {
       expect(normalizeEntityId(kind, "ror.org/021nxhr62")).toBe("https://ror.org/021nxhr62");
       expect(entityPath(kind, "https://ror.org/021nxhr62")).toBe(`/${kind}/https://ror.org/021nxhr62`);
     }
-    for (const kind of ["institutions", "sources", "funders", "publishers"] as const) {
-      expect(normalizeEntityId(kind, "https://www.wikidata.org/wiki/Q49108")).toBe("wikidata:Q49108");
-      expect(normalizeEntityId(kind, "http://www.wikidata.org/entity/q49108")).toBe("wikidata:Q49108");
+    expect(normalizeEntityId("funders", "https://www.wikidata.org/wiki/Q304878")).toBe("wikidata:Q304878");
+    expect(normalizeEntityId("funders", "http://www.wikidata.org/entity/q304878")).toBe("wikidata:Q304878");
+    for (const kind of ["authors", "institutions", "sources", "publishers"] as const) {
+      expect(normalizeEntityId(kind, "https://www.wikidata.org/wiki/Q49108")).toBeNull();
     }
-    expect(normalizeEntityId("authors", "https://www.wikidata.org/wiki/Q49108")).toBeNull();
     expect(normalizeEntityId("authors", "openalex:A5067184382")).toBe("A5067184382");
     expect(normalizeWorkId("openalex:W2741809807")).toBe("W2741809807");
     expect(normalizeWorkId("https://openalex.org/works/W2741809807")).toBe("W2741809807");

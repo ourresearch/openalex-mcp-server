@@ -120,7 +120,7 @@ publicApp.get("/oauth/callback", async (c) => {
   const q = new URL(c.req.url).searchParams;
   const pending = await takePending(env, q.get("request"));
   if (!pending) {
-    return c.html(errorPage("This sign-in link has expired or was already used. Go back to Claude and connect again."), 400);
+    return c.html(errorPage("This sign-in link has expired or was already used. Go back to your app and connect again."), 400);
   }
   const back = (error: string, description: string) => {
     const u = new URL(pending.request.redirectUri);

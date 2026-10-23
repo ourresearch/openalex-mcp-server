@@ -60,13 +60,17 @@ export const ENTITY_PREFIX: Record<EntityType, string> = {
 /** `<namespace>:<value>` external ids the API resolves at /{entity}/{id}; the value has no "/", so it stays one path segment. */
 const EXTERNAL_ID_RE = /^(?:mag|orcid|ror|grid|issn|issn_l|wikidata|scopus|fatcat|crossref):[a-z0-9._-]+$/i;
 
-/** The entities with ROR ids, and those with Wikidata ids, in OpenAlex. */
+/**
+ * The entities the API looks up by ROR, and by Wikidata. Checked live 2026-10-23: /funders/wikidata:Q304878 is 200;
+ * institutions, sources and publishers 404 on their own Wikidata ids (in either form), so a Wikidata URL for them is
+ * refused here rather than sent on to a 404.
+ */
 const ROR_ENTITIES: EntityType[] = ["institutions", "funders", "publishers"];
-const WIKIDATA_ENTITIES: EntityType[] = ["institutions", "sources", "funders", "publishers"];
+const WIKIDATA_ENTITIES: EntityType[] = ["funders"];
 
 /**
  * Normalize a user-supplied non-work identifier for /{entity}/{id}: the entity's OpenAlex id, an ORCID (authors), a
- * ROR (institutions, funders, publishers), a Wikidata URL, an ISSN (sources) or another `<namespace>:<value>` id.
+ * ROR (institutions, funders, publishers), a Wikidata URL (funders), an ISSN (sources) or another `<namespace>:<value>` id.
  * Anything else is null.
  */
 export function normalizeEntityId(entity: EntityType, input: string): string | null {
