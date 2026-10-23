@@ -7,7 +7,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { OpenAlexClient, OpenAlexError, type ListResponse } from "./openalex";
 import { UsersApiClient, UsersApiError, type MeRecord, type CurationPayload } from "./users";
-import { shortId, normalizeWorkId } from "./ids";
+import { shortId, workPath } from "./ids";
 import { shapeWork, shapeEntity, compact } from "./shape";
 import { nameTokens, buildLadderFilterValue, findMatchedAuthorship, fullMatchCount, LADDER_STEPS } from "./names";
 import { normalizeOrcid, fetchOrcidWorks, OrcidError } from "./orcid";
@@ -472,7 +472,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
         const resolveWork = async (id: string): Promise<string> => {
           const s = shortId(id);
           if (s && /^W\d+$/.test(s)) return s;
-          const w = await client.get("/works/" + encodeURIComponent(normalizeWorkId(id)).replace(/%2F/g, "/"), { select: "id" });
+          const w = await client.get(workPath(id), { select: "id" });
           return shortId(w.id)!;
         };
         for (let i = 0; i < items.length; i++) {

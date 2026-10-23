@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { storePending, takePending, consentUrl, exchangeCode, revokeAllGrants, keyLabel, randomId, type AuthEnv } from "../src/auth";
+import { storePending, takePending, consentUrl, exchangeCode, grantIdOf, keyLabel, randomId, type AuthEnv } from "../src/auth";
 
 function fakeKv() {
   const m = new Map<string, string>();
@@ -71,16 +71,13 @@ describe("exchangeCode", () => {
   });
 });
 
-describe("revokeAllGrants", () => {
-  it("walks every page and revokes each grant", async () => {
-    const revokeGrant = vi.fn(async () => {});
-    const listUserGrants = vi.fn(async (_u: string, o: any) =>
-      o?.cursor ? { items: [{ id: "g3" }] } : { items: [{ id: "g1" }, { id: "g2" }], cursor: "next" }
-    );
-    const n = await revokeAllGrants({ revokeGrant, listUserGrants } as any, "u1");
-    expect(n).toBe(3);
-    expect(revokeGrant.mock.calls.map((c: any) => c[0])).toEqual(["g1", "g2", "g3"]);
-    expect(revokeGrant.mock.calls.every((c: any) => c[1] === "u1")).toBe(true);
+describe("grantIdOf", () => {
+  it("reads the grant from the provider's userId:grantId:secret token, for this user only", () => {
+    expect(grantIdOf("Bearer u1:g7:secret", "u1")).toBe("g7");
+    expect(grantIdOf("Bearer u2:g7:secret", "u1")).toBeNull();
+    expect(grantIdOf("Bearer opaque-token", "u1")).toBeNull();
+    expect(grantIdOf("Bearer u1::secret", "u1")).toBeNull();
+    expect(grantIdOf(null, "u1")).toBeNull();
   });
 });
 

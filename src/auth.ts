@@ -135,19 +135,14 @@ export async function exchangeCode(env: AuthEnv, code: string, expectedRequestId
   return body as ExchangeResult;
 }
 
-/** Revoke every grant this user holds; the next request then 401s and the client re-authenticates. */
-export async function revokeAllGrants(provider: OAuthHelpers, userId: string): Promise<number> {
-  let n = 0;
-  let cursor: string | undefined;
-  do {
-    const page = await provider.listUserGrants(userId, { limit: 100, cursor });
-    for (const g of page.items) {
-      await provider.revokeGrant(g.id, userId);
-      n++;
-    }
-    cursor = page.cursor;
-  } while (cursor);
-  return n;
+/**
+ * The grant behind an access token, for revoking just that grant: the provider's tokens read `userId:grantId:secret`.
+ * Null for any other shape, or a token minted for a different user.
+ */
+export function grantIdOf(authorization: string | null | undefined, userId: string): string | null {
+  const token = /^Bearer\s+(\S+)$/i.exec(authorization ?? "")?.[1] ?? "";
+  const parts = token.split(":");
+  return parts.length === 3 && parts[0] === userId && parts[1] ? parts[1] : null;
 }
 
 /** A human label for the key a grant uses, for budget and error messages. */

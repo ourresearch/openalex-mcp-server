@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { abstractFromInvertedIndex, shapeWork, shapeEntity, serializeWithinBudget, truncate } from "../src/shape";
 import { buildWorkFilter, assertSemanticCompatible } from "../src/filters";
-import { normalizeWorkId, normalizeEntityId, shortId, idList } from "../src/ids";
+import { normalizeWorkId, normalizeEntityId, shortId, idList, workPath, entityPath, InvalidIdError } from "../src/ids";
 
 describe("abstractFromInvertedIndex", () => {
   it("rebuilds word order", () => {
@@ -29,6 +29,43 @@ describe("ids", () => {
     expect(normalizeEntityId("institutions", "02y3ad647")).toBe("https://ror.org/02y3ad647");
     expect(normalizeEntityId("sources", "0028-0836")).toBe("issn:0028-0836");
     expect(normalizeEntityId("authors", "a5067184382")).toBe("A5067184382");
+  });
+  it("reads PMCIDs and MAG ids as path ids", () => {
+    expect(normalizeWorkId("PMC1234567")).toBe("pmcid:1234567");
+    expect(normalizeWorkId("pmcid:PMC1234567")).toBe("pmcid:1234567");
+    expect(normalizeWorkId("pmc: 1234567")).toBe("pmcid:1234567");
+    expect(normalizeWorkId("mag:2741809807")).toBe("mag:2741809807");
+    expect(normalizeEntityId("institutions", "ror:02y3ad647")).toBe("ror:02y3ad647");
+    expect(normalizeEntityId("sources", "wikidata:Q180445")).toBe("wikidata:Q180445");
+  });
+  it("refuses anything that is not an id, so no request is built (#1762)", () => {
+    const bad = ["../snapshots/credentials", ".", "..", "/snapshots/credentials", "W1/../../snapshots/credentials", "pmcid:../../x", "hello world"];
+    for (const s of bad) {
+      expect(normalizeWorkId(s)).toBeNull();
+      expect(() => workPath(s)).toThrow(InvalidIdError);
+      expect(normalizeEntityId("authors", s)).toBeNull();
+      expect(() => entityPath("authors", s)).toThrow(InvalidIdError);
+    }
+    // a DOI with a dot segment, alone or inside a free-text reference
+    for (const s of ["10.1234/../../../../../snapshots/credentials", "doi:10.1234/../../../../../snapshots/credentials", "10.1234/./x", "10.1234/x/.."]) {
+      expect(normalizeWorkId(s)).toBeNull();
+      expect(() => workPath(s)).toThrow(InvalidIdError);
+    }
+    expect(() => entityPath("sources", "wikidata:../../snapshots/credentials")).toThrow(InvalidIdError);
+    expect(() => entityPath("institutions", "A5067184382")).toThrow(/institutions/);
+  });
+  it("builds paths that stay under /works/ and /<entity>/ after URL parsing", () => {
+    const resolved = (p: string) => new URL("https://api.openalex.org" + p).pathname;
+    expect(workPath("W2741809807")).toBe("/works/W2741809807");
+    expect(workPath("https://doi.org/10.7717/peerj.4375/")).toBe("/works/https%3A//doi.org/10.7717/peerj.4375/");
+    expect(workPath("10.1093/nar/gkaa1100")).toBe("/works/https%3A//doi.org/10.1093/nar/gkaa1100");
+    expect(workPath("10.1002/(SICI)1097-4636(199712)37:4<1::AID>3.0.CO;2-#")).toBe("/works/https%3A//doi.org/10.1002/(SICI)1097-4636(199712)37%3A4%3C1%3A%3AAID%3E3.0.CO%3B2-%23");
+    expect(entityPath("authors", "0000-0001-6187-6610")).toBe("/authors/https://orcid.org/0000-0001-6187-6610");
+    expect(entityPath("sources", "0028-0836")).toBe("/sources/issn:0028-0836");
+    for (const id of ["W1", "10.1093/nar/gkaa1100", "10.1234/%2e%2e/x", "10.1234/x?y#z", "10.1234/a\\..\\..\\b", "pmid:1"]) {
+      expect(resolved(workPath(id))).toMatch(/^\/works\//);
+    }
+    for (const id of ["A1", "0000-0001-6187-6610", "orcid:0000-0001-6187-6610"]) expect(resolved(entityPath("authors", id))).toMatch(/^\/authors\//);
   });
   it("shortId + idList", () => {
     expect(shortId("https://openalex.org/A5067184382")).toBe("A5067184382");

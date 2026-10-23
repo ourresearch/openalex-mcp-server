@@ -15,7 +15,7 @@ import { OpenAlexClient } from "./openalex";
 import { UsersApiClient } from "./users";
 import {
   type AuthEnv, type GrantProps, SCOPE, storePending, takePending, consentUrl, exchangeCode, ExchangeError,
-  revokeAllGrants, keyLabel,
+  grantIdOf, keyLabel,
 } from "./auth";
 import { ICON_PNG_BASE64 } from "./icon";
 import { reportError, withErrorReporting, type SentryEnv } from "./sentry";
@@ -186,18 +186,22 @@ async function handleMcp(c: any) {
   if (!props?.apiKey || !props.userId) {
     return c.json({ error: "invalid_token", error_description: "This connection has no OpenAlex account attached. Reconnect and log in." }, 401);
   }
+  // A 401 from OpenAlex or users-api: the user rotated (or deleted) the key this grant holds. Revoke this grant only, so
+  // this client re-authenticates; the user's other grants (other clients, other keys) revoke themselves on their own 401.
+  const grantId = grantIdOf(c.req.header("Authorization"), props.userId);
+  const revokeThisGrant = () => {
+    if (!grantId) return;
+    c.executionCtx?.waitUntil?.(env.OAUTH_PROVIDER.revokeGrant(grantId, props.userId).catch((e: any) => {
+      console.error("revoke failed", e?.message);
+      reportError(e, { site: "revoke_grant" });
+    }));
+  };
   const client = new OpenAlexClient({
     apiKey: props.apiKey,
     baseUrl: env.OPENALEX_API_BASE,
     oqlStyle: env.OQL_STYLE,
     keyLabel: keyLabel(props),
-    onUnauthorized: () => {
-      // The user rotated (or lost) the key we hold: drop every grant so the client re-authenticates.
-      c.executionCtx?.waitUntil?.(revokeAllGrants(env.OAUTH_PROVIDER, props.userId).catch((e: any) => {
-        console.error("revoke failed", e?.message);
-        reportError(e, { site: "revoke_grants" });
-      }));
-    },
+    onUnauthorized: revokeThisGrant,
   });
   // users-api authenticates the *user's* key only; org-key grants made before #1269 carry no personal key.
   const personalKey = props.personalApiKey ?? (props.keyKind === "personal" ? props.apiKey : undefined);
@@ -205,12 +209,7 @@ async function handleMcp(c: any) {
     ? new UsersApiClient({
         apiKey: personalKey,
         baseUrl: env.USERS_API_BASE,
-        onUnauthorized: () => {
-          c.executionCtx?.waitUntil?.(revokeAllGrants(env.OAUTH_PROVIDER, props.userId).catch((e: any) => {
-            console.error("revoke failed", e?.message);
-            reportError(e, { site: "revoke_grants" });
-          }));
-        },
+        onUnauthorized: revokeThisGrant,
       })
     : null;
   const server = createServer({

@@ -10,7 +10,7 @@ export interface OpenAlexClientOptions {
   baseUrl?: string;
   /** How to name the key in messages, e.g. "your personal OpenAlex key" or "the X organization key". */
   keyLabel?: string;
-  /** Called once when OpenAlex rejects the key (401/403): the grant holding it is stale. */
+  /** Called once when OpenAlex rejects the key (401): the grant holding it is stale. Never called on a 403. */
   onUnauthorized?: () => void;
   timeoutMs?: number;
   /**
@@ -209,7 +209,9 @@ export class OpenAlexClient {
       const fix = typeof body?.fix === "string" && body.fix ? ` Fix: ${body.fix}` : "";
       throw new OpenAlexError(`OpenAlex rejected the query: ${trimFieldList(apiMessage ?? "bad request")}${fix}`, 400, undefined, false, body);
     }
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
+      // Only a 401 says the key itself was refused (rotated or deleted). A 403 refuses one request for a key that still
+      // works (a plan gate, a key not yet activated, the enforcement list), so it must never drop the grant (#1762).
       if (!this.unauthorizedFired) {
         this.unauthorizedFired = true;
         try { this.onUnauthorized?.(); } catch { /* best effort */ }
@@ -218,6 +220,9 @@ export class OpenAlexClient {
         `OpenAlex rejected ${this.keyLabel} (it was probably rotated at https://openalex.org/settings/api). Reconnect the OpenAlex connector to log in again.`,
         res.status
       );
+    }
+    if (res.status === 403) {
+      throw new OpenAlexError(`OpenAlex refused this request for ${this.keyLabel} (HTTP 403)${apiMessage ? `: ${apiMessage}` : "."}`, 403, undefined, false, body);
     }
     if (res.status === 504 || body?.reason === "query_timeout") {
       throw new OpenAlexError(
