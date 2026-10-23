@@ -38,6 +38,8 @@ const GROUP_PAGE = 200;
 const SAMPLE_SIZE = 100;
 const SEMANTIC_SIZE = 50;
 const BATCH = 50;
+/** exclude_coauthors_of: one 200-work read per anchor, so the cap is on distinct author ids after splitting (#1762). */
+const MAX_ANCHORS = 10;
 
 /** The subset of the shared works filters that make sense for an expert census. */
 const { from_year, to_year, types, topic_ids, institution_ids, funder_ids, language, core_sources_only, include_retracted, raw_filter } = workFilterShape;
@@ -71,7 +73,7 @@ export function registerExpertTools(server: McpServer, deps: ExpertDeps) {
         recent_years: z.number().int().min(1).max(10).optional().describe("Window for recent_matching_works and the recent sort, in calendar years including this one. Default 3."),
         exclude_author_ids: z.array(z.string()).optional().describe("Author IDs to drop (the applicant, the person asking, already-chosen panelists)."),
         exclude_institution_ids: z.array(z.string()).optional().describe("Drop people whose current institution is inside these (conflict of interest, \"not from our own university\")."),
-        exclude_coauthors_of: z.array(z.string()).max(10).optional().describe("Author IDs: drop anyone who coauthored with any of them within recent_years (reviewer conflicts). One extra API call per ID."),
+        exclude_coauthors_of: z.array(z.string()).max(MAX_ANCHORS).optional().describe("Author IDs: drop anyone who coauthored with any of them within recent_years (reviewer conflicts). One extra API call per ID."),
         min_matching_works: z.number().int().min(1).optional().describe("Fewer matching works than this and a person is a one-off coauthor, not an expert. Default 2; lower it for very narrow topics."),
         sort: z.enum(["matching_works", "recent", "citations", "h_index"]).optional().describe("matching_works (default): most matching works, citations as tiebreak. recent: most matching works within recent_years (rising researchers, active reviewers). citations: citations to their matching works in the evidence sample. h_index: overall standing."),
         limit: z.number().int().min(1).max(50).optional().describe("How many experts to return. Default 10."),
@@ -91,7 +93,11 @@ export function registerExpertTools(server: McpServer, deps: ExpertDeps) {
         const instIds = new Set(idList(args.institution_ids));
         const exclAuthors = new Set(idList(args.exclude_author_ids));
         const exclInst = new Set(idList(args.exclude_institution_ids));
-        const anchors = idList(args.exclude_coauthors_of);
+        // An item may hold several ids ("A1, A2"), so the schema's array cap isn't the bound: cap the distinct ids.
+        const anchors = [...new Set(idList(args.exclude_coauthors_of))];
+        if (anchors.length > MAX_ANCHORS) return fail(`exclude_coauthors_of takes at most ${MAX_ANCHORS} author IDs; got ${anchors.length}.`);
+        const notAuthor = anchors.find((a) => !/^A\d+$/.test(a));
+        if (notAuthor) return fail(`exclude_coauthors_of takes OpenAlex author IDs like A5023888391, got "${notAuthor}".`);
         const topicIds = new Set(idList(args.topic_ids));
         const notes: string[] = [];
 
@@ -180,12 +186,14 @@ export function registerExpertTools(server: McpServer, deps: ExpertDeps) {
         for (let i = 0; i < pool.length; i += BATCH) chunks.push(pool.slice(i, i + BATCH).map((c) => c.id));
         const [profilePages, coauthorSets] = await Promise.all([
           Promise.all(chunks.map((ids) => client.get<ListResponse>("/authors", { filter: `ids.openalex:${ids.join("|")}`, per_page: BATCH, select: AUTHOR_SELECT }))),
-          Promise.all(anchors.map((a) => client.get<ListResponse>("/works", { filter: `authorships.author.id:${a},publication_year:>${recentFloor - 1}`, per_page: 200, select: "id,authorships" }))),
+          // each anchor page is cut to its coauthor ids as it arrives, so whole pages are never held together
+          Promise.all(anchors.map((a) => client.get<ListResponse>("/works", { filter: `authorships.author.id:${a},publication_year:>${recentFloor - 1}`, per_page: 200, select: "id,authorships" })
+            .then((page) => coauthorIds(page.results, [a])))),
         ]);
         const profiles = new Map<string, any>();
         for (const page of profilePages) for (const a of page.results) { const id = shortId(a.id); if (id) profiles.set(id, a); }
         const conflicted = new Set<string>();
-        coauthorSets.forEach((page, i) => { for (const id of coauthorIds(page.results, [anchors[i]])) conflicted.add(id); });
+        for (const ids of coauthorSets) for (const id of ids) conflicted.add(id);
         for (const a of anchors) conflicted.add(a);
 
         // ---- Scope on the person (current institution, country, conflicts) ----------------
