@@ -200,10 +200,13 @@ describe("handle", () => {
         { anthropic, openalex: fakeOpenAlex(), guide: "G", fetchImpl, route: async () => ({ route: "help_desk", costUsd: 0 }) });
       return ((await res.json()) as any).link;
     };
-    for (const bad of ["javascript:alert(1)", "https://evil.example/", "http://help.openalex.org/x/", "https://help.openalex.org.evil.example/", "https://x@help.openalex.org/", "/how-to/", ""]) {
+    for (const bad of ["javascript:alert(1)", "https://evil.example/", "//evil.example/how-to/", "http://evil.example/", "https://help.openalex.org.evil.example/", "https://x@help.openalex.org/", "https://help.openalex.org:8443/", ""]) {
       expect(await linkFor(bad)).toBeNull();
     }
     expect(await linkFor("https://help.openalex.org/how-to/fixing-authors/")).toBe("https://help.openalex.org/how-to/fixing-authors/");
+    // a relative link is read against the help site, and http on that host is upgraded
+    expect(await linkFor("/how-to/fixing-authors/")).toBe("https://help.openalex.org/how-to/fixing-authors/");
+    expect(await linkFor("http://help.openalex.org/how-to/fixing-authors/")).toBe("https://help.openalex.org/how-to/fixing-authors/");
   });
 
   it("routes with the router model and falls back to data when the router fails", async () => {
