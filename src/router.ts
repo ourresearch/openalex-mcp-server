@@ -115,6 +115,16 @@ async function readHelpPage(url: string, fetchImpl: typeof fetch = fetch): Promi
 
 export interface HelpAnswer { text: string; link: string; costUsd: number; turns: number; error?: string }
 
+/** The answer's link, kept only when it is an https page on help.openalex.org, the one site the help desk reads; else "". */
+function helpLink(raw: unknown): string {
+  try {
+    const u = new URL(String(raw ?? ""));
+    return u.protocol === "https:" && u.hostname === "help.openalex.org" && !u.port && !u.username && !u.password ? u.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Answer a how-to from the help site. Never throws: failures come back in `error` with no text.
  * Shortcut: a second hand-written tool loop beside chat.ts runChat (they force the last turn differently); extract a
@@ -148,7 +158,7 @@ export async function helpDesk(anthropic: AnthropicLike, question: string, fetch
     messages.push({ role: "assistant", content: res.content });
     const uses = (res.content ?? []).filter((b: any) => b.type === "tool_use");
     const done = uses.find((b: any) => b.name === "answer");
-    if (done) return { text: String(done.input?.text ?? ""), link: String(done.input?.link ?? ""), costUsd, turns: turn + 1 };
+    if (done) return { text: String(done.input?.text ?? ""), link: helpLink(done.input?.link), costUsd, turns: turn + 1 };
     if (!uses.length) return fail("The help desk stopped without an answer.", turn + 1);
     // pages asked for in one turn are read together
     const results = await Promise.all(uses.map(async (b: any) =>

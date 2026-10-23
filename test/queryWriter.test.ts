@@ -178,6 +178,20 @@ describe("handle", () => {
     expect(body.meta.cost.credits).toBe(Math.ceil((0.0003 + 2 * (1000 * 4 + 200 * 20 + 9000 * 0.2) / 1e6) * PRICE_MULTIPLIER * 10000));
   });
 
+  it("drops a help-desk link that isn't an https page on help.openalex.org (#1762)", async () => {
+    const fetchImpl = (async (u: any) => new Response(String(u).endsWith("llms.txt") ? "# OpenAlex Help" : "# Page")) as unknown as typeof fetch;
+    const linkFor = async (link: string) => {
+      const anthropic = fakeRoles({ help: [[tool("a", "answer", { text: "See the help page.", link })]] });
+      const res = await handle(post({ text: "how do I fix my author profile?" }), { OPENALEX_API_BASE: BASE },
+        { anthropic, openalex: fakeOpenAlex(), guide: "G", fetchImpl, route: async () => ({ route: "help_desk", costUsd: 0 }) });
+      return ((await res.json()) as any).link;
+    };
+    for (const bad of ["javascript:alert(1)", "https://evil.example/", "http://help.openalex.org/x/", "https://help.openalex.org.evil.example/", "https://x@help.openalex.org/", "/how-to/", ""]) {
+      expect(await linkFor(bad)).toBeNull();
+    }
+    expect(await linkFor("https://help.openalex.org/how-to/fixing-authors/")).toBe("https://help.openalex.org/how-to/fixing-authors/");
+  });
+
   it("routes with the router model and falls back to data when the router fails", async () => {
     const anthropic = fakeRoles({ router: [[{ type: "text", text: '{"route": "data"}' }]], agent: [[SUBMIT]] });
     const res = await handle(post({ text: "open access articles about coffee and health" }), { OPENALEX_API_BASE: BASE }, { anthropic, openalex: fakeOpenAlex(), guide: "G" });
