@@ -6,7 +6,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { OpenAlexClient, OpenAlexError, type ListResponse } from "./openalex";
-import { UsersApiClient, UsersApiError, type MeRecord, type CurationPayload } from "./users";
+import { UsersApiClient, UsersApiError, type MeRecord, type CurationPayload, type CurationRow } from "./users";
 import { shortId, workPath } from "./ids";
 import { shapeWork, shapeEntity, compact } from "./shape";
 import { nameTokens, buildLadderFilterValue, findMatchedAuthorship, fullMatchCount, LADDER_STEPS } from "./names";
@@ -53,6 +53,15 @@ const authorShort = (id: string | null | undefined): string | null => {
   const s = shortId(String(id ?? "").replace(/^(https?:\/\/openalex\.org\/)?authors\//i, ""));
   return s && /^A\d+$/.test(s) ? s : null;
 };
+
+/** Why curation `id` may not be cancelled here, or null when it is the user's own pending curation on their claimed profile. */
+function cancelRefusal(id: string, row: CurationRow, userId: string, aid: string): string | null {
+  if (!row || row.user_id !== userId) return `Curation ${id} is not one of yours; only your own curations can be cancelled.`;
+  if (row.status !== "pending") return `Curation ${id} is ${row.status}, not pending; only pending curations can be cancelled. To undo it, submit the opposite action.`;
+  const target = row.entity === "works" ? authorShort(row.value) : row.entity === "authors" ? authorShort(row.entity_id) : null;
+  if (target !== aid) return `Curation ${id} is not on your claimed profile ${aid}.`;
+  return null;
+}
 
 const stripOrcid = (s: any) => (s ? String(s).replace(/^https?:\/\/orcid\.org\//i, "") : null);
 
@@ -479,6 +488,13 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
           const item = items[i] as CurationItem;
           if (item.action === "cancel") {
             try {
+              // users-api lets admins, site curators and org curators delete other people's curations, whatever their
+              // status. This tool withdraws only the user's own pending curation on the claimed profile (#1762).
+              const refusal = cancelRefusal(item.curation_id, await api.getCuration(item.curation_id), me.id, aid);
+              if (refusal) {
+                results.push({ index: i, action: "cancel", curation_id: item.curation_id, status: "error", error: refusal });
+                continue;
+              }
               const r = await api.deleteCuration(item.curation_id);
               results.push({ index: i, action: "cancel", curation_id: item.curation_id, status: "cancelled", deleted: r.deleted });
             } catch (e: any) {

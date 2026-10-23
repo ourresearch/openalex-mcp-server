@@ -141,6 +141,10 @@ export class UsersApiClient {
     return this.request<BatchResult>("POST", "/curations", items, [200, 201, 207]);
   }
 
+  getCuration(id: string): Promise<CurationRow> {
+    return this.request("GET", `/curations/${encodeURIComponent(id)}`);
+  }
+
   deleteCuration(id: string): Promise<{ deleted: boolean; id: string }> {
     return this.request("DELETE", `/curations/${encodeURIComponent(id)}`);
   }
