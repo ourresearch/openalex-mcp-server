@@ -115,10 +115,16 @@ async function readHelpPage(url: string, fetchImpl: typeof fetch = fetch): Promi
 
 export interface HelpAnswer { text: string; link: string; costUsd: number; turns: number; error?: string }
 
-/** The answer's link, kept only when it is an https page on help.openalex.org, the one site the help desk reads; else "". */
+/**
+ * The answer's link, kept only when it is an https page on help.openalex.org, the one site the help desk reads; else "".
+ * A relative link is read against the help site, and http on that host is upgraded, as readHelpPage reads them.
+ */
 function helpLink(raw: unknown): string {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
   try {
-    const u = new URL(String(raw ?? ""));
+    const u = new URL(s, HELP_SITE);
+    if (u.protocol === "http:" && u.hostname === "help.openalex.org") u.protocol = "https:";
     return u.protocol === "https:" && u.hostname === "help.openalex.org" && !u.port && !u.username && !u.password ? u.toString() : "";
   } catch {
     return "";
