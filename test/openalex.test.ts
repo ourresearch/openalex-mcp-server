@@ -40,6 +40,17 @@ describe("OpenAlexClient", () => {
     expect(onUnauthorized).toHaveBeenCalledTimes(1);
   });
 
+  it("never fires onUnauthorized on a 403: a plan refusal is not a dead key (#1762)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(403, { error: "Plan upgrade required", message: "Daily snapshot access is for daily-sync plans." })));
+    const onUnauthorized = vi.fn();
+    const c = new OpenAlexClient({ apiKey: "k", keyLabel: "your personal OpenAlex key", onUnauthorized });
+    const err = await c.get("/snapshots/credentials").catch((e) => e);
+    expect(err).toMatchObject({ status: 403 });
+    expect(err.message).toContain("Daily snapshot access");
+    expect(err.message).not.toMatch(/rotated|Reconnect/);
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
   it("explains a daily-budget 429 with the key label and the pricing link", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(429, { message: "budget" }, { "retry-after": "7200" })));
     const c = new OpenAlexClient({ apiKey: "k", keyLabel: "your personal OpenAlex key" });

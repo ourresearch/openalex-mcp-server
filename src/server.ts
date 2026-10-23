@@ -5,7 +5,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { OpenAlexClient, OpenAlexError, type ListResponse } from "./openalex";
-import { normalizeWorkId, normalizeEntityId, shortId, idList, type EntityType } from "./ids";
+import { workPath, entityPath, InvalidIdError, shortId, idList, type EntityType } from "./ids";
 import { shapeWork, shapeEntity, serializeWithinBudget, compact, RETRACTION_WARNING } from "./shape";
 import {
   workFilterShape, buildWorkFilter, assertSemanticCompatible, GROUP_BY_FIELDS, type GroupByKey,
@@ -216,7 +216,7 @@ export function createServer(ctx: ServerContext): McpServer {
   const fetchWorkId = async (input: string): Promise<string> => {
     const wid = shortId(input);
     if (wid && /^W\d+$/.test(wid)) return wid;
-    const w = await client.get("/works/" + encodeURIComponent(normalizeWorkId(input)).replace(/%2F/g, "/"), { select: "id" });
+    const w = await client.get(workPath(input), { select: "id" });
     return shortId(w.id)!;
   };
 
@@ -450,7 +450,7 @@ export function createServer(ctx: ServerContext): McpServer {
     },
     async ({ id }) =>
       run("get_work", async () => {
-        const w = await client.get("/works/" + encodeURIComponent(normalizeWorkId(id)).replace(/%2F/g, "/"));
+        const w = await client.get(workPath(id));
         return ok(shapeWork(w, { full: true }) as Record<string, any>);
       })()
   );
@@ -493,10 +493,11 @@ export function createServer(ctx: ServerContext): McpServer {
           const isId = doi || (bare && /^W\d+$/.test(bare)) || /^(pmid:|pmcid:|pmc)?\d{5,9}$/i.test(input);
           if (isId) {
             try {
-              const w = await client.get("/works/" + encodeURIComponent(normalizeWorkId(doi ?? input)).replace(/%2F/g, "/"), { select: LIST_SELECT.join(",") });
+              const w = await client.get(workPath(doi ?? input), { select: LIST_SELECT.join(",") });
               return annotate({ input, match: "exact", matched_on: doi ? "doi" : "id", work: shapeWork(w) }, w);
             } catch (e: any) {
               if (e instanceof OpenAlexError && e.status === 404) return { input, match: "none", note: "No OpenAlex work has this identifier." };
+              if (e instanceof InvalidIdError) return { input, match: "none", note: e.message };
               throw e;
             }
           }
@@ -696,8 +697,7 @@ export function createServer(ctx: ServerContext): McpServer {
     async (args) =>
       run("get_entity", async () => {
         const kind = args.entity_type as EntityType;
-        const path = `/${kind}/` + encodeURIComponent(normalizeEntityId(kind, args.id)).replace(/%2F/g, "/").replace(/%3A/g, ":");
-        const e = await client.get(path);
+        const e = await client.get(entityPath(kind, args.id));
         return ok(shapeEntity(kind, e, true) as Record<string, any>);
       })()
   );
