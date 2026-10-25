@@ -19,9 +19,9 @@
   },
   "fixing_authors": {
     "url": "https://help.openalex.org/access/fixing-errors/authors/",
-    "sha": "4882c9bf5805561b",
-    "fetched_at": "2026-10-01",
-    "bytes": 6460
+    "sha": "6faf3e4c89411ecb",
+    "fetched_at": "2026-10-25",
+    "bytes": 6546
   },
   "author_curation": {
     "url": "https://help.openalex.org/api/author-curation/",
