@@ -62,9 +62,9 @@ await client.connect(transport);
 const { tools } = await client.listTools();
 console.log(`connected to ${url}; ${tools.length} tools`);
 let failures = 0;
-// The OQL overview (help.openalex.org/access/oql/, the pipeline guide) rides in the instructions, with the calculations pointer.
+// The OQL overview (help.openalex.org/access/oql/, the sentence form since #1589) rides in the instructions, with the calculations pointer.
 const instructions = client.getInstructions() ?? "";
-for (const must of ["## Splitting into groups", "## Calculating", "Calculations: write the pipeline form"]) {
+for (const must of ["## Tables of groups", "## When a sentence can't say it: the general form", "Calculations: write the pipeline form"]) {
   if (!instructions.includes(must)) { console.log(`FAIL instructions: missing "${must}"`); failures++; }
 }
 console.log(`instructions: ${instructions.length} chars`);
@@ -96,8 +96,8 @@ const calls: Array<[string, Record<string, any>, (r: any) => void]> = [
   ["search_works", { oql: "works where year is (2020)", from_year: 2019 }, (r) => { if (!r.error) throw new Error("expected exclusivity error"); }],
   ["search_works", { query: "CRISPR off-target effects", from_year: 2020, preview: true, preview_limit: 3 }, (r) => { if (!r.preview || r.results.length !== 3 || !r.oql) throw new Error("bad structured preview"); }],
   ["group_works", { group_by: "institution", oql: 'title-abstract has ((vaping or "vape*" or "electronic cigarette*") and ("adolescen*" or youth)) and year >= (2018)', limit: 5 }, (r) => { if (!r.groups?.length || !r.oql || !/group (those works )?by institution|get institutions (that|who) published works|\bby institution\b/.test(r.oql)) throw new Error("bad oql group " + r.oql); }],
-  ["read_docs", { topic: "oql", section: "Combining and nesting" }, (r) => { if (!/exclude on the verb/i.test(JSON.stringify(r))) throw new Error("negation section missing"); }],
-  ["read_docs", { topic: "oql_spec", section: "Diagnostics" }, (r) => { if (!/OQL_SHORT_WILDCARD_PREFIX/.test(JSON.stringify(r))) throw new Error("spec section missing"); }],
+  ["read_docs", { topic: "oql", section: "Anything else" }, (r) => { if (!/negate on the verb/i.test(JSON.stringify(r))) throw new Error("negation section missing"); }],
+  ["read_docs", { topic: "oql_spec", section: "Diagnostics" }, (r) => { if (!/OQL_MISSING_ENTITY_ID/.test(JSON.stringify(r))) throw new Error("spec section missing"); }],
   ["get_work", { id: "10.7717/peerj.4375" }, (r) => { if (r.id !== "W2741809807") throw new Error("wrong work " + r.id); if (!r.abstract) throw new Error("no abstract"); }],
   ["get_work", { id: "10.9999/does-not-exist" }, (r) => { if (!r.error) throw new Error("expected error"); }],
   ["list_citations", { work_id: "W2741809807", limit: 3 }, (r) => { if (!r.results?.length) throw new Error("no results"); }],

@@ -7,9 +7,9 @@
   },
   "oql_spec": {
     "url": "https://help.openalex.org/access/oql-spec/",
-    "sha": "2adc83c9822e3409",
+    "sha": "aa45a2e9e8499bdd",
     "fetched_at": "2026-10-25",
-    "bytes": 68617
+    "bytes": 69157
   },
   "api_quick_reference": {
     "url": "https://help.openalex.org/api/llm-quick-reference/",

@@ -23,8 +23,8 @@ export interface CalculateDeps {
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } as const;
 
 /** Pointer to the pipeline sections of the OQL reference (help.openalex.org/access/oql/, appended to the server instructions), plus what only these tools add. */
-export const PIPELINE_GUIDE = `Calculations: write the pipeline form from the OQL reference below (The shape, Splitting into groups, Calculating) and run it with calculate_works. Check a new query with check_oql first (free: each limit with its fix, the time, the price), fix it from the message, then run it. Resolve names to IDs with search_entities first.
-Sorting and top N are not in OQL: calculate_works' sort orders a page by a column. To list authors, sources or institutions by their own fields (h-index, 2-year mean citedness), start from them and stop: get authors where last known institution is [Harvard University](I136199984) and h-index is above 50.`;
+export const PIPELINE_GUIDE = `Calculations: write the pipeline form (the OQL reference below calls it the general form: "When a sentence can't say it") or a table sentence ("Tables of groups"), and run it with calculate_works. Check a new query with check_oql first (free: each limit with its fix, the time, the price), fix it from the message, then run it. Resolve names to IDs with search_entities first.
+calculate_works' sort orders a page by a column; a table sentence can also end with its own order (, highest mean FWCI first). To list authors, sources or institutions by their own fields (h-index, 2-year mean citedness), start from them and stop: get authors where last known institution is [Harvard University](I136199984) and h-index is above 50.`;
 
 const LIST_KINDS: EntityKind[] = ["authors", "institutions", "sources", "topics", "funders", "publishers"];
 
