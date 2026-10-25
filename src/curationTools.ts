@@ -92,14 +92,23 @@ function authorSummary(e: any) {
   });
 }
 
-/** Why a claim came back "needs_evidence" (users-api #1466 feedback codes), said for the user. */
+/** Why a claim came back "needs_evidence" (users-api feedback codes), said for the user. Since #1762
+ * (2026-10-24) every claim is decided automatically and a web page alone never passes; the one link that
+ * passes on its own is a paper on the claimed profile that lists the account email. */
+const PAPER = "send a link (or DOI) to one of their papers on this profile that lists their account email, or link their ORCID if the profile shows their iD";
 const FEEDBACK: Record<string, string> = {
-  no_link: "there was no link in what they sent",
-  unreachable: "we could not open the page (a login, a bot wall, or the site is down); send a page anyone can open",
-  email_not_found: "the page does not show their OpenAlex account email; a page with only their name is not enough",
-  self_made: "anyone can make that kind of page (personal website, LinkedIn, ResearchGate); send their institution's page or a paper that shows their email",
-  email_not_contact: "the email is on the page, but not as a researcher's contact address",
-  cant_tell: "we could not confirm the page ties their email to a university, institute or published paper; send a different page",
+  no_link: `there was no link in what they sent; ${PAPER}`,
+  unreachable: "we could not open the link (a login, a bot wall, or the site is down); send a link anyone can open",
+  email_not_found: "the link does not show their OpenAlex account email; a page with only their name is not enough",
+  self_made: `anyone can make that kind of page (personal website, LinkedIn, ResearchGate); ${PAPER}`,
+  email_not_contact: `the email is on the page, but not as a researcher's contact address; ${PAPER}`,
+  page_only: `a web page alone, even a university page, is not enough (anyone who can edit a page can put any name on it); ${PAPER}`,
+  not_on_profile: `the paper they sent is not on this profile, or the email on it is another author's; ${PAPER}`,
+  merged_profile: "the profile seems to mix more than one person, so a link or an email cannot show it is theirs; linking their ORCID still works if the profile shows their iD",
+  already_owned: "another OpenAlex account already owns this profile; if it is their other account, they should sign in with that one",
+  institution_email_unclear: `their institution email alone does not show the profile is theirs; ${PAPER}`,
+  could_not_check: "for several days we could not open or check their link; send it again or send a different link",
+  cant_tell: `we could not confirm their link ties their email to this profile; ${PAPER}`,
 };
 const FASTEST_FIX = "Fastest fix: add a university email to the account in Settings at openalex.org (they keep their current email); the claim is then approved right away.";
 
@@ -203,7 +212,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
         "if it fails, the result says what is missing and the user can send a new link by calling this again.",
       inputSchema: {
         author_id: z.string().min(2).max(300).describe("OpenAlex author ID, e.g. A5023888391."),
-        evidence: z.string().max(2000).optional().describe("A link (URL or DOI) to a public page that shows the user's OpenAlex account email. Required when claim_eligibility is \"review\"; not needed when \"instant\"."),
+        evidence: z.string().max(2000).optional().describe("A link (URL or DOI) to one of the user's papers on THIS profile that lists their OpenAlex account email. A web page alone (even a university page) does not pass. Required when claim_eligibility is \"review\"; not needed when \"instant\"."),
       },
       annotations: { title: "Claim an author profile", ...WRITE, idempotentHint: false },
     },
