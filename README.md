@@ -3,7 +3,7 @@
 The official [OpenAlex](https://openalex.org) server for the [Model Context Protocol](https://modelcontextprotocol.io). Connect it to Claude (or any MCP client) and ask questions about the scholarly literature: find papers, trace citations, profile authors and institutions, and count research output by topic, year, venue or country.
 
 - **Endpoint:** `https://mcp.openalex.org/mcp` (Streamable HTTP)
-- **Docs:** https://help.openalex.org/api/mcp/
+- **Docs:** https://help.openalex.org/access/connector/
 - **Support:** support@openalex.org
 
 ## Connecting

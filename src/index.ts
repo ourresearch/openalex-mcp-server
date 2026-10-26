@@ -36,7 +36,7 @@ export interface Env extends AuthEnv, SentryEnv {
   ANALYTICS?: AnalyticsEngineDataset;
 }
 
-const DOCS_URL = "https://help.openalex.org/api/mcp/";
+const DOCS_URL = "https://help.openalex.org/access/connector/";
 
 const MCP_CORS = {
   origin: "*",
