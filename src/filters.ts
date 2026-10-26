@@ -6,10 +6,13 @@ import { z } from "zod";
 import { idList } from "./ids";
 import { keywordSlug } from "./keywordSearch";
 
+// The live /types vocabulary (elastic-api config/work-types.yaml), 26 values as of 2026-10-26.
 export const WORK_TYPES = [
-  "article", "review", "preprint", "book", "book-chapter", "dissertation", "dataset",
-  "report", "editorial", "letter", "erratum", "retraction", "paratext", "libguides",
-  "reference-entry", "peer-review", "standard", "supplementary-materials", "grant", "other",
+  "article", "review", "preprint", "book", "book-chapter", "book-review", "dissertation",
+  "dataset", "data-paper", "software", "software-paper", "conference-paper",
+  "conference-abstract", "report", "editorial", "letter", "erratum", "retraction", "paratext",
+  "libguides", "reference-entry", "peer-review", "standard", "supplementary-materials",
+  "physical-object", "other",
 ] as const;
 
 export const OA_STATUSES = ["gold", "green", "hybrid", "bronze", "diamond", "closed"] as const;
