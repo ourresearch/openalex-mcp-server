@@ -715,6 +715,7 @@ export function createServer(ctx: ServerContext): McpServer {
         "Aggregate works matching a query and/or filters, counting them by one dimension: author, institution, institution_type, country, source (journal), publisher, funder, year, type, topic, subfield, field, domain, keyword, oa_status, is_oa, top_10_percent, top_1_percent, language, or sdg. " +
         "Answers \"who are the top authors on X\", \"which institutions publish most on Y\", \"how has research on Z grown per year\", \"which journals carry the most papers on W\", \"who does institution A collaborate with\" (institution_ids + group_by institution). " +
         "Returns each group's ID, display name and work count, sorted by count. Keyword/exact queries aggregate over all matching works; semantic queries aggregate over the 50 most relevant works only. " +
+        "For two or three dimensions in one call (by year and country, by field and open access status) or numbers beyond the count (mean FWCI, percent open access, share), use calculate_works instead of one group_works call per value. " +
         "Accepts an OQL query in `oql` for complex selections (the group by is added from group_by if the query has none). " +
         "Note: group_by author over institution-filtered works also counts co-authors from other institutions; for \"researchers AT institution X on topic Y\" use search_entities with institution_ids and topic_ids instead.",
       inputSchema: {
