@@ -52,6 +52,17 @@ describe("matchFreeText", () => {
     expect(m.work.id).toBe(book.id);
   });
 
+  it("answers with the published version, not the preprint, when the citation names no preprint server", async () => {
+    const t = "From Monge to Higgs: a survey of distance computations in noncommutative geometry";
+    const preprint = work("W4298235936", t, 2016, { author: "Pierre Martinetti", type: "preprint", cites: 0 });
+    const chapter = work("W2336708343", t, 2016, { author: "Pierre Martinetti", type: "other", cites: 8 });
+    const { client } = fakeClient(() => [preprint, chapter]);
+    const m = await matchFreeText(client, `Martinetti P (2016) ${t}. In: Noncommutative geometry and optimal transport, vol 676`, "id");
+    expect(m.work.id).toBe(chapter.id);
+    const m2 = await matchFreeText(client, `Martinetti P (2016) ${t}. arXiv:1604.00499`, "id");
+    expect(m2.work.id).not.toBe(undefined);
+  });
+
   it("never answers with a venue record or a one-word title met through a venue fragment", async () => {
     const venue = work("W2612690371", "Advances in Neural Information Processing Systems 29", 2016, { type: "book" });
     const surf = work("W2798891709", "SuRF", 2018);

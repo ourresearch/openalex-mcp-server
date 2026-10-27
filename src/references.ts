@@ -132,13 +132,15 @@ function label(best: Scored): MatchLabel {
  * articles sharing a main title are usually two papers.
  */
 function canonical(input: string, best: Scored, scored: Scored[]): any {
-  const citesBook = BOOKISH.test(input) && ["article", "book-review", "other", "report"].includes(best.w.type);
-  const citesPublished = best.w.type === "preprint" && !PREPRINT.test(input);
-  // How well a record's type fits the citation: 0 a review or front matter, 1 other/report/dataset, 2 a work, 3 the
-  // kind of work the citation names (a book, or a published version).
+  const citesBook = BOOKISH.test(input);
+  const citesPreprint = PREPRINT.test(input);
+  // How well a record's type fits the citation: 0 a review or front matter, 0.5 a preprint the citation doesn't cite
+  // as one, 1 other/report/dataset, 2 a work, 3 a book or chapter when the citation names a publisher.
   const fitRank = (w: any) => {
-    const base = TYPE_PENALTY[w.type] ? 0 : ["other", "report", "dataset"].includes(w.type) ? 1 : 2;
-    return base + ((citesBook && ["book", "book-chapter"].includes(w.type)) || (citesPublished && w.type !== "preprint") ? 1 : 0);
+    if (TYPE_PENALTY[w.type]) return 0;
+    if (w.type === "preprint") return citesPreprint ? 2 : 0.5;
+    if (["other", "report", "dataset"].includes(w.type)) return 1;
+    return citesBook && ["book", "book-chapter"].includes(w.type) ? 3 : 2;
   };
   const sameWork = (a: Scored, b: Scored) => {
     const at = tokenKey(a.w.display_name ?? "");
