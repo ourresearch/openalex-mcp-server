@@ -68,10 +68,12 @@ async function resolve(refs: string[]): Promise<any[]> {
   for (let attempt = 0; ; attempt++) {
     const res: any = await client.callTool({ name: "resolve_references", arguments: { references: refs } });
     const text = res.content?.[0]?.text ?? "";
-    try { return JSON.parse(text).results; } catch {
-      if (attempt >= 2) throw new Error("bad tool result: " + text.slice(0, 300));
-      await new Promise((r) => setTimeout(r, 2000));
-    }
+    let results: any[] | undefined;
+    try { results = JSON.parse(text).results; } catch { /* not JSON */ }
+    if (Array.isArray(results)) return results;
+    if (attempt >= 2) throw new Error("bad tool result: " + text.slice(0, 300));
+    console.error("retrying after:", text.slice(0, 300));
+    await new Promise((r) => setTimeout(r, 2000));
   }
 }
 
