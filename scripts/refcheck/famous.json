@@ -1,0 +1,148 @@
+[
+ {
+  "ref": "LeCun Y, Bengio Y, Hinton G. Deep learning. Nature. 2015;521(7553):436-444.",
+  "accept_ids": [
+   "W2919115771"
+  ]
+ },
+ {
+  "ref": "He K, Zhang X, Ren S, Sun J. Deep residual learning for image recognition. In: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR); 2016. p. 770-778.",
+  "accept_ids": [
+   "W2194775991"
+  ]
+ },
+ {
+  "ref": "Watson JD, Crick FH. Molecular structure of nucleic acids; a structure for deoxyribose nucleic acid. Nature. 1953;171(4356):737-8.",
+  "accept_ids": [
+   "W2126466006"
+  ]
+ },
+ {
+  "ref": "Lowry OH, Rosebrough NJ, Farr AL, Randall RJ. Protein measurement with the Folin phenol reagent. J Biol Chem. 1951;193(1):265-75.",
+  "accept_ids": [
+   "W1775749144"
+  ]
+ },
+ {
+  "ref": "Piwowar H, Priem J, Lariviere V, et al. The state of OA: a large-scale analysis of the prevalence and impact of Open Access articles. PeerJ. 2018;6:e4375.",
+  "accept_ids": [
+   "W2741809807"
+  ]
+ },
+ {
+  "ref": "Laemmli UK. Cleavage of structural proteins during the assembly of the head of bacteriophage T4. Nature. 1970;227(5259):680-5.",
+  "accept_ids": [
+   "W2100837269"
+  ]
+ },
+ {
+  "ref": "Hirsch JE. An index to quantify an individual’s scientific research output. Proc Natl Acad Sci USA. 2005;102(46):16569-72.",
+  "accept_ids": [
+   "W2128438887"
+  ]
+ },
+ {
+  "ref": "Hanahan D, Weinberg RA. Hallmarks of cancer: the next generation. Cell. 2011;144(5):646-74.",
+  "accept_ids": [
+   "W2117692326"
+  ]
+ },
+ {
+  "ref": "Hanahan D, Weinberg RA. The hallmarks of cancer. Cell. 2000;100(1):57-70.",
+  "accept_ids": [
+   "W2034269086"
+  ]
+ },
+ {
+  "ref": "Moher D, Liberati A, Tetzlaff J, Altman DG; PRISMA Group. Preferred reporting items for systematic reviews and meta-analyses: the PRISMA statement. PLoS Med. 2009;6(7):e1000097.",
+  "accept_ids": [
+   "W4294215472"
+  ]
+ },
+ {
+  "ref": "Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement: an updated guideline for reporting systematic reviews. BMJ. 2021;372:n71.",
+  "accept_ids": [
+   "W3118615836"
+  ]
+ },
+ {
+  "ref": "Braun, V., & Clarke, V. (2006). Using thematic analysis in psychology. Qualitative Research in Psychology, 3(2), 77–101.",
+  "accept_ids": [
+   "W1979290264"
+  ]
+ },
+ {
+  "ref": "Kahneman D, Tversky A. Prospect theory: an analysis of decision under risk. Econometrica. 1979;47(2):263-91.",
+  "accept_ids": [
+   "W3011865677"
+  ]
+ },
+ {
+  "ref": "Bray F, Ferlay J, Soerjomataram I, Siegel RL, Torre LA, Jemal A. Global cancer statistics 2018: GLOBOCAN estimates of incidence and mortality worldwide for 36 cancers in 185 countries. CA Cancer J Clin. 2018;68(6):394-424.",
+  "accept_ids": [
+   "W2889646458"
+  ]
+ },
+ {
+  "ref": "Livak KJ, Schmittgen TD. Analysis of relative gene expression data using real-time quantitative PCR and the 2(-Delta Delta C(T)) Method. Methods. 2001;25(4):402-8.",
+  "accept_ids": [
+   "W2107277218"
+  ]
+ },
+ {
+  "ref": "Altschul SF, Gish W, Miller W, Myers EW, Lipman DJ. Basic local alignment search tool. J Mol Biol. 1990;215(3):403-10.",
+  "accept_ids": [
+   "W2055043387"
+  ]
+ },
+ {
+  "ref": "Bradford MM. A rapid and sensitive method for the quantitation of microgram quantities of protein utilizing the principle of protein-dye binding. Anal Biochem. 1976;72:248-54.",
+  "accept_ids": [
+   "W2128635872"
+  ]
+ },
+ {
+  "ref": "Vaswani A, Shazeer N, Parmar N, et al. Attention is all you need. Advances in Neural Information Processing Systems. 2017;30.",
+  "accept_ids": [
+   "W2626778328"
+  ]
+ },
+ {
+  "ref": "Kingma DP, Ba J. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980. 2014.",
+  "accept_ids": [
+   "W1522301498"
+  ]
+ },
+ {
+  "ref": "Devlin J, Chang MW, Lee K, Toutanova K. BERT: Pre-training of deep bidirectional transformers for language understanding. In: NAACL-HLT; 2019. p. 4171-4186.",
+  "accept_ids": [
+   "W2963341956"
+  ]
+ },
+ {
+  "ref": "Kuhn TS. The Structure of Scientific Revolutions. Chicago: University of Chicago Press; 1962.",
+  "accept_title": "The Structure of Scientific Revolutions",
+  "note": "book: many OpenAlex records (mostly reviews) carry its title; any of them is right"
+ },
+ {
+  "ref": "Cohen J. Statistical Power Analysis for the Behavioral Sciences. 2nd ed. Hillsdale, NJ: Lawrence Erlbaum; 1988.",
+  "accept_title": "Statistical Power Analysis for the Behavioral Sciences",
+  "note": "book: many OpenAlex records (mostly reviews) carry its title; any of them is right"
+ },
+ {
+  "ref": "Piwowar H et al. The state of open access: a large scale analysis of the prevalance and impact of open access articles. PeerJ 2018.",
+  "accept_ids": [
+   "W2741809807"
+  ]
+ },
+ {
+  "ref": "Smith J, Lee K. Quantum entanglement effects on songbird migration in urban heat islands. Nature. 2019;570:123-130.",
+  "expect": "none",
+  "note": "fabricated control"
+ },
+ {
+  "ref": "Bourdieu P. Distinction: A Social Critique of the Judgement of Taste. Cambridge, MA: Harvard University Press; 1984.",
+  "accept_title": "Distinction: A Social Critique of the Judgement of Taste",
+  "note": "book: many OpenAlex records (mostly reviews) carry its title; any of them is right"
+ }
+]

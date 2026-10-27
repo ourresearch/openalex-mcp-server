@@ -11,7 +11,9 @@ import {
   workFilterShape, buildWorkFilter, assertSemanticCompatible, GROUP_BY_FIELDS, type GroupByKey,
   retractedNote, RETRACTED_PER_QUERY_NOTE,
 } from "./filters";
-import { titleCoverage, queryCoverage, extractYear, extractDoi, guessTitle, guessSurnames } from "./text";
+import { extractDoi } from "./text";
+import { matchFreeText } from "./references";
+import { pool } from "./pool";
 import { oqlHasSearch, oqlHasGroupBy, oqlHasSample, OQL_GROUP_DIMS, oqlIsPipeline, oqlHasCalculate, oqlAddSample, oqlAddGroupBy, prepareAnyOql, queryEcho } from "./oql";
 import { registerCalculateTools, PIPELINE_GUIDE } from "./calculateTools";
 import { shapeCalculation, calculationResult } from "./calculate";
@@ -501,45 +503,11 @@ export function createServer(ctx: ServerContext): McpServer {
               throw e;
             }
           }
-          const title = guessTitle(input).replace(/,/g, " ");
-          const year = extractYear(input);
-          const surnames = guessSurnames(input);
-          const data = await client.get<ListResponse>("/works", {
-            filter: `title.search:${title}`,
-            per_page: 5,
-            select: LIST_SELECT.join(","),
-          });
-          const scored = data.results.map((w) => {
-            const precision = queryCoverage(title, w.display_name); // guessed title found in candidate
-            const recall = titleCoverage(input, w.display_name); // candidate title found in citation
-            const yearOk = year === null ? null : w.publication_year != null && Math.abs(w.publication_year - year) <= 1;
-            const names = (w.authorships ?? []).map((a: any) => String(a?.author?.display_name ?? a?.raw_author_name ?? "").toLowerCase());
-            const authorOk = surnames.length ? surnames.some((sn) => names.some((n: string) => n.includes(sn))) : null;
-            const score = precision + 0.5 * recall + (yearOk ? 0.3 : 0) + (authorOk ? 0.3 : 0);
-            return { w, precision, recall, yearOk, authorOk, score };
-          });
-          scored.sort((a, b) => b.score - a.score);
-          const best = scored[0];
-          if (!best) return { input, match: "none", note: "No work in OpenAlex has a similar title." };
-          const corroborated = best.yearOk === true || best.authorOk === true;
-          const contradicted = best.yearOk === false || best.authorOk === false;
-          let match: "exact" | "likely" | "uncertain" | "none";
-          if (best.precision >= 0.9 && best.recall >= 0.9 && !contradicted) match = "exact";
-          else if (best.precision >= 0.85 && corroborated && !contradicted) match = "likely";
-          else if (best.precision >= 0.6 && !(best.yearOk === false && best.authorOk === false)) match = "uncertain";
-          else match = "none";
-          return annotate(compact({
-            input,
-            match,
-            matched_on: "title",
-            title_overlap: Number(best.precision.toFixed(2)),
-            year_consistent: best.yearOk,
-            author_consistent: best.authorOk,
-            work: match === "none" ? undefined : shapeWork(best.w),
-            note: match === "none" ? "Closest title in OpenAlex is not a convincing match; the reference may be garbled or fabricated." : match === "uncertain" ? "Partial title match; check the author list and year before trusting it." : undefined,
-          }), match === "none" ? null : best.w);
+          const m = await matchFreeText(client, input, LIST_SELECT.join(","));
+          return annotate(compact({ input, ...m, work: m.work ? shapeWork(m.work) : undefined }), m.work);
         };
-        const results = await Promise.all(references.map(resolveOne));
+        // Eight at a time: a free-text reference can take up to five searches, and keys have a per-second cap.
+        const results = await pool(references, 8, resolveOne);
         const counts = { exact: 0, likely: 0, uncertain: 0, none: 0, retracted: 0 } as Record<string, number>;
         for (const r of results) {
           counts[r.match as string] = (counts[r.match as string] ?? 0) + 1;
