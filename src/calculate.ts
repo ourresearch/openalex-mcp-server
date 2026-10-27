@@ -2,7 +2,7 @@
  * Shaping for OQL calculations (oxjob #1537): the API's grouped rows with their calculated columns, the summary
  * (#1550) and the price (#1530's pipeline engine), and the free check's verdict. Pure, unit-tested.
  */
-import { compact, MAX_RESULT_CHARS } from "./shape";
+import { compact, MAX_RESULT_CHARS, shrinkToFit } from "./shape";
 import { shortId } from "./ids";
 import { oneLine, queryEcho } from "./oql";
 
@@ -112,7 +112,7 @@ export function serializeCalculation(payload: Record<string, any>, maxChars = MA
     text = JSON.stringify({ ...flat, groups: rows, truncation_note: `Inner groups dropped and rows trimmed to ${rows.length} to fit the size limit; ask for fewer groups (limit) or page.` });
     rows = rows.slice(0, Math.ceil(rows.length / 2));
   } while (text.length > maxChars && rows.length > 1);
-  return text;
+  return text.length <= maxChars ? text : shrinkToFit(text, maxChars);   // one row still too big (#1885)
 }
 
 /** A tool result holding a calculation, serialized within budget. */

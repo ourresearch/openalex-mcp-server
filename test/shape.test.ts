@@ -121,6 +121,10 @@ describe("buildWorkFilter", () => {
       "type:article|review,is_oa:true,cited_by_count:>99,authorships.author.id:A1|A2,authorships.institutions.country_code:US|GB,is_retracted:false,has_abstract:true"
     );
   });
+  it("topic_ids is the primary topic (as OQL and group_by); any_topic_ids is any of them (oxjob #1885)", () => {
+    expect(buildWorkFilter({ topic_ids: ["https://openalex.org/T10878", "T10102"], include_retracted: true })).toBe("primary_topic.id:T10878|T10102");
+    expect(buildWorkFilter({ any_topic_ids: ["T10878"], include_retracted: true })).toBe("topics.id:T10878");
+  });
   it("rejects semantic-incompatible filters", () => {
     expect(() => assertSemanticCompatible({ min_citations: 5 })).toThrow(/min_citations/);
     expect(() => assertSemanticCompatible({ countries: ["US"] })).toThrow(/countries/);
@@ -177,6 +181,38 @@ describe("shapeWork", () => {
     expect(s.primary_topic.name).toBe("scientometrics");
     expect(s.pages).toBe("e4375");
     expect(s.citations_by_year).toEqual([{ year: 2024, citations: 100 }]);
+    expect(s.authors_total).toBeUndefined();
+  });
+  it("full shape keeps every year and the unrounded percentile (oxjob #1885)", () => {
+    const years = Array.from({ length: 15 }, (_, i) => ({ year: 2026 - i, cited_by_count: i + 1 }));
+    const s = shapeWork({ ...sampleWork, counts_by_year: years, citation_normalized_percentile: { value: 0.99997717 } }, { full: true }) as any;
+    expect(s.citations_by_year).toHaveLength(15);
+    expect(s.citations_by_year.reduce((n: number, c: any) => n + c.citations, 0)).toBe(120);
+    expect(s.citation_percentile).toBe(0.99997717);
+  });
+  it("a big collaboration lists the first 100, the last and the corresponding authors, numbered (oxjob #1885)", () => {
+    const authorships = Array.from({ length: 1011 }, (_, i) => ({
+      author: { id: `https://openalex.org/A${i + 1}`, display_name: `Author ${i + 1}` },
+      author_position: i === 0 ? "first" : i === 1010 ? "last" : "middle",
+      is_corresponding: i === 499,
+      institutions: [{ display_name: "LIGO Laboratory, California Institute of Technology" }, { display_name: "Some University" }],
+    }));
+    const s = shapeWork({ ...sampleWork, authorships }, { full: true }) as any;
+    expect(s.authors_total).toBe(1011);
+    expect(s.authors).toHaveLength(102);
+    expect(s.authors[0]).toMatchObject({ n: 1, name: "Author 1", position: "first" });
+    expect(s.authors[99].n).toBe(100);
+    expect(s.authors[100]).toMatchObject({ n: 500, is_corresponding: true });
+    expect(s.authors[101]).toMatchObject({ n: 1011, position: "last" });
+    expect(s.authors_note).toMatch(/102 of 1011 authors/);
+    expect(s.abstract).toBe("Despite growing interest");
+    const text = serializeWithinBudget(s);
+    expect(JSON.parse(text).oa_status).toBe("gold");
+    expect(JSON.parse(text).truncation_note).toBeUndefined();
+    // a record that flags the whole byline corresponding keeps at most 10 more of them
+    const allCorresponding = shapeWork({ ...sampleWork, authorships: authorships.map((a) => ({ ...a, is_corresponding: true })) }, { full: true }) as any;
+    expect(allCorresponding.authors).toHaveLength(111);
+    expect(allCorresponding.authors.at(-1).n).toBe(1011);
   });
 });
 
@@ -207,6 +243,33 @@ describe("serializeWithinBudget", () => {
     const t2 = serializeWithinBudget({ results: big }, 5_000);
     expect(t2.length).toBeLessThanOrEqual(5_000);
     expect(JSON.parse(t2).truncation_note).toMatch(/trimmed/);
+  });
+  it("one record too big for the budget is trimmed by structure, never sliced (oxjob #1885)", () => {
+    const record = {
+      id: "W1", title: "Big", oa_status: "gold", abstract: "a ".repeat(2000),
+      authors: Array.from({ length: 3000 }, (_, i) => ({ name: `Author number ${i}`, institutions: ["Institute of Physics"] })),
+    };
+    const text = serializeWithinBudget(record, 20_000);
+    expect(text.length).toBeLessThanOrEqual(20_000);
+    const parsed = JSON.parse(text);
+    expect(parsed.oa_status).toBe("gold");
+    expect(parsed.abstract.length).toBeGreaterThan(1000);
+    expect(parsed.authors.length).toBeGreaterThan(50);
+    expect(parsed.authors.length).toBeLessThan(3000);
+    expect(parsed.truncation_note).toMatch(/authors keeps the first \d+ of 3000/);
+  });
+  it("a single huge result after result trimming is still valid JSON within budget", () => {
+    const one = { id: "W1", authors: Array.from({ length: 5000 }, (_, i) => `Author ${i}`) };
+    const text = serializeWithinBudget({ results: [one, one] }, 10_000);
+    expect(text.length).toBeLessThanOrEqual(10_000);
+    const parsed = JSON.parse(text);
+    expect(parsed.results).toHaveLength(1);
+    expect(parsed.truncation_note).toMatch(/results\[0\]\.authors keeps the first/);
+  });
+  it("long text with no lists is shortened, still valid JSON", () => {
+    const text = serializeWithinBudget({ id: "W1", abstract: "word ".repeat(10_000) }, 5_000);
+    expect(text.length).toBeLessThanOrEqual(5_000);
+    expect(JSON.parse(text).truncation_note).toMatch(/abstract shortened/);
   });
   it("truncate at word boundary", () => {
     expect(truncate("hello brave new world", 12)).toBe("hello brave…");

@@ -93,6 +93,11 @@ describe("shapeCalculation (#1537)", () => {
     expect(parsed.truncation_note).toBeTruthy();
     expect(parsed.groups.length).toBeGreaterThan(0);
   });
+  it("one row still too big ends within budget as valid JSON (#1885)", () => {
+    const text = serializeCalculation({ oql: "q", groups: [{ id: "g1", name: "x".repeat(30_000), count: 1 }] }, 5_000);
+    expect(text.length).toBeLessThanOrEqual(5_000);
+    expect(JSON.parse(text).truncation_note).toMatch(/shortened/);
+  });
 });
 
 describe("shapeCheck (#1537)", () => {

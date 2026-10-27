@@ -62,6 +62,13 @@ function authorLine(a: any): string {
   return inst ? `${name} (${inst})` : name;
 }
 
+/**
+ * A full record lists every author up to this many. A bigger collaboration (LIGO: 1,011) lists the first ones, the last
+ * and every corresponding author, numbered, with authors_total and a note (oxjob #1885: 1,011 authors overflowed the
+ * response and arrived as cut, invalid JSON).
+ */
+export const MAX_FULL_AUTHORS = 100;
+
 /** Leads every retracted record so the model cannot miss it (oxjob #1281). */
 export const RETRACTION_WARNING = "This work has been RETRACTED. Do not present it as valid evidence; if you mention it, say it was retracted.";
 
@@ -96,16 +103,28 @@ export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
   if (opts.full) {
     base.publication_date = w.publication_date ?? null;
     base.language = w.language ?? null;
-    base.authors = authorships.map((a) =>
+    const fullAuthor = (a: any, n?: number) =>
       compact({
+        n,
         name: a?.author?.display_name ?? a?.raw_author_name ?? null,
         id: shortId(a?.author?.id),
         orcid: a?.author?.orcid ? String(a.author.orcid).replace(/^https?:\/\/orcid\.org\//i, "") : null,
         position: a?.author_position ?? null,
         is_corresponding: a?.is_corresponding ? true : null,
         institutions: (a?.institutions ?? []).map((i: any) => i?.display_name).filter(Boolean),
-      })
-    );
+      });
+    if (authorships.length > MAX_FULL_AUTHORS) {
+      // Some records flag the whole byline corresponding: at most 10 more past the first 100.
+      const corresponding = authorships.flatMap((a, i) => (i >= MAX_FULL_AUTHORS && a?.is_corresponding ? [i] : [])).slice(0, 10);
+      const keep = [...new Set([...Array(MAX_FULL_AUTHORS).keys(), ...corresponding, authorships.length - 1])].sort((x, y) => x - y);
+      base.authors = keep.map((i) => fullAuthor(authorships[i], i + 1));
+      base.authors_total = authorships.length;
+      base.authors_note =
+        `Lists ${keep.length} of ${authorships.length} authors: the first ${MAX_FULL_AUTHORS}, the last and the corresponding author(s); n is each one's place in the byline. ` +
+        `To check whether someone else is an author, search_works with their author_ids and this work's id in raw_filter (ids.openalex:${shortId(w.id)}).`;
+    } else {
+      base.authors = authorships.map((a) => fullAuthor(a));
+    }
     base.abstract = abstractText;
     base.primary_topic = w.primary_topic
       ? compact({
@@ -129,7 +148,9 @@ export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
         ? `${w.biblio.first_page}-${w.biblio.last_page}`
         : w.biblio?.first_page ?? null;
     base.referenced_works_count = w.referenced_works_count ?? null;
-    base.citation_percentile = round(w.citation_normalized_percentile?.value);
+    // Unrounded: 0.99997717 rounded to 2 places printed as 1, which reads like the 1st percentile (oxjob #1885).
+    const percentile = w.citation_normalized_percentile?.value;
+    base.citation_percentile = Number.isFinite(percentile) ? percentile : null;
     base.funders = (w.funders ?? []).map((f: any) => f?.display_name).filter(Boolean);
     base.awards = (w.awards ?? [])
       .slice(0, 10)
@@ -138,9 +159,8 @@ export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
       .slice(0, 3)
       .map((s: any) => s?.display_name)
       .filter(Boolean);
-    base.citations_by_year = (w.counts_by_year ?? [])
-      .slice(0, 6)
-      .map((c: any) => ({ year: c.year, citations: c.cited_by_count }));
+    // Every year the API has (at most ~15 rows); a 6-year slice dropped a 2020 paper's biggest year (oxjob #1885).
+    base.citations_by_year = (w.counts_by_year ?? []).map((c: any) => ({ year: c.year, citations: c.cited_by_count }));
     base.related_works = (w.related_works ?? []).slice(0, 5).map((r: string) => shortId(r));
     base.pmid = w.ids?.pmid ? String(w.ids.pmid).replace(/^.*\//, "") : null;
     base.pmcid = w.ids?.pmcid ? String(w.ids.pmcid).replace(/^.*\//, "") : null;
@@ -182,7 +202,7 @@ export function shapeEntity(kind: EntityKind, e: any, full = false, requestedTop
         .reduce((sum: number, t: any) => sum + (typeof t.count === "number" ? t.count : 0), 0)
     : null;
   const countsByYear = full
-    ? (e.counts_by_year ?? []).slice(0, 6).map((c: any) => ({ year: c.year, works: c.works_count, citations: c.cited_by_count }))
+    ? (e.counts_by_year ?? []).map((c: any) => ({ year: c.year, works: c.works_count, citations: c.cited_by_count }))
     : undefined;
 
   switch (kind) {
@@ -282,8 +302,10 @@ export function shapeEntity(kind: EntityKind, e: any, full = false, requestedTop
 export const MAX_RESULT_CHARS = 80_000;
 
 /**
- * Serialize a payload whose `results` array may be shrunk to fit the budget.
- * Strategy: drop abstracts first, then trim results, and say so in `truncation_note`.
+ * Serialize a payload within the budget, always as valid JSON.
+ * A `results` list drops abstracts first, then trailing results. Anything still too big (one huge record, a long list
+ * elsewhere) goes to shrinkToFit. Serialized JSON is never sliced (oxjob #1885: a 1,011-author record was cut at
+ * 80,000 chars mid-author, so clients got invalid JSON).
  */
 export function serializeWithinBudget(payload: Record<string, any>, maxChars = MAX_RESULT_CHARS): string {
   let text = JSON.stringify(payload);
@@ -306,7 +328,56 @@ export function serializeWithinBudget(payload: Record<string, any>, maxChars = M
       p2 = { ...p2, results: noAbstracts, truncation_note: `Response trimmed to ${noAbstracts.length} results to fit the size limit; request fewer results per page or use paging.` };
       text = JSON.stringify(p2);
     }
-    return text;
   }
-  return text.slice(0, maxChars);
+  return shrinkToFit(text, maxChars);
+}
+
+type Spot = { path: string; holder: any; key: string | number; size: number; list: boolean };
+
+/** Every list (2+ items) and every text over 400 chars in a JSON value, with its serialized size. */
+function spots(value: any, path: string, holder: any, key: string | number, out: Spot[]) {
+  if (Array.isArray(value)) {
+    if (value.length > 1 && holder) out.push({ path, holder, key, size: JSON.stringify(value).length, list: true });
+    value.forEach((v, i) => spots(v, `${path}[${i}]`, value, i, out));
+  } else if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value)) spots(v, path ? `${path}.${k}` : k, value, k, out);
+  } else if (typeof value === "string" && value.length > 400 && holder) {   // a cut text ends near 200 chars, never picked again
+    out.push({ path, holder, key, size: value.length, list: false });
+  }
+}
+
+/**
+ * Shrink serialized JSON by structure until it fits maxChars: the biggest list keeps the share of its items that removes
+ * the excess, else the longest text is shortened by it; each cut is named in `truncation_note`. Valid JSON always.
+ * Shared by serializeWithinBudget and serializeCalculation.
+ */
+export function shrinkToFit(text: string, maxChars = MAX_RESULT_CHARS): string {
+  const p = JSON.parse(text);
+  const cuts = new Map<string, string>();   // path -> what was cut there
+  const originalLength = new Map<string, number>();
+  for (let step = 0; step < 200 && text.length > maxChars; step++) {
+    const found: Spot[] = [];
+    spots(p, "", null, "", found);
+    const big = found.reduce<Spot | undefined>((a, b) => (!a || b.size > a.size || (b.size === a.size && b.list) ? b : a), undefined);
+    if (!big) break;
+    const excess = text.length - maxChars + 300;   // + room for the note
+    if (big.list) {
+      const arr: any[] = big.holder[big.key];
+      if (!originalLength.has(big.path)) originalLength.set(big.path, arr.length);
+      arr.length = Math.max(1, Math.min(arr.length - 1, Math.floor((arr.length * Math.max(0, big.size - excess)) / big.size)));
+      cuts.set(big.path, `${big.path} keeps the first ${arr.length} of ${originalLength.get(big.path)}`);
+    } else {
+      const s: string = big.holder[big.key];
+      big.holder[big.key] = truncate(s, Math.max(200, s.length - excess));
+      cuts.set(big.path, `${big.path} shortened`);
+    }
+    const note = `Trimmed to fit the response size limit: ${[...cuts.values()].join("; ")}.`;
+    text = JSON.stringify({ ...p, truncation_note: [p.truncation_note, note].filter(Boolean).join(" ") });
+  }
+  if (text.length <= maxChars) return text;
+  // Nothing left to shrink by structure (an implausible shape): say so in valid JSON rather than send a fragment.
+  return JSON.stringify({
+    truncation_note: "The response was too large to return even after trimming; narrow the request.",
+    fields: Object.keys(p).slice(0, 50),
+  });
 }

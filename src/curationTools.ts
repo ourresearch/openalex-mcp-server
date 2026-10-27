@@ -9,6 +9,7 @@ import { OpenAlexClient, OpenAlexError, type ListResponse } from "./openalex";
 import { UsersApiClient, UsersApiError, type MeRecord, type CurationPayload, type CurationRow } from "./users";
 import { shortId, workPath } from "./ids";
 import { shapeWork, shapeEntity, compact } from "./shape";
+import { joinIds } from "./filters";
 import { nameTokens, buildLadderFilterValue, findMatchedAuthorship, fullMatchCount, LADDER_STEPS } from "./names";
 import { normalizeOrcid, fetchOrcidWorks, OrcidError } from "./orcid";
 import { toPayload, shapeCurationRow, pickAuthorship, coauthorNames, CurationItemError, type CurationItem } from "./curation";
@@ -289,7 +290,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
         sources: z.array(z.enum(["name", "orcid", "siblings"])).optional().describe("Which sources to run. Default: all that apply."),
         limit: z.number().int().min(1).max(50).optional().describe("Max works per source. Default 25."),
         institution_ids: z.array(z.string()).optional().describe("Narrow the name search to works with an author at these institutions (I…)."),
-        topic_ids: z.array(z.string()).optional().describe("Narrow the name search to these topics (T…)."),
+        any_topic_ids: z.array(z.string()).optional().describe("Narrow the name search to works that carry one of these topics (T…) among any of their topics, not only the primary one (a wide net for finding a person's works)."),
         from_year: z.number().int().min(1000).max(2100).optional(),
         to_year: z.number().int().min(1000).max(2100).optional(),
       },
@@ -308,7 +309,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
         const exclude = `authorships.author.id:!${aid}`;
         const extra: string[] = [];
         if (args.institution_ids?.length) extra.push(`authorships.institutions.lineage:${args.institution_ids.map((x) => shortId(x)).filter(Boolean).join("|")}`);
-        if (args.topic_ids?.length) extra.push(`topics.id:${args.topic_ids.map((x) => shortId(x)).filter(Boolean).join("|")}`);
+        const anyTopics = joinIds(args.any_topic_ids); if (anyTopics) extra.push(`topics.id:${anyTopics}`);
         if (args.from_year) extra.push(`from_publication_date:${args.from_year}-01-01`);
         if (args.to_year) extra.push(`to_publication_date:${args.to_year}-12-31`);
         const select = listSelect.join(",");
@@ -361,7 +362,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
             returned: Math.min(gated.length, limit),
             works: gated.slice(0, limit).map((w) => shapeCandidate(w, "name")),
           });
-          if (step1Count > COMMON_NAME_THRESHOLD) notes.push(`"${name}" is a very common byline (${step1Count.toLocaleString("en-US")} raw hits); narrow with institution_ids, topic_ids or years, or search alternate names.`);
+          if (step1Count > COMMON_NAME_THRESHOLD) notes.push(`"${name}" is a very common byline (${step1Count.toLocaleString("en-US")} raw hits); narrow with institution_ids, any_topic_ids or years, or search alternate names.`);
           if (total > 50) notes.push(`Name search returned ${total} raw hits; only the first 50 were gated and ranked. Narrow the search to see the rest.`);
         }
 

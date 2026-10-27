@@ -446,7 +446,7 @@ export function createServer(ctx: ServerContext): McpServer {
       title: "Get work",
       description:
         "Fetch the full record for one scholarly work by OpenAlex ID (W2741809807), DOI (10.7717/peerj.4375 or a doi.org URL), PMID, or PMCID. " +
-        "Returns all authors with affiliations and ORCIDs, the full abstract, venue, open-access links, topics, keywords, funding, citation counts by year, and related works.",
+        "Returns the authors with affiliations and ORCIDs (all of them up to 100; a bigger collaboration lists the first 100, the last and the corresponding authors, numbered, with authors_total), the full abstract, venue, open-access links, topics, keywords, funding, citations in every year the API counts, and related works.",
       inputSchema: { id: z.string().min(1).max(300).describe("OpenAlex work ID, DOI, PMID, or PMCID.") },
       annotations: { title: "Get work", ...READ_ONLY },
     },
@@ -574,7 +574,7 @@ export function createServer(ctx: ServerContext): McpServer {
         entity_type: entityEnum.describe("Which kind of entity to search."),
         query: z.string().max(500).optional().describe("Name or partial name, e.g. \"Jennifer Doudna\", \"MIT\", \"Nature Communications\", \"CRISPR\". Optional when filters are given."),
         institution_ids: z.array(z.string()).optional().describe("authors: current institution (includes child institutions). institutions: restrict to these or their children."),
-        topic_ids: z.array(z.string()).optional().describe("authors/sources/institutions: only those with works in these topics (T…)."),
+        topic_ids: z.array(z.string()).optional().describe("authors/sources/institutions: only those with works carrying these topics (T…) among any of their topics; works_in_topic counts those works (the any_topic_ids meaning in the works tools, not their primary-topic topic_ids)."),
         country: z.string().length(2).optional().describe("ISO country code: authors (current institution), institutions, sources, funders, publishers."),
         type: z.string().max(40).optional().describe("institutions: education, healthcare, company, government, nonprofit, facility, funder, archive, other. sources: journal, repository, conference, ebook platform, book series."),
         has_orcid: z.boolean().optional().describe("authors: only profiles with an ORCID."),

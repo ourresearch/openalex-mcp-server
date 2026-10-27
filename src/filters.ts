@@ -35,7 +35,9 @@ export const workFilterShape = {
   source_ids: z.array(z.string()).optional()
     .describe("OpenAlex source (journal/repository) IDs (e.g. S137773608)."),
   topic_ids: z.array(z.string()).optional()
-    .describe("OpenAlex topic IDs (e.g. T10102)."),
+    .describe("OpenAlex topic IDs (e.g. T10102), any of them (OR): works whose PRIMARY topic is one of these. Same meaning as OQL's `in the topic`, group_by topic and analyze_works top_topics. For works that carry the topic among any of their (up to 3) topics, use any_topic_ids."),
+  any_topic_ids: z.array(z.string()).optional()
+    .describe("OpenAlex topic IDs (OR): works that carry one of these among ANY of their topics, primary or not (typically ~3x as many works as topic_ids). OQL: `where topics is (T10102)`."),
   keyword_ids: z.array(z.string()).optional()
     .describe("OpenAlex keyword ids (e.g. microplastics, human-health), any of them (OR). Find them with find_keywords. Keywords widen a text search; they do not replace it."),
   funder_ids: z.array(z.string()).optional()
@@ -80,7 +82,9 @@ export function buildWorkFilter(args: WorkFilterArgs, extra: string[] = []): str
   const a = joinIds(args.author_ids); if (a) parts.push(`authorships.author.id:${a}`);
   const i = joinIds(args.institution_ids); if (i) parts.push(`authorships.institutions.lineage:${i}`);
   const s = joinIds(args.source_ids); if (s) parts.push(`primary_location.source.id:${s}`);
-  const t = joinIds(args.topic_ids); if (t) parts.push(`topics.id:${t}`);
+  // One meaning of "topic" across the tools: the primary topic, as OQL, group_by and a topic's works_count use (#1885).
+  const t = joinIds(args.topic_ids); if (t) parts.push(`primary_topic.id:${t}`);
+  const anyT = joinIds(args.any_topic_ids); if (anyT) parts.push(`topics.id:${anyT}`);
   const kw = (args.keyword_ids ?? []).map(keywordSlug).filter(Boolean);
   if (kw.length) parts.push(`keywords.id:${kw.join("|")}`);
   const f = joinIds(args.funder_ids); if (f) parts.push(`funders.id:${f}`);

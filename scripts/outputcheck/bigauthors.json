@@ -1,0 +1,258 @@
+{
+ "examples": [
+  "10.1103/physrevlett.116.061102",
+  "W2798336535"
+ ],
+ "top50": [
+  {
+   "id": "W3092849554",
+   "title": "Global burden of 369 diseases and injuries in 204 countries and territories, 1990\u20132019: a systematic analysis for the Global Burden of Disease Study 2019",
+   "cited_by_count": 19316
+  },
+  {
+   "id": "W2104549677",
+   "title": "A global reference for human genetic variation",
+   "cited_by_count": 18217
+  },
+  {
+   "id": "W2259938310",
+   "title": "An integrated encyclopedia of DNA elements in the human genome",
+   "cited_by_count": 18053
+  },
+  {
+   "id": "W2252795400",
+   "title": "Observation of Gravitational Waves from a Binary Black Hole Merger",
+   "cited_by_count": 14220
+  },
+  {
+   "id": "W2912654919",
+   "title": "Global, regional, and national incidence, prevalence, and years lived with disability for 354 diseases and injuries for 195 countries and territories, 1990\u20132017: a systematic analysis for the Global Burden of Disease Study 2017",
+   "cited_by_count": 13863
+  },
+  {
+   "id": "W2751884637",
+   "title": "Global, regional, and national incidence, prevalence, and years lived with disability for 328 diseases and injuries for 195 countries, 1990\u20132016: a systematic analysis for the Global Burden of Disease Study 2016",
+   "cited_by_count": 13221
+  },
+  {
+   "id": "W3113178943",
+   "title": "Global Burden of Cardiovascular Diseases and Risk Factors, 1990\u20132019",
+   "cited_by_count": 11419
+  },
+  {
+   "id": "W1858542512",
+   "title": "Observation of a new particle in the search for the Standard Model Higgs boson with the ATLAS detector at the LHC",
+   "cited_by_count": 10519
+  },
+  {
+   "id": "W2167727518",
+   "title": "Observation of a new boson at a mass of 125 GeV with the CMS experiment at the LHC",
+   "cited_by_count": 9884
+  },
+  {
+   "id": "W3092861045",
+   "title": "Global burden of 87 risk factors in 204 countries and territories, 1990\u20132019: a systematic analysis for the Global Burden of Disease Study 2019",
+   "cited_by_count": 9836
+  },
+  {
+   "id": "W2765081049",
+   "title": "GW170817: Observation of Gravitational Waves from a Binary Neutron Star Inspiral",
+   "cited_by_count": 9471
+  },
+  {
+   "id": "W2899736836",
+   "title": "Global, regional, and national age-sex-specific mortality for 282 causes of death in 195 countries and territories, 1980\u20132017: a systematic analysis for the Global Burden of Disease Study 2017",
+   "cited_by_count": 8598
+  },
+  {
+   "id": "W2798336535",
+   "title": "Gaia Data Release 2",
+   "cited_by_count": 8422
+  },
+  {
+   "id": "W3197233575",
+   "title": "Global, regional, and national burden of stroke and its risk factors, 1990\u20132019: a systematic analysis for the Global Burden of Disease Study 2019",
+   "cited_by_count": 8010
+  },
+  {
+   "id": "W1617145133",
+   "title": "Global, regional, and national comparative risk assessment of 79 behavioural, environmental and occupational, and metabolic risks or clusters of risks, 1990\u20132015: a systematic analysis for the Global Burden of Disease Study 2015",
+   "cited_by_count": 7699
+  },
+  {
+   "id": "W2762689525",
+   "title": "Worldwide trends in body-mass index, underweight, overweight, and obesity from 1975 to 2016: a pooled analysis of 2416 population-based measurement studies in 128\u00b79 million children, adolescents, and adults",
+   "cited_by_count": 7485
+  },
+  {
+   "id": "W2527824850",
+   "title": "Global, regional, and national incidence, prevalence, and years lived with disability for 310 diseases and injuries, 1990\u20132015: a systematic analysis for the Global Burden of Disease Study 2015",
+   "cited_by_count": 7252
+  },
+  {
+   "id": "W147232447",
+   "title": "The Gaia mission",
+   "cited_by_count": 6940
+  },
+  {
+   "id": "W2614986146",
+   "title": "Global, regional, and national life expectancy, all-cause mortality, and cause-specific mortality for 249 causes of death, 1980\u20132015: a systematic analysis for the Global Burden of Disease Study 2015",
+   "cited_by_count": 6592
+  },
+  {
+   "id": "W2098082628",
+   "title": "Global, regional, and national incidence, prevalence, and years lived with disability for 301 acute and chronic diseases and injuries in 188 countries, 1990\u20132013: a systematic analysis for the Global Burden of Disease Study 2013",
+   "cited_by_count": 6416
+  },
+  {
+   "id": "W2787553551",
+   "title": "Global surveillance of trends in cancer survival 2000\u201314 (CONCORD-3): analysis of individual records for 37 513 025 patients diagnosed with one of 18 cancers from 322 population-based registries in 71 countries",
+   "cited_by_count": 6139
+  },
+  {
+   "id": "W2752326209",
+   "title": "Guidelines for the use and interpretation of assays for monitoring autophagy (3rd edition)",
+   "cited_by_count": 5890
+  },
+  {
+   "id": "W2796207838",
+   "title": "The Immune Landscape of Cancer",
+   "cited_by_count": 5863
+  },
+  {
+   "id": "W2754967293",
+   "title": "Global, regional, and national burden of neurological disorders, 1990\u20132016: a systematic analysis for the Global Burden of Disease Study 2016",
+   "cited_by_count": 5632
+  },
+  {
+   "id": "W2151512268",
+   "title": "The CMS experiment at the CERN LHC",
+   "cited_by_count": 5478
+  },
+  {
+   "id": "W4394894573",
+   "title": "Global incidence, prevalence, years lived with disability (YLDs), disability-adjusted life-years (DALYs), and healthy life expectancy (HALE) for 371 diseases and injuries in 204 countries and territories and 811 subnational locations, 1990\u20132021: a systematic analysis for the Global Burden of Disease Study 2021",
+   "cited_by_count": 5081
+  },
+  {
+   "id": "W2899773405",
+   "title": "Global, regional, and national comparative risk assessment of 84 behavioural, environmental and occupational, and metabolic risks or clusters of risks for 195 countries and territories, 1990\u20132017: a systematic analysis for the Global Burden of Disease Study 2017",
+   "cited_by_count": 4939
+  },
+  {
+   "id": "W2753051611",
+   "title": "Global, regional, and national age-sex specific mortality for 264 causes of death, 1980\u20132016: a systematic analysis for the Global Burden of Disease Study 2016",
+   "cited_by_count": 4826
+  },
+  {
+   "id": "W4381799391",
+   "title": "Global, regional, and national burden of diabetes from 1990 to 2021, with projections of prevalence to 2050: a systematic analysis for the Global Burden of Disease Study 2021",
+   "cited_by_count": 4721
+  },
+  {
+   "id": "W3111590711",
+   "title": "Safety and efficacy of the ChAdOx1 nCoV-19 vaccine (AZD1222) against SARS-CoV-2: an interim analysis of four randomised controlled trials in Brazil, South Africa, and the UK",
+   "cited_by_count": 4616
+  },
+  {
+   "id": "W2039153962",
+   "title": "Genetic studies of body mass index yield new insights for obesity biology",
+   "cited_by_count": 4530
+  },
+  {
+   "id": "W2338167986",
+   "title": "Worldwide trends in diabetes since 1980: a pooled analysis of 751 population-based studies with 4\u00b74 million participants",
+   "cited_by_count": 4308
+  },
+  {
+   "id": "W2766840380",
+   "title": "Multi-messenger Observations of a Binary Neutron Star Merger *",
+   "cited_by_count": 4259
+  },
+  {
+   "id": "W4281694390",
+   "title": "Gaia Data Release 3",
+   "cited_by_count": 4206
+  },
+  {
+   "id": "W4211046286",
+   "title": "The ATLAS Experiment at the CERN Large Hadron Collider",
+   "cited_by_count": 4161
+  },
+  {
+   "id": "W2751792491",
+   "title": "Global, regional, and national disability-adjusted life-years (DALYs) for 359 diseases and injuries and healthy life expectancy (HALE) for 195 countries and territories, 1990\u20132017: a systematic analysis for the Global Burden of Disease Study 2017",
+   "cited_by_count": 4086
+  },
+  {
+   "id": "W2164778558",
+   "title": "Guidelines for the use and interpretation of assays for monitoring autophagy",
+   "cited_by_count": 3997
+  },
+  {
+   "id": "W4213259675",
+   "title": "Gaia Early Data Release 3",
+   "cited_by_count": 3929
+  },
+  {
+   "id": "W3193823764",
+   "title": "Worldwide trends in hypertension prevalence and progress in treatment and control from 1990 to 2019: a pooled analysis of 1201 population-representative studies with 104 million participants",
+   "cited_by_count": 3895
+  },
+  {
+   "id": "W4402557213",
+   "title": "Global burden of bacterial antimicrobial resistance 1990\u20132021: a systematic analysis with forecasts to 2050",
+   "cited_by_count": 3857
+  },
+  {
+   "id": "W2795989238",
+   "title": "An Integrated TCGA Pan-Cancer Clinical Data Resource to Drive High-Quality Survival Outcome Analytics",
+   "cited_by_count": 3705
+  },
+  {
+   "id": "W2889517514",
+   "title": "Alcohol use and burden for 195 countries and territories, 1990\u20132016: a systematic analysis for the Global Burden of Disease Study 2016",
+   "cited_by_count": 3525
+  },
+  {
+   "id": "W2971836485",
+   "title": "GWTC-1: A Gravitational-Wave Transient Catalog of Compact Binary Mergers Observed by LIGO and Virgo during the First and Second Observing Runs",
+   "cited_by_count": 3519
+  },
+  {
+   "id": "W2766754978",
+   "title": "Gravitational Waves and Gamma-Rays from a Binary Neutron Star Merger: GW170817 and GRB 170817A",
+   "cited_by_count": 3507
+  },
+  {
+   "id": "W3004480399",
+   "title": "The repertoire of mutational signatures in human cancer",
+   "cited_by_count": 3491
+  },
+  {
+   "id": "W2437571239",
+   "title": "GW151226: Observation of Gravitational Waves from a 22-Solar-Mass Binary Black Hole Coalescence",
+   "cited_by_count": 3435
+  },
+  {
+   "id": "W4234856688",
+   "title": "Advanced LIGO",
+   "cited_by_count": 3364
+  },
+  {
+   "id": "W2492141817",
+   "title": "COLLABORATIVE OVERVIEW OF RANDOMIZED TRIALS OF ANTIPLATELET THERAPY .1. PREVENTION OF DEATH, MYOCARDIAL-INFARCTION, AND STROKE BY PROLONGED ANTIPLATELET THERAPY IN VARIOUS CATEGORIES OF PATIENTS",
+   "cited_by_count": 3322
+  },
+  {
+   "id": "W2796153225",
+   "title": "Oncogenic Signaling Pathways in The Cancer Genome Atlas",
+   "cited_by_count": 3188
+  },
+  {
+   "id": "W2948612418",
+   "title": "Dulaglutide and cardiovascular outcomes in type 2 diabetes (REWIND): a double-blind, randomised placebo-controlled trial",
+   "cited_by_count": 3152
+  }
+ ]
+}
