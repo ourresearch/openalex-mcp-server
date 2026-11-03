@@ -13,6 +13,7 @@ import {
 } from "./filters";
 import { extractDoi } from "./text";
 import { matchFreeText } from "./references";
+import type { SameWorkJudge } from "./sameWork";
 import { pool } from "./pool";
 import { oqlHasSearch, oqlHasGroupBy, oqlHasSample, OQL_GROUP_DIMS, oqlIsPipeline, oqlHasCalculate, oqlAddSample, oqlAddGroupBy, prepareAnyOql, queryEcho } from "./oql";
 import { registerCalculateTools, PIPELINE_GUIDE } from "./calculateTools";
@@ -116,6 +117,8 @@ export interface ServerContext {
   /** keywordSearch (oxjob #1469): find_keywords + keyword_search, on once keywords are fully in the works index (#1456). */
   /** alertTools (oxjob #1509): list/create/update/delete_alert, on once users-api serves /me/saved-searches. */
   features?: { findExperts?: boolean; keywordSearch?: boolean; alertTools?: boolean };
+  /** Decides which candidate a free-text reference cites (oxjob #1330: Jev); without it the title score decides. */
+  sameWork?: SameWorkJudge;
   onToolCall?: (info: { tool: string; ok: boolean; ms: number; credits: number; status?: number }) => void;
 }
 
@@ -467,7 +470,7 @@ export function createServer(ctx: ServerContext): McpServer {
       description:
         "Check up to 25 references against OpenAlex in one call and report what each one matched. " +
         "Each item may be a DOI, PMID, OpenAlex ID, or a free-text citation (e.g. \"Piwowar et al. (2018) The state of OA. PeerJ\"). " +
-        "IDs are looked up exactly; free-text citations are matched on title with a confidence rating (exact, likely, uncertain, none). " +
+        "IDs are looked up exactly; free-text citations are matched on title with a confidence rating (exact, likely, uncertain, none) and match_p, the probability that the matched work is the one cited. " +
         "Use it to verify a bibliography, detect fabricated or garbled citations, fill in missing DOIs, or turn a reading list into OpenAlex IDs.",
       inputSchema: {
         references: z.array(z.string().min(3).max(600)).min(1).max(25).describe("Citations to resolve, one per item."),
@@ -503,7 +506,7 @@ export function createServer(ctx: ServerContext): McpServer {
               throw e;
             }
           }
-          const m = await matchFreeText(client, input, LIST_SELECT.join(","));
+          const m = await matchFreeText(client, input, LIST_SELECT.join(","), ctx.sameWork);
           return annotate(compact({ input, ...m, work: m.work ? shapeWork(m.work) : undefined }), m.work);
         };
         // Eight at a time: a free-text reference can take up to five searches, and keys have a per-second cap.

@@ -13,6 +13,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { createServer, SERVER_NAME, SERVER_VERSION } from "./server";
 import { OpenAlexClient } from "./openalex";
 import { UsersApiClient } from "./users";
+import { jevJudge } from "./sameWork";
 import {
   type AuthEnv, type GrantProps, SCOPE, storePending, takePending, consentUrl, exchangeCode, ExchangeError,
   grantIdOf, keyLabel,
@@ -33,6 +34,8 @@ export interface Env extends AuthEnv, SentryEnv {
   ALERT_TOOLS?: string;
   /** ChatGPT plugin-directory domain verification token (oxjob #1294); served verbatim at /.well-known/openai-apps-challenge. */
   OPENAI_APPS_CHALLENGE?: string;
+  /** Jev (TypeSafe), which decides resolve_references' free-text matches (oxjob #1330); unset = the title score decides. */
+  TYPESAFE_API_KEY?: string;
   ANALYTICS?: AnalyticsEngineDataset;
 }
 
@@ -225,6 +228,7 @@ async function handleMcp(c: any) {
       usersApiReady: Boolean(personalKey),
     },
     features: { findExperts: env.FIND_EXPERTS === "true", keywordSearch: env.KEYWORD_SEARCH === "true", alertTools: env.ALERT_TOOLS === "true" },
+    sameWork: env.TYPESAFE_API_KEY ? jevJudge(env.TYPESAFE_API_KEY) : undefined,
     onToolCall: (info) => {
       try {
         env.ANALYTICS?.writeDataPoint({

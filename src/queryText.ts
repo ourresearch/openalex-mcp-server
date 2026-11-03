@@ -28,6 +28,7 @@ import { CHAT_EFFORT, CHAT_MODEL, publicPreview, runChat, runOql, type ChatEvent
 import { frontDoor } from "./frontDoor";
 import { HELP_EFFORT, HELP_MODEL, helpDesk, routeQuestion, type RouteResult } from "./router";
 import { OpenAlexClient } from "./openalex";
+import { JEV_URL, JEV_MODEL } from "./sameWork";
 
 export interface QueryWriterEnv {
   ENVIRONMENT?: string;
@@ -56,8 +57,6 @@ export const MAX_QUERY_CHARS = 20000;
 /** The person's institution, which goes into the agent's system prompt. */
 export const MAX_INSTITUTION_ID_CHARS = 100;
 export const MAX_INSTITUTION_NAME_CHARS = 300;
-export const JEV_URL = "https://api.typesafe.ai/v1/systemone";
-export const JEV_MODEL = "jev-1.13.0";
 export const JEV_USD_PER_INPUT_TOKEN = 0.042 / 1e6;
 
 const VERIFY_INSTRUCTIONS =

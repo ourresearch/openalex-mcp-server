@@ -1,0 +1,427 @@
+[
+ {
+  "id": "cr:3",
+  "citation": "Panikarovskii E. V., Panikarovskii V. V., Anashkina A. E. Vankor oil field development experience. Oil and Gas Studies. 2019;(1):47-51. (In Russ.)",
+  "candidates": [
+   {
+    "id": "W2929607092",
+    "doi": "10.31660/0445-0108-2019-1-47-51",
+    "title": "Vankor oil field development experience",
+    "year": 2019,
+    "authors": [
+     "Evgeny V. Panikarovskii",
+     "Valentin V. Panikarovskii",
+     "Alexandra E. Anashkina"
+    ],
+    "n_authors": 3,
+    "venue": "Oil and Gas Studies",
+    "type": "article"
+   }
+  ],
+  "request": {
+   "model": "jev-1.13.0",
+   "state": {
+    "citation": "Panikarovskii E. V., Panikarovskii V. V., Anashkina A. E. Vankor oil field development experience. Oil and Gas Studies. 2019;(1):47-51. (In Russ.)",
+    "citation_year": 2019,
+    "candidates": [
+     {
+      "key": "c1",
+      "title": "Vankor oil field development experience",
+      "authors": [
+       "Evgeny V. Panikarovskii",
+       "Valentin V. Panikarovskii",
+       "Alexandra E. Anashkina"
+      ],
+      "n_authors": 3,
+      "year": 2019,
+      "venue": "Oil and Gas Studies",
+      "type": "article"
+     }
+    ]
+   },
+   "questions": {
+    "cited_work": {
+     "type": "choice",
+     "instructions": "`citation` is a reference-list entry or CV line written by a person. `candidates` are bibliographic records from a scholarly index. Which candidate is the work the citation refers to? A preprint, accepted manuscript or reprint of the same work counts as the same work. A different work with a similar title, or the same title by different authors or in a different venue/year, does not. Author names may be formatted differently (order, initials, diacritics), venues abbreviated, years off by one.",
+     "criteria": {
+      "c1": "candidate c1",
+      "none": "none of the candidates is the cited work",
+      "unknown": "cannot tell from the information given"
+     }
+    }
+   }
+  }
+ },
+ {
+  "id": "p1254:0",
+  "citation": "[12] Chen T and Bobbert PA et al., \"1/f Noise and Machine Intelligence in a Nonlinear Dopant Atom Network,\" Small Science, 2021.",
+  "candidates": [
+   {
+    "id": "W4233359910",
+    "doi": "10.1002/smsc.202170006",
+    "title": "1/f Noise and Machine Intelligence in a Nonlinear Dopant Atom Network",
+    "year": 2021,
+    "authors": [
+     "Tao Chen",
+     "Peter A. Bobbert",
+     "Wilfred G. van der Wiel"
+    ],
+    "n_authors": 3,
+    "venue": "Small Science",
+    "type": "article"
+   }
+  ],
+  "request": {
+   "model": "jev-1.13.0",
+   "state": {
+    "citation": "[12] Chen T and Bobbert PA et al., \"1/f Noise and Machine Intelligence in a Nonlinear Dopant Atom Network,\" Small Science, 2021.",
+    "citation_year": 2021,
+    "candidates": [
+     {
+      "key": "c1",
+      "title": "1/f Noise and Machine Intelligence in a Nonlinear Dopant Atom Network",
+      "authors": [
+       "Tao Chen",
+       "Peter A. Bobbert",
+       "Wilfred G. van der Wiel"
+      ],
+      "n_authors": 3,
+      "year": 2021,
+      "venue": "Small Science",
+      "type": "article"
+     }
+    ]
+   },
+   "questions": {
+    "cited_work": {
+     "type": "choice",
+     "instructions": "`citation` is a reference-list entry or CV line written by a person. `candidates` are bibliographic records from a scholarly index. Which candidate is the work the citation refers to? A preprint, accepted manuscript or reprint of the same work counts as the same work. A different work with a similar title, or the same title by different authors or in a different venue/year, does not. Author names may be formatted differently (order, initials, diacritics), venues abbreviated, years off by one.",
+     "criteria": {
+      "c1": "candidate c1",
+      "none": "none of the candidates is the cited work",
+      "unknown": "cannot tell from the information given"
+     }
+    }
+   }
+  }
+ },
+ {
+  "id": "cv:0",
+  "citation": "Prasetyo, R., Fathorrahman, F., Pradiani, T. (2025). Pengaruh Gaya Kepemimpinan, Karakteristik Individu, Lingkungan Kerja, dan Beban Kerja Terhadap Kinerja Karyawan PT. United Tractors Tbk Site Tabang Kabupaten Kutai Kartanegara. Al Qalam Jurnal Ilmiah Keagamaan dan Kemasyarakatan.",
+  "candidates": [
+   {
+    "id": "W4406995919",
+    "doi": "10.35931/aq.v19i1.4366",
+    "title": "Pengaruh Gaya Kepemimpinan, Karakteristik Individu, Lingkungan Kerja, dan Beban Kerja Terhadap Kinerja Karyawan PT. United Tractors Tbk Site Tabang Kabupaten Kutai Kartanegara",
+    "year": 2025,
+    "authors": [
+     "Reynaldy Prasetyo",
+     "Fathorrahman Fathorrahman",
+     "Theresia Pradiani"
+    ],
+    "n_authors": 3,
+    "venue": "Al Qalam Jurnal Ilmiah Keagamaan dan Kemasyarakatan",
+    "type": "article"
+   }
+  ],
+  "request": {
+   "model": "jev-1.13.0",
+   "state": {
+    "citation": "Prasetyo, R., Fathorrahman, F., Pradiani, T. (2025). Pengaruh Gaya Kepemimpinan, Karakteristik Individu, Lingkungan Kerja, dan Beban Kerja Terhadap Kinerja Karyawan PT. United Tractors Tbk Site Tabang Kabupaten Kutai Kartanegara. Al Qalam Jurnal Ilmiah Keagamaan dan Kemasyarakatan.",
+    "citation_year": 2025,
+    "candidates": [
+     {
+      "key": "c1",
+      "title": "Pengaruh Gaya Kepemimpinan, Karakteristik Individu, Lingkungan Kerja, dan Beban Kerja Terhadap Kinerja Karyawan PT. United Tractors Tbk Site Tabang Kabupaten Kutai Kartanegara",
+      "authors": [
+       "Reynaldy Prasetyo",
+       "Fathorrahman Fathorrahman",
+       "Theresia Pradiani"
+      ],
+      "n_authors": 3,
+      "year": 2025,
+      "venue": "Al Qalam Jurnal Ilmiah Keagamaan dan Kemasyarakatan",
+      "type": "article"
+     }
+    ]
+   },
+   "questions": {
+    "cited_work": {
+     "type": "choice",
+     "instructions": "`citation` is a reference-list entry or CV line written by a person. `candidates` are bibliographic records from a scholarly index. Which candidate is the work the citation refers to? A preprint, accepted manuscript or reprint of the same work counts as the same work. A different work with a similar title, or the same title by different authors or in a different venue/year, does not. Author names may be formatted differently (order, initials, diacritics), venues abbreviated, years off by one.",
+     "criteria": {
+      "c1": "candidate c1",
+      "none": "none of the candidates is the cited work",
+      "unknown": "cannot tell from the information given"
+     }
+    }
+   }
+  }
+ },
+ {
+  "id": "fake:1",
+  "citation": "2017. Intra-Articular Injection of in randomized clinical trial. Canadian Journal of Anesthesia/Journal canadien d anesthésie.",
+  "candidates": [
+   {
+    "id": "W2919999424",
+    "doi": "10.1002/sctm.18-0122",
+    "title": "Intra-Articular Injection of Autologous Adipose Tissue-Derived Mesenchymal Stem Cells for the Treatment of Knee Osteoarthritis: A Phase IIb, Randomized, Placebo-Controlled Clinical Trial",
+    "year": 2019,
+    "authors": [
+     "Woo-Suk Lee",
+     "Hwan Jin Kim",
+     "Kang-Il Kim",
+     "Gi Beom Kim",
+     "Wook Jin"
+    ],
+    "n_authors": 5,
+    "venue": "Stem Cells Translational Medicine",
+    "type": "article"
+   },
+   {
+    "id": "W2947662386",
+    "doi": "10.1186/s13287-019-1248-3",
+    "title": "Treatment of knee osteoarthritis with intra-articular injection of autologous adipose-derived mesenchymal progenitor cells: a prospective, randomized, double-blind, active-controlled, phase IIb clinical trial",
+    "year": 2019,
+    "authors": [
+     "Liangjing Lu",
+     "Chengxiang Dai",
+     "Zhongwen Zhang",
+     "Hui Du",
+     "Suke Li",
+     "Ping Ye"
+    ],
+    "n_authors": 14,
+    "venue": "Stem Cell Research & Therapy",
+    "type": "article"
+   },
+   {
+    "id": "W2508922037",
+    "doi": "10.1186/s12967-016-0998-2",
+    "title": "Intra-articular injection of two different doses of autologous bone marrow mesenchymal stem cells versus hyaluronic acid in the treatment of knee osteoarthritis: multicenter randomized controlled clinical trial (phase I/II)",
+    "year": 2016,
+    "authors": [
+     "José M. Lamo-Espinosa",
+     "Gonzalo Mora",
+     "Juan F. Blanco",
+     "Froilán Granero-Moltó",
+     "Jorge M. Nuñez-Córdoba",
+     "Carmen Sánchez-Echenique"
+    ],
+    "n_authors": 16,
+    "venue": "Journal of Translational Medicine",
+    "type": "article"
+   },
+   {
+    "id": "W2275858856",
+    "doi": "10.1016/j.jse.2015.11.009",
+    "title": "Intra-articular injection, subacromial injection, and hydrodilatation for primary frozen shoulder: a randomized clinical trial",
+    "year": 2016,
+    "authors": [
+     "Jong Pil Yoon",
+     "Seok Won Chung",
+     "Ju-Eun Kim",
+     "Hyung Sup Kim",
+     "Hyun-Joo Lee",
+     "Won-Ju Jeong"
+    ],
+    "n_authors": 10,
+    "venue": "Journal of Shoulder and Elbow Surgery",
+    "type": "article"
+   },
+   {
+    "id": "W2913911683",
+    "doi": "10.1007/s00402-019-03140-8",
+    "title": "Intra-articular injection of mesenchymal stem cells for clinical outcomes and cartilage repair in osteoarthritis of the knee: a meta-analysis of randomized controlled trials",
+    "year": 2019,
+    "authors": [
+     "Seong Hwan Kim",
+     "Chul-Won Ha",
+     "Yong-Beom Park",
+     "Eunwoo Nam",
+     "Jung-Eun Lee",
+     "Han-Jun Lee"
+    ],
+    "n_authors": 6,
+    "venue": "Archives of Orthopaedic and Trauma Surgery",
+    "type": "review"
+   }
+  ],
+  "request": {
+   "model": "jev-1.13.0",
+   "state": {
+    "citation": "2017. Intra-Articular Injection of in randomized clinical trial. Canadian Journal of Anesthesia/Journal canadien d anesthésie.",
+    "citation_year": 2017,
+    "candidates": [
+     {
+      "key": "c1",
+      "title": "Intra-Articular Injection of Autologous Adipose Tissue-Derived Mesenchymal Stem Cells for the Treatment of Knee Osteoarthritis: A Phase IIb, Randomized, Placebo-Controlled Clinical Trial",
+      "authors": [
+       "Woo-Suk Lee",
+       "Hwan Jin Kim",
+       "Kang-Il Kim",
+       "Gi Beom Kim",
+       "Wook Jin"
+      ],
+      "n_authors": 5,
+      "year": 2019,
+      "venue": "Stem Cells Translational Medicine",
+      "type": "article"
+     },
+     {
+      "key": "c2",
+      "title": "Treatment of knee osteoarthritis with intra-articular injection of autologous adipose-derived mesenchymal progenitor cells: a prospective, randomized, double-blind, active-controlled, phase IIb clinical trial",
+      "authors": [
+       "Liangjing Lu",
+       "Chengxiang Dai",
+       "Zhongwen Zhang",
+       "Hui Du",
+       "Suke Li",
+       "Ping Ye"
+      ],
+      "n_authors": 14,
+      "year": 2019,
+      "venue": "Stem Cell Research & Therapy",
+      "type": "article"
+     },
+     {
+      "key": "c3",
+      "title": "Intra-articular injection of two different doses of autologous bone marrow mesenchymal stem cells versus hyaluronic acid in the treatment of knee osteoarthritis: multicenter randomized controlled clinical trial (phase I/II)",
+      "authors": [
+       "José M. Lamo-Espinosa",
+       "Gonzalo Mora",
+       "Juan F. Blanco",
+       "Froilán Granero-Moltó",
+       "Jorge M. Nuñez-Córdoba",
+       "Carmen Sánchez-Echenique"
+      ],
+      "n_authors": 16,
+      "year": 2016,
+      "venue": "Journal of Translational Medicine",
+      "type": "article"
+     },
+     {
+      "key": "c4",
+      "title": "Intra-articular injection, subacromial injection, and hydrodilatation for primary frozen shoulder: a randomized clinical trial",
+      "authors": [
+       "Jong Pil Yoon",
+       "Seok Won Chung",
+       "Ju-Eun Kim",
+       "Hyung Sup Kim",
+       "Hyun-Joo Lee",
+       "Won-Ju Jeong"
+      ],
+      "n_authors": 10,
+      "year": 2016,
+      "venue": "Journal of Shoulder and Elbow Surgery",
+      "type": "article"
+     },
+     {
+      "key": "c5",
+      "title": "Intra-articular injection of mesenchymal stem cells for clinical outcomes and cartilage repair in osteoarthritis of the knee: a meta-analysis of randomized controlled trials",
+      "authors": [
+       "Seong Hwan Kim",
+       "Chul-Won Ha",
+       "Yong-Beom Park",
+       "Eunwoo Nam",
+       "Jung-Eun Lee",
+       "Han-Jun Lee"
+      ],
+      "n_authors": 6,
+      "year": 2019,
+      "venue": "Archives of Orthopaedic and Trauma Surgery",
+      "type": "review"
+     }
+    ]
+   },
+   "questions": {
+    "cited_work": {
+     "type": "choice",
+     "instructions": "`citation` is a reference-list entry or CV line written by a person. `candidates` are bibliographic records from a scholarly index. Which candidate is the work the citation refers to? A preprint, accepted manuscript or reprint of the same work counts as the same work. A different work with a similar title, or the same title by different authors or in a different venue/year, does not. Author names may be formatted differently (order, initials, diacritics), venues abbreviated, years off by one.",
+     "criteria": {
+      "c1": "candidate c1",
+      "c2": "candidate c2",
+      "c3": "candidate c3",
+      "c4": "candidate c4",
+      "c5": "candidate c5",
+      "none": "none of the candidates is the cited work",
+      "unknown": "cannot tell from the information given"
+     }
+    }
+   }
+  }
+ },
+ {
+  "id": "fake:3",
+  "citation": "Paget E, Dimanche F, Mounet J. A tourism innovation in a DCDS processor. arXiv (Cornell University). 2010.",
+  "candidates": [
+   {
+    "id": "W7128528530",
+    "doi": "10.65527/5qgq3-q7r53",
+    "title": "arXiv zieht um … und bleibt an der Cornell University",
+    "year": 2018,
+    "authors": [
+     "Esther Tobschall"
+    ],
+    "n_authors": 1,
+    "venue": null,
+    "type": "other"
+   },
+   {
+    "id": "W7128515399",
+    "doi": "10.65527/5nwpw-jqv83",
+    "title": "arXiv zieht um … und bleibt an der Cornell University",
+    "year": 2018,
+    "authors": [
+     "Esther Tobschall"
+    ],
+    "n_authors": 1,
+    "venue": null,
+    "type": "other"
+   }
+  ],
+  "request": {
+   "model": "jev-1.13.0",
+   "state": {
+    "citation": "Paget E, Dimanche F, Mounet J. A tourism innovation in a DCDS processor. arXiv (Cornell University). 2010.",
+    "citation_year": 2010,
+    "candidates": [
+     {
+      "key": "c1",
+      "title": "arXiv zieht um … und bleibt an der Cornell University",
+      "authors": [
+       "Esther Tobschall"
+      ],
+      "n_authors": 1,
+      "year": 2018,
+      "venue": null,
+      "type": "other"
+     },
+     {
+      "key": "c2",
+      "title": "arXiv zieht um … und bleibt an der Cornell University",
+      "authors": [
+       "Esther Tobschall"
+      ],
+      "n_authors": 1,
+      "year": 2018,
+      "venue": null,
+      "type": "other"
+     }
+    ]
+   },
+   "questions": {
+    "cited_work": {
+     "type": "choice",
+     "instructions": "`citation` is a reference-list entry or CV line written by a person. `candidates` are bibliographic records from a scholarly index. Which candidate is the work the citation refers to? A preprint, accepted manuscript or reprint of the same work counts as the same work. A different work with a similar title, or the same title by different authors or in a different venue/year, does not. Author names may be formatted differently (order, initials, diacritics), venues abbreviated, years off by one.",
+     "criteria": {
+      "c1": "candidate c1",
+      "c2": "candidate c2",
+      "none": "none of the candidates is the cited work",
+      "unknown": "cannot tell from the information given"
+     }
+    }
+   }
+  }
+ }
+]

@@ -13,12 +13,17 @@
  */
 import type { OpenAlexClient, ListResponse } from "./openalex";
 import { titleCoverage, queryCoverage, extractYear, guessSurnames, titleHypotheses, contentTokens, venueness, venueCoverage, tokenKey, mainTitle } from "./text";
+import { MAX_CANDIDATES, type SameWorkJudge, type SameWorkAnswer } from "./sameWork";
 
 export type MatchLabel = "exact" | "likely" | "uncertain" | "none";
 
 /** Fields in the order resolve_references prints them; matched_on is set only when there was a candidate. */
 export interface FreeTextMatch {
   match: MatchLabel;
+  /** Jev's probability that the closest candidate is the cited work (oxjob #1330); absent when the score decided. */
+  match_p?: number;
+  /** Who decided the match: Jev, or the title/year/author score when Jev was unavailable. */
+  matcher?: "jev" | "heuristic";
   matched_on?: "title";
   title_overlap?: number;
   year_consistent?: boolean | null;
@@ -123,6 +128,11 @@ function label(best: Scored): MatchLabel {
   return "none";
 }
 
+/** Jev's probability as a label: the bands #1318 measured (in-band precision 0.98 / 0.93 / 0.64; oxjob #1330). */
+function labelFromP(p: number): MatchLabel {
+  return p >= 0.9 ? "exact" : p >= 0.7 ? "likely" : p >= 0.5 ? "uncertain" : "none";
+}
+
 /**
  * Two records of one work (years within one, no author disagreeing, one title the other's main title or the same
  * title): when the best match is the weaker record, answer with the stronger one. Weaker: a review or front matter,
@@ -170,7 +180,7 @@ async function search(client: OpenAlexClient, queries: Query[], select: string):
 
 const q = (text: string, extra = "", per_page = PER_PAGE): Query => ({ filter: `title.search:${text.replace(/,/g, " ")}${extra}`, per_page });
 
-export async function matchFreeText(client: OpenAlexClient, input: string, select: string): Promise<FreeTextMatch> {
+export async function matchFreeText(client: OpenAlexClient, input: string, select: string, judge?: SameWorkJudge): Promise<FreeTextMatch> {
   const hyps = titleHypotheses(input, 3);
   const first = hyps[0]!;
   const main = mainTitle(first);
@@ -206,11 +216,24 @@ export async function matchFreeText(client: OpenAlexClient, input: string, selec
     scored = scoreCandidates(input, guesses, [...seen.values()]);
   }
   if (!anyOk && failure) throw failure;
-  const best = scored[0];
-  if (!best) return { match: "none", work: null, note: "No work in OpenAlex has a similar title." };
-  const match = label(best);
+  if (!scored[0]) return { match: "none", work: null, note: "No work in OpenAlex has a similar title." };
+  // Jev picks among the five best-scored candidates that aren't vetoed (oxjob #1330); the score above only
+  // decides when Jev can't answer. Either way canonical() then prefers the cited work's own record.
+  let best = scored[0];
+  let match = label(best);
+  let jev: SameWorkAnswer | null = null;
+  if (judge) {
+    const shown = scored.filter((s) => !s.vetoed).slice(0, MAX_CANDIDATES);
+    jev = shown.length ? await judge(input, year, shown.map((s) => s.w)) : null;
+    if (jev) {
+      best = shown[jev.best]!;
+      match = jev.picked ? labelFromP(jev.p) : "none";
+    }
+  }
   return {
     match,
+    match_p: jev ? Number(jev.p.toFixed(2)) : undefined,
+    matcher: jev ? "jev" : "heuristic",
     matched_on: "title",
     title_overlap: Number(best.precision.toFixed(2)),
     year_consistent: best.yearOk,
