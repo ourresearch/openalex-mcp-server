@@ -240,7 +240,7 @@ export async function matchFreeText(client: OpenAlexClient, input: string, selec
     author_consistent: best.authorOk,
     work: match === "none" ? null : canonical(input, best, scored),
     note: match === "none"
-      ? "Closest title in OpenAlex is not a convincing match; the reference may be garbled or fabricated."
+      ? "Closest title in OpenAlex is not a convincing match: the work may be missing from OpenAlex (a famous book is sometimes held only as reviews of it), or the reference garbled or fabricated."
       : match === "uncertain" ? "Partial title match; check the author list and year before trusting it." : undefined,
   };
 }
