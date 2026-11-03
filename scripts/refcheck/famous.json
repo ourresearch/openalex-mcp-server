@@ -126,8 +126,10 @@
  },
  {
   "ref": "Cohen J. Statistical Power Analysis for the Behavioral Sciences. 2nd ed. Hillsdale, NJ: Lawrence Erlbaum; 1988.",
-  "accept_title": "Statistical Power Analysis for the Behavioral Sciences",
-  "note": "book: many OpenAlex records (mostly reviews) carry its title; any of them is right"
+  "accept_ids": [
+   "W4299627282"
+  ],
+  "note": "the book record (2nd edition, Routledge reprint dated 2013); the book-review records that carry its title (W2037124948, W4300870773, ...) are not the cited work (ai-agent-access 2026-10-26 rule line; oxjob #1330 changed this from 'any title match is right')"
  },
  {
   "ref": "Piwowar H et al. The state of open access: a large scale analysis of the prevalance and impact of open access articles. PeerJ 2018.",
@@ -142,7 +144,7 @@
  },
  {
   "ref": "Bourdieu P. Distinction: A Social Critique of the Judgement of Taste. Cambridge, MA: Harvard University Press; 1984.",
-  "accept_title": "Distinction: A Social Critique of the Judgement of Taste",
-  "note": "book: many OpenAlex records (mostly reviews) carry its title; any of them is right"
+  "expect": "none",
+  "note": "OpenAlex holds no record of the book (3 Nov 2026): reviews of it (W4300998844, MLN 1985) and a 2018 anthology chapter excerpting it (W1533200881); neither is the cited work (ai-agent-access 2026-10-26 rule line; oxjob #1330 changed this from 'any title match is right')"
  }
 ]
