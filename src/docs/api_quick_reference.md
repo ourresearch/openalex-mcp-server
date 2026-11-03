@@ -129,6 +129,8 @@ corpus=         - core (default) | expansion | all — which works corpus to que
 ?filter=publication_year:2020-2024
 ```
 
+Every filter is free except the four sync filters: `from_created_date`, `from_updated_date`, `to_created_date`, `to_updated_date` (and sorting by `created_date` or `updated_date`). They show what changed, and keeping up to date is the paid service (daily sync, Member+ and Partner plans); without one they return `429 "Plan upgrade required"`. The data itself is free: see [Sync](/access/sync/).
+
 ## Common Filter Fields
 
 ### Works

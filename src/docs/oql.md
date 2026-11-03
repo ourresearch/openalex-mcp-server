@@ -77,7 +77,7 @@ get [University of British Columbia](I141945490)'s open access articles since 20
 
 Years read in words, right after the type: `since 2020` (2020 or later), `from 2022` (that year), `before 2010` (2009 or earlier), `from 2018–2025` (both included). Full dates work the same way when you need them: `get works from 2020-10-01 through 2021-09-30 about kelp`. In a table split by year, the years go after `by year` instead: `get the count of [University of Florida](I33213144)'s works by year since 2004`.
 
-`added since` (when OpenAlex added the work; needs a paid plan) goes after `where`: `get [Massachusetts Institute of Technology](I63966007)'s works where added since 2026-10-01`.
+`added since` (when OpenAlex added the work; needs a Member+ or Partner plan, like the API's [sync filters](/api/filtering/#sync-filters-member-and-partner)) goes after `where`: `get [Massachusetts Institute of Technology](I63966007)'s works where added since 2026-10-01`.
 
 ### What it's about: searching
 
