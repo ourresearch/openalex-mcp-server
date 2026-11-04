@@ -98,7 +98,10 @@ export function buildWorkFilter(args: WorkFilterArgs, extra: string[] = []): str
 }
 
 /** Semantic search rejects a couple of filters; fail early with a clear message. */
-export function assertSemanticCompatible(args: WorkFilterArgs) {
+export function assertSemanticCompatible(args: WorkFilterArgs & { sort?: string }) {
+  // The API refuses these with semantic search since oxjob #2003 (it used to ignore them); say so before the call.
+  if (args.sort && args.sort !== "relevance")
+    throw new Error(`sort=${args.sort} is not supported with semantic search, which always lists the closest matches by meaning first. Use keyword mode to sort by ${args.sort}.`);
   if (args.min_citations !== undefined && args.min_citations > 0)
     throw new Error("min_citations is not supported with semantic search. Use keyword mode, or drop the citation floor and sort afterwards.");
   if (args.countries?.length)

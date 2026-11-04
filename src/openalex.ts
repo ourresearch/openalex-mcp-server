@@ -224,6 +224,13 @@ export class OpenAlexClient {
     if (res.status === 403) {
       throw new OpenAlexError(`OpenAlex refused this request for ${this.keyLabel} (HTTP 403)${apiMessage ? `: ${apiMessage}` : "."}`, 403, undefined, false, body);
     }
+    if (res.status === 504 && body?.reason === "api_slow") {
+      // The proxy's 504 for a request narrowing can't help (a record lookup, semantic search): OpenAlex was slow (#2003).
+      throw new OpenAlexError(
+        `OpenAlex was slow to answer and stopped waiting${apiMessage ? `: ${apiMessage}` : "."} Retry in a minute.`,
+        504, 60, true
+      );
+    }
     if (res.status === 504 || body?.reason === "query_timeout") {
       throw new OpenAlexError(
         "The query took too long and OpenAlex stopped it. Narrow it: fewer OR terms, add a year or type filter, or use keyword mode instead of semantic.",

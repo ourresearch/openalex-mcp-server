@@ -280,7 +280,7 @@ export function createServer(ctx: ServerContext): McpServer {
         mode: modeSchema,
         search_in: searchInSchema,
         sort: z.enum(["relevance", "cited_by_count", "publication_date", "fwci"]).optional()
-          .describe("Sort order, descending. Default: relevance when there is a query, otherwise cited_by_count."),
+          .describe("Sort order, descending. Default: relevance when there is a query, otherwise cited_by_count. Semantic mode takes relevance only."),
         rerank: z.boolean().optional().describe("Relevance-sorted searches are reranked by default: the top 100 results are reordered by how well each work answers the query, so the first page holds the most on-topic works. Result 101 onward keeps the normal relevance order, and pages never repeat or skip a work. Costs twice a plain search. false = plain relevance order. Ignored for other sorts and semantic mode."),
         limit: z.number().int().min(1).max(50).optional().describe("Results per page, 1-50. Default 15."),
         page: z.number().int().min(1).max(200).optional().describe("Page number. Default 1."),

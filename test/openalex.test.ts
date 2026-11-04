@@ -82,3 +82,21 @@ describe("oql_style (previews the API's new-form echo before its flip, #1555)", 
     expect(urls[5]).not.toContain("oql_style");
   });
 });
+
+describe("the proxy's 504 (oxjob #2003)", () => {
+  it("says OpenAlex was slow, never to narrow, when the proxy says api_slow", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(504, { error: "Gateway timeout", reason: "api_slow", message: "This lookup of a single record didn't get an answer within 9 seconds." })));
+    const c = new OpenAlexClient({ apiKey: "k", keyLabel: "your personal OpenAlex key" });
+    const err = await c.get("/works/W2741809807").catch((e) => e);
+    expect(err).toMatchObject({ status: 504, transient: true });
+    expect(err.message).toMatch(/slow/);
+    expect(err.message).not.toMatch(/Narrow/);
+  });
+
+  it("keeps the narrow-it advice for a query timeout", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(504, { error: "Gateway timeout", reason: "query_timeout", message: "a very broad search" })));
+    const c = new OpenAlexClient({ apiKey: "k", keyLabel: "your personal OpenAlex key" });
+    const err = await c.get("/works").catch((e) => e);
+    expect(err.message).toMatch(/Narrow it/);
+  });
+});

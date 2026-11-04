@@ -129,6 +129,9 @@ describe("buildWorkFilter", () => {
     expect(() => assertSemanticCompatible({ min_citations: 5 })).toThrow(/min_citations/);
     expect(() => assertSemanticCompatible({ countries: ["US"] })).toThrow(/countries/);
     expect(() => assertSemanticCompatible({ from_year: 2020 })).not.toThrow();
+    // oxjob #2003: the API refuses a sort with semantic search; say so before the call
+    expect(() => assertSemanticCompatible({ sort: "publication_date" })).toThrow(/keyword mode/);
+    expect(() => assertSemanticCompatible({ sort: "relevance" })).not.toThrow();
   });
 });
 
