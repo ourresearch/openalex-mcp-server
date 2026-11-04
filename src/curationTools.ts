@@ -58,7 +58,7 @@ const authorShort = (id: string | null | undefined): string | null => {
 /** Why curation `id` may not be cancelled here, or null when it is the user's own pending curation on their claimed profile. */
 function cancelRefusal(id: string, row: CurationRow, userId: string, aid: string): string | null {
   if (!row || row.user_id !== userId) return `Curation ${id} is not one of yours; only your own curations can be cancelled.`;
-  // users-api labels a pending row older than 7 days "timed_out" (display only; it can still apply), so both are unapplied.
+  // users-api labels a pending row older than 7 days, once checked, "timed_out" (display only; it can still apply), so both are unapplied (oxjob #2009).
   if (row.status !== "pending" && row.status !== "timed_out") return `Curation ${id} is ${row.status}, not pending; only pending curations can be cancelled. To undo it, submit the opposite action.`;
   const target = row.entity === "works" ? authorShort(row.value) : row.entity === "authors" ? authorShort(row.entity_id) : null;
   if (target !== aid) return `Curation ${id} is not on your claimed profile ${aid}.`;
@@ -470,7 +470,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
       description:
         "Submit corrections to the user's claimed author profile as OpenAlex curations, up to 100 per call: add_work (attach a byline on a work to the profile), remove_work (detach the profile from a work), " +
         "set_display_name, set_full_name (the name used to match future works), set_orcid, remove_orcid, and cancel (withdraw a pending curation). " +
-        "Every correction is reversible by the opposite action and each item succeeds or fails on its own. " +
+        "Every correction is reversible by the opposite action, even while the first is still pending (the newest correction for an item wins), and each item succeeds or fails on its own. " +
         "Only submit what the user has agreed to: propose removes and adds with the evidence first, ask about anything that does not clearly fit. " +
         "Adds are capped at 1,000 per rolling 24 hours. " + LATENCY_NOTE,
       inputSchema: {
@@ -560,7 +560,8 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
     {
       title: "List my curations",
       description:
-        "The corrections this account has submitted and their status: pending (waiting for the nightly refresh), applied (live), superseded (a newer correction to the same item, by this user or someone else, superseded it, so it will never apply; superseded_by names that correction), or timed_out (not seen live after a week; rechecked daily). " +
+        "The corrections this account has submitted and their status: pending (waiting: submitted under a week ago, or not checked yet), applied (seen live once; a later correction to the same item can change it), superseded (a newer correction to the same item, by this user or someone else, replaced it, so it will never apply; superseded_by names that correction), or timed_out (over a week old and checked, but not seen live yet; not an error, checks continue and it can still apply). " +
+        "Unapplied = pending plus timed_out. " +
         "Each row carries a plain-language description. Use it to report progress or to find a curation_id to cancel.",
       inputSchema: {
         status: z.array(z.enum(["pending", "applied", "superseded", "timed_out"])).optional().describe("Only these statuses. Default: all."),
