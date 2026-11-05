@@ -65,11 +65,11 @@ OQL has two ways to write a statement:
 - comparing one thing against the rest, or conditions, searches or periods side by side (`compare country [India](IN) versus country is not [India](IN)`); named things side by side are a table (`by country in ([United States](US), [China](CN))`);
 - walks (each author of a set, then all their works);
 - number bins, samples, and three splits;
-- splits by continent, institution type, source type, license, keyword or global south, and by corresponding institution;
+- splits by continent, institution type, source type, license, keyword or global south;
 - numbers outside the sentence's list (`mean reference count`, `min date`, `percent global south`), and counts of distinct things (`summarize all those authors using count`);
-- a filter on the groups by a number other than the count (`where mean FWCI of those works is at least 2`);
-- groups chosen by own fields a split can't say (`last known institution`, `co-author is not`, `institution type`);
-- a corpus other than the core (`(all corpora)`).
+- a filter on the groups by a number other than the count (`where mean FWCI of those works is at least 2`).
+
+A split's own fields and a corpus are in the sentence: `get the count of works about kelp by author where last known institution is [University of British Columbia](I141945490)`, `get works (all corpora) about kelp, most cited first`.
 
 ```
 get works where published since 2015; then, compare country [India](IN) versus country is not [India](IN) using count and mean FWCI
@@ -114,7 +114,7 @@ Lists and tables describe their works with the same words. The parts go in this 
 | 2 | Yes/no words | `open access`, `closed access`, `retracted`, `non-retracted`, `top 1% cited`, `top 10% cited` |
 | 3 | The type | `works`, `articles`, `reviews`, `preprints`, `books`, `book chapters`, `datasets`, `conference papers`, `dissertations`, `editorials`, `letters`, `reports`; `all works` in a table when nothing else narrows them |
 | 4 | Time | `since 2020`, `from 2022`, `before 2010`, `through 2010`, `from 2018–2025`; dates `since 2021-06-01`, `through 2021-09-30`, `from 2020-10-01 through 2021-09-30` |
-| 5 | Searches | `about kelp`; `with kelp in the title`, `in the abstract`, `in the full text`, `in the title or abstract` |
+| 5 | Searches | `about kelp`; `with kelp in the title`, `in the abstract`, `in the title, abstract, or full text`, `in the title or abstract` |
 | 6 | Citations | `citing [W](W2741809807)`, `cited by [W](W2741809807)`, `citing works in the collection [C](col_8yWKmRNyEr)` |
 | 7 | Places | `from [Kenya](KE)`, `from [Africa](Q15)`, `from A or B`, `from both A and B`, `from all of A, B, and C`; `co-authored with [institution]` |
 | 8 | People | `by [Jason R Priem](A5023888391)`, `co-authored by A and B`, `with [A](A5023888391) as corresponding author` |
@@ -134,7 +134,7 @@ Rules the echo follows:
 - **`co-authored with`** replaces `from` for an institution when the table splits by institution: `get the count of works since 2015 co-authored with [Christian-Albrechts-Universität zu Kiel](I32021983) by company`.
 - **Time.** Years are whole years: `year > 2019` echoes `since 2020`; a closed range uses an en dash (`from 2018–2025`). Full dates appear only when the query carries them. In a table split by year, the time follows `by year` instead (`by year since 2000`).
 - **Searches** go in the order about, title, abstract, full text, title or abstract.
-- **Kinds.** `in [X]` alone means a source (a journal or repository). Every other value whose kind isn't obvious names it: `SDG`, `the topic`, `the subfield`, `the field`, `the domain`, `the collection`, `the ... license`. A role other than an entity's default names its key (`with [A](A5023888391) as corresponding author`).
+- **Kinds.** `in [X]` alone means a source (a journal or repository). Input is generous: `from` and `in` read either way for a place, an institution or a source (`get works in [Austria](AT)`, `from [Nature](S137773608)`), and the echo writes the word above. Every other value whose kind isn't obvious names it: `SDG`, `the topic`, `the subfield`, `the field`, `the domain`, `the collection`, `the ... license`. A role other than an entity's default names its key (`with [A](A5023888391) as corresponding author`).
 - **Lists of values.** Several institutions, countries, sources or funders that any work may match read `A or B`. Works that must match all of several places read `from both A and B` or `from all of A, B, and C`.
 - **Work titles** in `citing` and `cited by` are cut at a word boundary within 48 characters, with an ellipsis: `get works citing [The state of OA: a large-scale analysis of the…](W2741809807)`. The ID is what counts.
 - **`where`** holds only what the phrase can't say: an `or` across fields, nested groups, negations, and fields with no phrase. The easy parts stay in the phrase.
@@ -158,6 +158,8 @@ get <things>[ <parts>][ <own thresholds>][ where <own-field conditions>][, <orde
 | Any other own field | `where <conditions>` | `get institutions where city is Vienna` |
 
 `at [X]` reads each author's own record (the institutions on their profile, with years), not the papers' affiliations. Bare `at [X]` means any year; a window is written out (`at [X] since 2022`). OpenAlex's best guess at where an author is now is the field `last known institution`.
+
+An institution includes its child organizations (a university's labs and institutes) in `at [X]`, `last known institution` and works' `institution`; `exact last known institution` and `exact institution` mean that institution only.
 
 ### Numbers
 
@@ -220,7 +222,7 @@ get the count of works about kelp by author. Only authors with at least 20 works
 ```
 
 - The words: `Only <things> with <more than | at least | fewer than | at most> <N> <works phrase>.`
-- `<things>` is the plural of a split by things in the table.
+- `<things>` is the plural of a split by things in the table, or `corresponding authors` / `corresponding institutions` for those splits (a count only: `Only corresponding authors with at least 10 works about kelp.`).
 - The works phrase is the table's own; the echo writes it out in full (`Only authors with at least 20 works.` echoes with `about kelp`). A count over other works is refused.
 - A threshold on an own field folds into the split: `Only authors with an h-index above 50.` echoes as `by author with an h-index above 50`.
 
@@ -413,7 +415,7 @@ get works where title has kelp or abstract has urchin
 
 - **The search string is portable**, as a systematic review would report it: capital `AND`, `OR` and `NOT`, parentheses for grouping. One word or one quoted phrase needs no parentheses; anything more does. Lowercase `and`, `or`, `not` and `&` work in a search string, and the echo writes capitals.
 - **Two or more bare words need parentheses or quotes** after `has`: `title has climate change` is refused, because a reserved word could otherwise be swallowed silently.
-- **Places:** `about` searches the title, the abstract and the keywords. A `with ... in the ...` phrase searches one place: `the title`, `the abstract`, `the full text` (title, abstract and full text), `the title or abstract`. After `where`, searches name their field: `title has`, `abstract has`, `title-abstract has`, `title-abstract-keywords has`, `full text has`, `raw affiliation has`, `byline has`.
+- **Places:** `about` searches the title, the abstract and the keywords. A `with ... in the ...` phrase searches one place: `the title`, `the abstract`, `the title, abstract, or full text` (the broad search, `search=`; `the full text` still reads as it), `the title or abstract`. After `where`, searches name their field: `title has`, `abstract has`, `title-abstract has`, `title-abstract-keywords has`, `full text has`, `raw affiliation has`, `byline has`.
 - **On `raw affiliation` and `byline`**, a quoted phrase and a proximity window each stay within one affiliation or one byline.
 - **Semantic search:** `title-abstract is similar to ("ocean acidification effects on coral reefs")` searches by meaning and returns the 50 closest works. It takes exactly one quoted passage. `title` and `abstract` take it too.
 - **OQL never adds words.** No synonyms, no expansions: the search is exactly the string.
@@ -600,9 +602,10 @@ The summary is always the last step. Its measures:
 | Measure | Meaning |
 |---|---|
 | `count` | how many |
-| `mean`, `median`, `sum`, `min`, `max` + a number field | over the works: `mean reference count`, `sum citation count`; `min` and `max` also of a date (`min date`) |
+| `mean`, `median`, `sum`, `min`, `max` + a number field | over the works: `mean reference count`, `max citation count`; `min` and `max` also of a date (`min date`) |
 | `percent` + a yes/no field | the rate: `percent open access`, `percent global south` |
-| `percent of those works` | each group's slice of its parent set |
+| `share` | each group's slice of its parent set (`percent of those works` still reads) |
+| the sentence's names | one word per concept across the two forms: `mean citations`, `median citations`, `sum of citations`, `sum of APCs paid`, `percent with a DOI`, `percent with an abstract`, `percent with full text` (the echo writes these) |
 | a thing's own field | after a split by things: `h-index` |
 
 A bare field is not a measure: `summarize using authors count` is refused with the fix `mean authors count`.
@@ -649,7 +652,7 @@ OQL's text never hides a condition the query carries, with these exceptions: sen
 | Default | What it means |
 |---|---|
 | `about` | searches the title, the abstract and the keywords |
-| The core corpus | every query runs on OpenAlex's core corpus; the general form's `(all corpora)` or `(expansion corpus)`, or `include_xpac=true` on the API, adds the rest |
+| The core corpus | every query runs on OpenAlex's core corpus; `(all corpora)` or `(expansion corpus)` after the works noun (`get works (all corpora) about kelp`), or `include_xpac=true` on the API, adds the rest |
 | Authors with works | lists of authors leave out authors with no works |
 | Sub-units count | `from [institution]` and `[institution]'s works` include its sub-units (a university's hospitals and institutes) |
 | Primary topic | `in the topic / subfield / field / domain` and splits by them use each work's primary topic, not every topic it has |
@@ -856,7 +859,7 @@ only          ::= 'Only' thingNoun 'with' countWords NUMBER works '.'
 countWords    ::= 'more than' | 'at least' | 'fewer than' | 'at most'
 
 /* ---------- The works phrase, in canonical order ---------- */
-works         ::= possessive? adjective* typeNoun time? search* citing* place*
+works         ::= possessive? adjective* typeNoun corpus? time? search* citing* place*
                   people? role? sits* published? funded? license?
                   ( 'where' conditions )?
 
@@ -872,7 +875,7 @@ time          ::= ( 'since' | 'from' | 'before' | 'through' ) YEAR
                 | 'from' DATE 'through' DATE
 search        ::= 'about' searchString
                 | 'with' searchString 'in' searchPlace
-searchPlace   ::= 'the title' | 'the abstract' | 'the full text' | 'the title or abstract'
+searchPlace   ::= 'the title' | 'the abstract' | 'the title, abstract, or full text' | 'the full text' | 'the title or abstract'
 citing        ::= 'citing' link | 'cited by' link | 'citing works in the collection' link
 place         ::= 'from' link ( 'or' link )*
                 | 'from both' link 'and' link
@@ -1037,7 +1040,8 @@ measures      ::= measure | measure 'and' measure | measure ( ',' measure )+ ','
 measure       ::= 'count'
                 | ( 'mean' | 'median' | 'sum' | 'min' | 'max' ) field
                 | 'percent' field
-                | 'percent of those works'
+                | 'share'                       /* 'percent of those works' still reads */
+                | sentenceName                  /* 'mean citations', 'sum of citations', 'percent with a DOI', ... */
                 | ownField
 
 sampleStep    ::= 'sample' NUMBER 'of those works' ( 'with seed' ( NUMBER | WORD ) )?
