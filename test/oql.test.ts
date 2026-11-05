@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeOql, oqlHasSearch, oqlHasGroupBy, oqlHasSample, oneLine, reproduceUrl } from "../src/oql";
+import { normalizeOql, oqlHasSearch, oqlHasGroupBy, oqlHasSample, oneLine, reproduceUrl, queryEcho } from "../src/oql";
 
 describe("oql helpers", () => {
   it("prefixes bare where-clauses", () => {
@@ -220,5 +220,20 @@ describe("new-form sentences", () => {
   it("run as written when the API can't read them (it reports its own error)", async () => {
     const api = { async checkOql(): Promise<any> { return { validation: { valid: false, errors: [{ message: "bad" }] } }; } };
     expect(await sentenceInTodaysForm(api, "get the frobs of works")).toEqual({ oql: "get the frobs of works" });
+  });
+});
+
+describe("queryEcho", () => {
+  it("shows the sentence with its names, as the website does (oxjob #1555)", () => {
+    const xq = { oql: "get (I63966007)'s works with kelp in the title",
+      x_new_oql: "get [Massachusetts Institute of Technology](I63966007)'s works\n  with kelp in the title" };
+    const echo = queryEcho({ meta: { x_query: xq } });
+    expect(echo.oql).toBe("get [Massachusetts Institute of Technology](I63966007)'s works with kelp in the title");
+    expect(echo.reproduce_url).toContain(encodeURIComponent("[Massachusetts Institute of Technology](I63966007)"));
+  });
+  it("falls back to oql when there is no new form", () => {
+    expect(queryEcho({ meta: { x_query: { oql: "works where year is (2020)" } } }).oql).toBe("works where year is (2020)");
+    expect(queryEcho({ meta: { x_query: { oql: "x", x_new_oql: null } } }).oql).toBe("x");
+    expect(queryEcho({ meta: {} })).toEqual({});
   });
 });

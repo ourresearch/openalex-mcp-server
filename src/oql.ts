@@ -147,9 +147,12 @@ export function reproduceUrl(oql: string | null | undefined): string | null {
   return o ? "https://api.openalex.org/?oql=" + encodeURIComponent(o) : null;
 }
 
-/** Canonical OQL echo (one line) and a URL that reruns it, from a list response. */
+/** Canonical OQL echo (one line) and a URL that reruns it, from a list response: the sentence with its
+ *  names (x_new_oql, `get [MIT](I63966007)'s works ...`), as the website shows it; `oql` names no one
+ *  (`get (I63966007)'s works ...`) and is the fallback (oxjob #1555). */
 export function queryEcho(data: { meta?: any }): { oql?: string; reproduce_url?: string | null } {
-  const oql = oneLine(data?.meta?.x_query?.oql);
+  const xq = data?.meta?.x_query;
+  const oql = oneLine(xq?.x_new_oql) ?? oneLine(xq?.oql);
   return oql ? { oql, reproduce_url: reproduceUrl(oql) } : {};
 }
 
