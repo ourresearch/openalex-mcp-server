@@ -560,11 +560,12 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
     {
       title: "List my curations",
       description:
-        "The corrections this account has submitted and their status: pending (waiting: submitted under a week ago, or not checked yet), applied (seen live once; a later correction to the same item can change it), superseded (a newer correction to the same item, by this user or someone else, replaced it, so it will never apply; superseded_by names that correction), or timed_out (over a week old and checked, but not seen live yet; not an error, checks continue and it can still apply). " +
+        "The corrections this account has submitted and their status: pending (waiting: submitted under a week ago, or not checked yet), applied (seen live once; a later correction to the same item can change it), superseded (a newer correction to the same item, by this user or someone else, replaced it, so it will never apply; superseded_by names that correction), timed_out (over a week old and checked, but not seen live yet; not an error, checks continue and it can still apply), or not_applied (the nightly data build will not apply it as it stands and the data does not show it: walden.reason says why, e.g. work_merged, work_deleted, name_not_on_byline, profile_deleted; closed, but it turns applied by itself if a later build serves it). " +
+        "Rows the nightly build has seen carry walden: {outcome, reason, detail, effect_live, run_date}; detail names the work a merged work became or the correction that won. " +
         "Unapplied = pending plus timed_out. " +
         "Each row carries a plain-language description. Use it to report progress or to find a curation_id to cancel.",
       inputSchema: {
-        status: z.array(z.enum(["pending", "applied", "superseded", "timed_out"])).optional().describe("Only these statuses. Default: all."),
+        status: z.array(z.enum(["pending", "applied", "superseded", "not_applied", "timed_out"])).optional().describe("Only these statuses. Default: all."),
         entity: z.enum(["works", "authors"]).optional().describe("works = add/remove work curations; authors = name and ORCID changes."),
         limit: z.number().int().min(1).max(100).optional().describe("Rows per page. Default 25."),
         page: z.number().int().min(1).max(1000).optional(),
@@ -584,7 +585,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
           page: args.page ?? 1,
         });
         const rows = data.results.map(shapeCurationRow);
-        const counts = { pending: 0, applied: 0, superseded: 0, timed_out: 0 } as Record<string, number>;
+        const counts = { pending: 0, applied: 0, superseded: 0, not_applied: 0, timed_out: 0 } as Record<string, number>;
         for (const r of rows) counts[r.status] = (counts[r.status] ?? 0) + 1;
         return ok(compact({
           total: data.meta.total_count,

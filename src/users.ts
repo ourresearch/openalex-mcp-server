@@ -60,11 +60,19 @@ export interface CurationRow {
   previous_value?: string | null;
   action: "add" | "remove" | "replace";
   created: string | null;
-  status: "pending" | "applied" | "superseded" | "timed_out";
+  status: "pending" | "applied" | "superseded" | "not_applied" | "timed_out";
   is_applied: boolean;
   applied_at: string | null;
   /** The newer curation that superseded this one; set only when status is "superseded" (oxjob #1458). */
   superseded_by?: string | null;
+  /** What the nightly data build did with this curation in its latest receipt (oxjob #2007); null before the first one. */
+  walden?: {
+    outcome: "applied" | "outranked" | "ignored_by_policy" | "target_gone" | "unsupported" | "unexplained";
+    reason: string | null;
+    detail: string | null;
+    effect_live: boolean | null;
+    run_date: string | null;
+  } | null;
 }
 
 /** A saved search and its alert, as /me/saved-searches returns it (oxjob #1509). */

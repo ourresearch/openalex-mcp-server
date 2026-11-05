@@ -91,6 +91,8 @@ export function shapeCurationRow(row: CurationRow) {
     created: row.created ? String(row.created).slice(0, 19) : undefined,
     applied_at: row.applied_at ? String(row.applied_at).slice(0, 19) : undefined,
     superseded_by: row.superseded_by ?? undefined,
+    // Why a curation is not_applied (or what the nightly build serves for an applied one), from its receipt (oxjob #2007).
+    walden: row.walden ?? undefined,
   };
 }
 

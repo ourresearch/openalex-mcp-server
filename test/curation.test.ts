@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toPayload, describeCuration, pickAuthorship, coauthorNames, profileSummary, CurationItemError } from "../src/curation";
+import { toPayload, describeCuration, shapeCurationRow, pickAuthorship, coauthorNames, profileSummary, CurationItemError } from "../src/curation";
 import { normalizeOrcid, parseOrcidWorks } from "../src/orcid";
 
 const A = "A5023888391";
@@ -87,5 +87,19 @@ describe("orcid", () => {
     }] };
     expect(parseOrcidWorks(body)).toEqual([{ put_code: 7, title: "The state of OA", year: 2018, type: "journal-article", doi: "10.7717/peerj.4375", pmid: "29456894", external_ids: [{ type: "doi", value: "10.7717/peerj.4375" }, { type: "pmid", value: "29456894" }] }]);
     expect(parseOrcidWorks({})).toEqual([]);
+  });
+});
+
+describe("shapeCurationRow", () => {
+  it("passes the nightly build's receipt through, so a not_applied row says why (oxjob #2007)", () => {
+    const walden = { outcome: "target_gone" as const, reason: "work_merged", detail: null, effect_live: false, run_date: "2026-11-05" };
+    const row = shapeCurationRow({
+      id: "cur-1", user_id: "U1", entity: "works", entity_id: "https://openalex.org/W1", value: "https://openalex.org/A1",
+      property: 'authorships[raw_author_name="Ada Lovelace"].author.id', action: "replace", created: "2026-11-01T00:00:00",
+      status: "not_applied", is_applied: false, applied_at: null, walden,
+    });
+    expect(row.status).toBe("not_applied");
+    expect(row.walden).toEqual(walden);
+    expect(shapeCurationRow({ ...row, user_id: "U1", is_applied: false, applied_at: null, created: null, walden: null } as any).walden).toBeUndefined();
   });
 });
