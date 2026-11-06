@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { abstractFromInvertedIndex, shapeWork, shapeEntity, serializeWithinBudget, truncate } from "../src/shape";
-import { buildWorkFilter, assertSemanticCompatible } from "../src/filters";
+import { buildWorkFilter, assertSemanticCompatible, workFilterShape, WORK_TYPES } from "../src/filters";
 import { normalizeWorkId, normalizeEntityId, shortId, idList, workPath, entityPath, InvalidIdError } from "../src/ids";
 
 describe("abstractFromInvertedIndex", () => {
@@ -124,6 +124,12 @@ describe("buildWorkFilter", () => {
   it("topic_ids is the primary topic (as OQL and group_by); any_topic_ids is any of them (oxjob #1885)", () => {
     expect(buildWorkFilter({ topic_ids: ["https://openalex.org/T10878", "T10102"], include_retracted: true })).toBe("primary_topic.id:T10878|T10102");
     expect(buildWorkFilter({ any_topic_ids: ["T10878"], include_retracted: true })).toBe("topics.id:T10878");
+  });
+  it("offers no retired work types: libguides (oxjob #1647) and grant (oxjob #1836)", () => {
+    expect(WORK_TYPES).toHaveLength(24);
+    expect(workFilterShape.types.safeParse(["libguides"]).success).toBe(false);
+    expect(workFilterShape.types.safeParse(["grant"]).success).toBe(false);
+    expect(workFilterShape.types.safeParse(["article", "conference-paper"]).success).toBe(true);
   });
   it("rejects semantic-incompatible filters", () => {
     expect(() => assertSemanticCompatible({ min_citations: 5 })).toThrow(/min_citations/);
