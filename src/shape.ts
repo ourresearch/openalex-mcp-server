@@ -89,6 +89,7 @@ export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
     title: w.display_name ?? w.title ?? null,
     year: w.publication_year ?? null,
     type: w.type ?? null,
+    is_traditional: typeof w.is_traditional === "boolean" ? w.is_traditional : null,
     venue: src.display_name ?? loc.raw_source_name ?? null,
     venue_id: shortId(src.id),
     cited_by_count: w.cited_by_count ?? null,

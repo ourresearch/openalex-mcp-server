@@ -26,6 +26,8 @@ export const workFilterShape = {
     .describe("Only these work types (OR). Common: article, review, preprint, book-chapter, dataset."),
   open_access_only: z.boolean().optional()
     .describe("Only works with a free-to-read copy."),
+  is_traditional: z.boolean().optional()
+    .describe("true = only traditional scholarly works: the kinds the scholarly record has long counted (articles, books, chapters, theses, conference papers, preprints, reviews, editorials, letters...). false = only the rest (datasets, software, reports, abstracts, paratext...). Not the same as peer-reviewed: preprints and editorials are traditional."),
   oa_status: z.array(z.enum(OA_STATUSES)).optional()
     .describe("Only these open-access statuses (OR)."),
   min_citations: z.number().int().min(0).optional()
@@ -79,6 +81,8 @@ export function buildWorkFilter(args: WorkFilterArgs, extra: string[] = []): str
   }
   if (args.types?.length) parts.push(`type:${args.types.join("|")}`);
   if (args.open_access_only) parts.push("is_oa:true");
+  // The API expands it to the traditional types (a terms query on type; oxjob #2064).
+  if (args.is_traditional !== undefined) parts.push(`is_traditional:${args.is_traditional}`);
   if (args.oa_status?.length) parts.push(`open_access.oa_status:${args.oa_status.join("|")}`);
   if (args.min_citations !== undefined && args.min_citations > 0) parts.push(`cited_by_count:>${args.min_citations - 1}`);
   const a = joinIds(args.author_ids); if (a) parts.push(`authorships.author.id:${a}`);
@@ -120,6 +124,7 @@ export const GROUP_BY_FIELDS = {
   funder: "funders.id",
   year: "publication_year",
   type: "type",
+  is_traditional: "is_traditional",
   topic: "primary_topic.id",
   subfield: "primary_topic.subfield.id",
   field: "primary_topic.field.id",

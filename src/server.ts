@@ -683,7 +683,7 @@ export function createServer(ctx: ServerContext): McpServer {
     {
       title: "Count works by author, institution, year, topic, etc.",
       description:
-        "Aggregate works matching a query and/or filters, counting them by one dimension: author, institution, institution_type, country, source (journal), publisher, funder, year, type, topic, subfield, field, domain, keyword, oa_status, is_oa, top_10_percent, top_1_percent, language, or sdg. " +
+        "Aggregate works matching a query and/or filters, counting them by one dimension: author, institution, institution_type, country, source (journal), publisher, funder, year, type, is_traditional (traditional scholarly works vs the rest), topic, subfield, field, domain, keyword, oa_status, is_oa, top_10_percent, top_1_percent, language, or sdg. " +
         "Answers \"who are the top authors on X\", \"which institutions publish most on Y\", \"how has research on Z grown per year\", \"which journals carry the most papers on W\", \"who does institution A collaborate with\" (institution_ids + group_by institution). " +
         "Returns each group's ID, display name and work count, sorted by count. Keyword/exact queries aggregate over all matching works; semantic queries aggregate over the 50 most relevant works only. " +
         "For two or three dimensions in one call (by year and country, by field and open access status) or numbers beyond the count (mean FWCI, percent open access, share), use calculate_works instead of one group_works call per value. " +
@@ -733,7 +733,8 @@ export function createServer(ctx: ServerContext): McpServer {
           const filter = buildWorkFilter(args);
           const data = await client.get<ListResponse>("/works", {
             "search.semantic": query, filter, per_page: 50,
-            select: "id,publication_year,type,language,authorships,primary_location,primary_topic,open_access,keywords,funders,sustainable_development_goals,citation_normalized_percentile",
+            select: "id,publication_year,type,language,authorships,primary_location,primary_topic,open_access,keywords,funders,sustainable_development_goals,citation_normalized_percentile"
+              + (args.group_by === "is_traditional" ? ",is_traditional" : ""),
           });
           const groups = countLocally(data.results, args.group_by as GroupByKey).slice(0, limit);
           return ok(compact({
@@ -918,6 +919,7 @@ function countLocally(works: any[], dim: GroupByKey) {
       case "funder": for (const f of w.funders ?? []) once(f?.id, f?.display_name); break;
       case "year": once(w.publication_year, String(w.publication_year)); break;
       case "type": once(w.type, w.type); break;
+      case "is_traditional": if (typeof w.is_traditional === "boolean") once(String(w.is_traditional), String(w.is_traditional)); break;
       case "topic": once(w.primary_topic?.id, w.primary_topic?.display_name); break;
       case "subfield": once(w.primary_topic?.subfield?.id, w.primary_topic?.subfield?.display_name); break;
       case "field": once(w.primary_topic?.field?.id, w.primary_topic?.field?.display_name); break;

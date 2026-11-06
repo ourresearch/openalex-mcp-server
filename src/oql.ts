@@ -159,7 +159,8 @@ export function queryEcho(data: { meta?: any }): { oql?: string; reproduce_url?:
 /** OQL group-by dimension names for the group_works keys (verified against the API). */
 export const OQL_GROUP_DIMS: Record<string, string> = {
   author: "author", institution: "institution", institution_type: "institution type", country: "country",
-  source: "source", publisher: "publisher", funder: "funder", year: "year", type: "type", topic: "topic",
+  source: "source", publisher: "publisher", funder: "funder", year: "year", type: "type",
+  is_traditional: "traditional scholarly work", topic: "topic",
   subfield: "subfield", field: "field", domain: "domain", keyword: "keyword", oa_status: "oa status",
   is_oa: "open access", language: "language", sdg: "sdg",
 };
