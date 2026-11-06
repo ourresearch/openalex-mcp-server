@@ -126,10 +126,14 @@ describe("buildWorkFilter", () => {
     expect(buildWorkFilter({ any_topic_ids: ["T10878"], include_retracted: true })).toBe("topics.id:T10878");
   });
   it("offers no retired work types: libguides (oxjob #1647) and grant (oxjob #1836)", () => {
-    expect(WORK_TYPES).toHaveLength(24);
+    expect(WORK_TYPES).toHaveLength(25);
     expect(workFilterShape.types.safeParse(["libguides"]).success).toBe(false);
     expect(workFilterShape.types.safeParse(["grant"]).success).toBe(false);
     expect(workFilterShape.types.safeParse(["article", "conference-paper"]).success).toBe(true);
+  });
+  it("offers study-registration, added 7 Nov 2026 (oxjob #2063)", () => {
+    expect(workFilterShape.types.safeParse(["study-registration"]).success).toBe(true);
+    expect(buildWorkFilter({ types: ["study-registration"], include_retracted: true })).toBe("type:study-registration");
   });
   it("rejects semantic-incompatible filters", () => {
     expect(() => assertSemanticCompatible({ min_citations: 5 })).toThrow(/min_citations/);

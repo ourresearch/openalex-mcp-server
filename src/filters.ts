@@ -6,13 +6,13 @@ import { z } from "zod";
 import { idList } from "./ids";
 import { keywordSlug } from "./keywordSearch";
 
-// The live /types vocabulary (elastic-api config/work-types.yaml): 24 types as of 2026-11-07
-// (libguides retired, oxjob #1647).
+// The live /types vocabulary (elastic-api config/work-types.yaml): 25 types as of 2026-11-07
+// (libguides retired, oxjob #1647; study-registration added, oxjob #2063).
 export const WORK_TYPES = [
   "article", "review", "preprint", "book", "book-chapter", "book-review", "dissertation",
   "dataset", "data-paper", "software", "software-paper", "conference-paper",
   "conference-abstract", "report", "editorial", "letter", "erratum", "retraction", "paratext",
-  "reference-entry", "peer-review", "standard", "supplementary-materials", "other",
+  "reference-entry", "peer-review", "standard", "supplementary-materials", "study-registration", "other",
 ] as const;
 
 export const OA_STATUSES = ["gold", "green", "hybrid", "bronze", "diamond", "closed"] as const;
