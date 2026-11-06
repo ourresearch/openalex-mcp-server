@@ -164,7 +164,7 @@ const modeSchema = z.enum(["keyword", "semantic", "exact"]).optional().describe(
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } as const;
 
 const LIST_SELECT = [
-  "id", "doi", "display_name", "publication_year", "type", "authorships", "primary_location",
+  "id", "doi", "display_name", "publication_year", "type", "is_traditional", "authorships", "primary_location",
   "open_access", "cited_by_count", "fwci", "primary_topic", "is_retracted", "relevance_score", "rerank_score",
 ];
 
