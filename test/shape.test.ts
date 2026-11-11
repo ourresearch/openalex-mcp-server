@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { abstractFromInvertedIndex, shapeWork, shapeEntity, serializeWithinBudget, truncate } from "../src/shape";
 import { buildWorkFilter, assertSemanticCompatible, workFilterShape, WORK_TYPES } from "../src/filters";
-import { normalizeWorkId, normalizeEntityId, shortId, idList, workPath, entityPath, InvalidIdError } from "../src/ids";
+import { normalizeWorkId, normalizeEntityId, shortId, idList, workPath, entityPath, InvalidIdError, arxivDoi } from "../src/ids";
 
 describe("abstractFromInvertedIndex", () => {
   it("rebuilds word order", () => {
@@ -304,3 +304,31 @@ describe("retracted works lead with the flag (oxjob #1281)", () => {
     expect(s.warning).toBe(RETRACTION_WARNING);
   });
 });
+
+describe("arXiv ids (oxjob #2157)", () => {
+  it.each([
+    ["arxiv:2305.18290", "10.48550/arxiv.2305.18290"],
+    ["arXiv:2305.18290v2", "10.48550/arxiv.2305.18290"],
+    ["https://arxiv.org/abs/2305.18290", "10.48550/arxiv.2305.18290"],
+    ["https://arxiv.org/pdf/2305.18290v2.pdf", "10.48550/arxiv.2305.18290"],
+    ["arxiv.org/abs/1706.03762", "10.48550/arxiv.1706.03762"],
+    ["2305.18290", "10.48550/arxiv.2305.18290"],
+    ["arXiv:hep-th/9711200v3", "10.48550/arxiv.hep-th/9711200"],
+    ["arXiv:math.AG/0309136", "10.48550/arxiv.math/0309136"],
+  ])("%s -> %s", (input, doi) => {
+    expect(arxivDoi(input)).toBe(doi);
+    expect(normalizeWorkId(input)).toBe("https://doi.org/" + doi);
+    expect(workPath(input)).toBe("/works/" + encodeURIComponent("https://doi.org/" + doi).replace(/%2F/g, "/"));
+  });
+
+  it.each(["arxiv:", "arxiv:notanid", "2305.183", "12345678", "W2741809807", "10.48550/arxiv.2305.18290", "https://arxiv.org/list/hep-th/new"])(
+    "%s is not an arXiv id", (input) => {
+      expect(arxivDoi(input)).toBeNull();
+    });
+
+  it("a DOI and a PMID still win their own forms", () => {
+    expect(normalizeWorkId("10.48550/arXiv.2305.18290")).toBe("https://doi.org/10.48550/arXiv.2305.18290");
+    expect(normalizeWorkId("12345678")).toBe("pmid:12345678");
+  });
+});
+

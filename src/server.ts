@@ -5,7 +5,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { OpenAlexClient, OpenAlexError, type ListResponse } from "./openalex";
-import { workPath, entityPath, InvalidIdError, shortId, idList, type EntityType } from "./ids";
+import { workPath, entityPath, InvalidIdError, shortId, idList, arxivDoi, type EntityType } from "./ids";
 import { shapeWork, shapeEntity, serializeWithinBudget, compact, RETRACTION_WARNING } from "./shape";
 import {
   workFilterShape, buildWorkFilter, assertSemanticCompatible, GROUP_BY_FIELDS, type GroupByKey,
@@ -49,7 +49,7 @@ const INSTRUCTIONS_BASE = `OpenAlex is a free, open index of the world's scholar
 
 Tools:
 - search_works: find papers. Either fill the structured parameters (query + filters) or pass an OQL query for anything complex. By default a query matches titles, abstracts and the keywords its phrases name. preview=true returns just the count and a sample so a query can be tuned cheaply before running it.
-- get_work: full record for one paper by OpenAlex ID, DOI, PMID or PMCID. Free.
+- get_work: full record for one paper by OpenAlex ID, DOI, arXiv id, PMID or PMCID. Free.
 - resolve_references: check a list of citations (DOIs, PMIDs, or free-text references) against OpenAlex; reports whether each exists and what it matched. Use it to verify bibliographies.
 - list_citations: papers citing a work, the works it references, or related works.
 - search_entities: find authors, institutions, sources (journals), topics, funders or publishers by name and/or filters. Resolve names to IDs before filtering works by ID. Also the expert-finding tool: authors currently at an institution working on a topic (institution_ids + topic_ids).
@@ -448,9 +448,9 @@ export function createServer(ctx: ServerContext): McpServer {
     {
       title: "Get work",
       description:
-        "Fetch the full record for one scholarly work by OpenAlex ID (W2741809807), DOI (10.7717/peerj.4375 or a doi.org URL), PMID, or PMCID. " +
+        "Fetch the full record for one scholarly work by OpenAlex ID (W2741809807), DOI (10.7717/peerj.4375 or a doi.org URL), arXiv id (2305.18290, arXiv:2305.18290v2 or an arxiv.org URL), PMID, or PMCID. " +
         "Returns the authors with affiliations and ORCIDs (all of them up to 100; a bigger collaboration lists the first 100, the last and the corresponding authors, numbered, with authors_total), the full abstract, venue, open-access links, topics, keywords, funding, citations in every year the API counts, and related works.",
-      inputSchema: { id: z.string().min(1).max(300).describe("OpenAlex work ID, DOI, PMID, or PMCID.") },
+      inputSchema: { id: z.string().min(1).max(300).describe("OpenAlex work ID, DOI, arXiv id, PMID, or PMCID.") },
       annotations: { title: "Get work", ...READ_ONLY },
     },
     async ({ id }) =>
@@ -495,7 +495,7 @@ export function createServer(ctx: ServerContext): McpServer {
           const input = ref.trim();
           const doi = extractDoi(input);
           const bare = shortId(input);
-          const isId = doi || (bare && /^W\d+$/.test(bare)) || /^(pmid:|pmcid:|pmc)?\d{5,9}$/i.test(input);
+          const isId = doi || (bare && /^W\d+$/.test(bare)) || /^(pmid:|pmcid:|pmc)?\d{5,9}$/i.test(input) || arxivDoi(input);
           if (isId) {
             try {
               const w = await client.get(workPath(doi ?? input), { select: LIST_SELECT.join(",") });

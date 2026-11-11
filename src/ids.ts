@@ -26,9 +26,27 @@ export function isSafeDoi(doi: string): boolean {
   return /^10\.\d{4,9}\/\S+$/i.test(doi) && doi.split("/").every((seg) => seg !== "." && seg !== "..");
 }
 
+/** arXiv ids: 2305.18290 (2007-) or hep-th/9901001 and math.AG/0309136 (before), whose subject class is not part of the id. */
+const ARXIV = /^(?:arxiv:\s*|(?:https?:\/\/)?(?:www\.|export\.)?arxiv\.org\/(?:abs|pdf)\/)?(\d{4}\.\d{4,5}|[a-z][a-z-]*(?:\.[a-z]{2})?\/\d{7})(?:v\d+)?(?:\.pdf)?\/?$/i;
+
 /**
- * Normalize a user-supplied work identifier for /works/{id}: an OpenAlex W id, a DOI, a PMID, a PMCID or a MAG id.
- * Anything else is null: an unrecognized string must never become a path.
+ * An arXiv id in any common form ("arXiv:2305.18290v2", "https://arxiv.org/abs/hep-th/9901001", "2305.18290") as arXiv's
+ * DOI, 10.48550/arxiv.<id> (version and .pdf dropped), which the API looks up (oxjob #2157). Null if it isn't one.
+ */
+export function arxivDoi(input: string): string | null {
+  const m = input.trim().match(ARXIV);
+  if (!m) return null;
+  let id = m[1].toLowerCase();
+  if (id.includes("/")) {
+    const [archive, num] = id.split("/");
+    id = archive.split(".")[0] + "/" + num;
+  }
+  return "10.48550/arxiv." + id;
+}
+
+/**
+ * Normalize a user-supplied work identifier for /works/{id}: an OpenAlex W id, a DOI, an arXiv id, a PMID, a PMCID or
+ * a MAG id. Anything else is null: an unrecognized string must never become a path.
  */
 export function normalizeWorkId(input: string): string | null {
   const s = stripOpenAlex(input);
@@ -36,6 +54,8 @@ export function normalizeWorkId(input: string): string | null {
   // DOI in any common form
   const doiMatch = s.match(/(10\.\d{4,9}\/[^\s]+)/i);
   if (doiMatch) return isSafeDoi(doiMatch[1]) ? "https://doi.org/" + doiMatch[1] : null;
+  const arxiv = arxivDoi(s);
+  if (arxiv) return "https://doi.org/" + arxiv;
   const pmid = s.match(/^pmid:\s*(\d+)$/i);
   if (pmid) return "pmid:" + pmid[1];
   const pmcid = s.match(/^(?:pmc(?:id)?:\s*(?:pmc)?|pmc)(\d+)$/i);
@@ -123,7 +143,7 @@ function checkedPath(path: string, input: string): string {
  */
 export function workPath(input: string): string {
   const id = normalizeWorkId(input);
-  if (!id) throw new InvalidIdError(`"${clip(input)}" is not a work ID OpenAlex can look up: use an OpenAlex work ID (W2741809807), a DOI, a PMID or a PMCID.`);
+  if (!id) throw new InvalidIdError(`"${clip(input)}" is not a work ID OpenAlex can look up: use an OpenAlex work ID (W2741809807), a DOI, an arXiv id, a PMID or a PMCID.`);
   return checkedPath("/works/" + encodeURIComponent(id).replace(/%2F/g, "/"), input);
 }
 
