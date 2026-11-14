@@ -90,6 +90,10 @@ export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
     year: w.publication_year ?? null,
     type: w.type ?? null,
     is_traditional: typeof w.is_traditional === "boolean" ? w.is_traditional : null,
+    // oxjob #2065: the works this one is part of (a chapter's book, a figure's paper) and how many parts it has itself.
+    parent_works: (Array.isArray(w.parent_works) ? w.parent_works : []).map((p: any) =>
+      compact({ id: shortId(p?.id), title: p?.display_name ?? null, relationship: p?.relationship ?? null })),
+    child_works_count: typeof w.child_works_count === "number" && w.child_works_count > 0 ? w.child_works_count : null,
     venue: src.display_name ?? loc.raw_source_name ?? null,
     venue_id: shortId(src.id),
     cited_by_count: w.cited_by_count ?? null,

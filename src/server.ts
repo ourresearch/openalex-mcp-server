@@ -166,6 +166,7 @@ const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: 
 const LIST_SELECT = [
   "id", "doi", "display_name", "publication_year", "type", "is_traditional", "authorships", "primary_location",
   "open_access", "cited_by_count", "fwci", "primary_topic", "is_retracted", "relevance_score", "rerank_score",
+  "parent_works", "child_works_count",   // oxjob #2065
 ];
 
 const pagingInfo = (meta: ListResponse["meta"], returned: number) => {
