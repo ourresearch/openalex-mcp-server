@@ -34,14 +34,14 @@ Every correction is a [curation](/data/curations/) — an auditable record of wh
 
 Everything else on a profile — alternate names, institutional affiliations, topics, citation metrics — is *derived* from its works, so you don't (and can't) edit those directly: fix which works belong to you and the rest follows. That cuts both ways: removing a work or a name variant also removes whatever those works alone were contributing, such as an institution that appeared only on them. (Wrong institution showing on one of your works? That's an [affiliation-matching fix](/access/fixing-errors/affiliations/), not an author fix.) The full picture: [Authors § A profile is built from its works](/data/authors/#a-profile-is-built-from-its-works).
 
-Curations don't apply instantly: each one is **pending** until the next data refresh picks it up, and your changes are typically live within about two days. You can track (and cancel) your pending curations from your account.
+Curations don't apply instantly: each one is **pending** until the next data refresh picks it up, and your changes are typically live within about two days ([what updates when](/how-to/when-corrections-go-live/)). You can track (and cancel) your pending curations from your account.
 
 ## Split and merge
 
 The two classic disambiguation failures are **duplicates** (your works spread across two or more profiles) and **wrong merges** (someone else's works mixed into yours). There's no separate merge or split button — both are fixed by moving works, and the moves do the whole job:
 
-- **Merge duplicates.** Say profiles A and B are both you, and you've claimed A. Add all of B's works to A (the CV upload makes this fast). The emptied profile goes **inert**: it stops accruing works and drops out of matching, so it won't grow back.
-- **Split out someone else's works.** If another person's works have been merged into your profile, remove them. The disambiguation algorithm re-homes removed works to the right profile — that part isn't your problem.
+- **Merge duplicates.** Say profiles A and B are both you, and you've claimed A. Add all of B's works to A (the CV upload makes this fast). Once its last work has moved, the emptied profile B is **deleted** (unless someone has claimed it): its page and API record say "not found", and it doesn't redirect to A.
+- **Split out someone else's works.** If another person's works have been merged into your profile, remove them. A removed work leaves your profile for good, but it isn't moved to another profile automatically: author matching only runs on new works. Its real author can claim it.
 
 ## Using AI agents
 

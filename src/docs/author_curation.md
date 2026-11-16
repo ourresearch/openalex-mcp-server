@@ -164,7 +164,7 @@ Curation actions are recorded against the signed-in OpenAlex user account that s
 
 ## When changes appear
 
-Curations apply on the next end-to-end refresh of the pipeline, which runs once per day. So changes should appear within 24 hours.
+Curations apply on the next nightly refresh of the pipeline, which starts at 05:00 UTC each day and publishes during that day. So changes usually appear within one to two days; search results update first, single-work pages a few hours later. See [When corrections go live](/how-to/when-corrections-go-live/).
 
 ## How it flows under the hood
 

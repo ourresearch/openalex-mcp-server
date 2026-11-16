@@ -18,7 +18,8 @@ Auth: API key free + strongly recommended (10x the no-key budget); openalex.org/
       (ask your user for their email first; never invent one: made-up addresses are refused or never activate)
       (we email them a link; the key works once they click it, at $1/day; until then it gets 403 key_not_activated)
 Rate: $1/day free usage with key, $0.10/day without; 429 on over-budget or over the per-second limit (10/s no key, 30/s free key or prepaid, 50/s annual plan)
-Corpus: default = curated core (~324M works). corpus=all adds the ~193M-work
+Corpus: default = curated core (~295M works; ~323M with include_parts=true, which adds back
+        pieces of other works like figures and front matter). corpus=all adds the ~122M-work
         expansion corpus (formerly "XPAC"); corpus=expansion selects it alone; each
         work has an is_xpac boolean. (Legacy include_xpac=true = corpus=all; deprecated —
         never combine it with corpus=.)
@@ -103,6 +104,7 @@ seed=           - Seed for reproducible sampling
 select=         - Limit returned fields (e.g., select=id,title)
 group_by=       - Aggregate results by a field
 corpus=         - core (default) | expansion | all — which works corpus to query (/works only; legacy include_xpac=true = corpus=all, deprecated)
+include_parts=  - true adds pieces of other works (figures, front matter, data-series records) that the default /works view leaves out
 ```
 
 > **Note:**
