@@ -5,11 +5,11 @@
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { OpenAlexClient, OpenAlexError, type ListResponse } from "./openalex";
+import { OpenAlexClient, OpenAlexError, pulledParams, type ListResponse } from "./openalex";
 import { shortId } from "./ids";
 import { compact, abstractFromInvertedIndex, truncate } from "./shape";
-import { WORK_TYPES } from "./filters";
-import { reproduceUrl } from "./oql";
+import { WORK_TYPES, pulledShape, pulledChoice, pulledNote } from "./filters";
+import { reproduceUrl, oqlNamesPulled } from "./oql";
 import { buildKeywordSearch, keywordSlug } from "./keywordSearch";
 import { pool } from "./pool";
 
@@ -39,11 +39,11 @@ export const KEYWORD_RECIPE = `Recipe for "do a thorough search", "find everythi
 export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
   const { client, run, ok, fail } = deps;
 
-  /** Works carrying one keyword (count + most-cited titles). One cheap list call. */
+  /** Works carrying one keyword (count + most-cited titles). One cheap list call, in the API's default view (no pulled works). */
   const keywordProfile = async (slug: string) => {
     try {
       const d = await client.get<ListResponse>("/works", {
-        filter: `keywords.id:${slug},is_retracted:false`,
+        filter: `keywords.id:${slug}`,
         per_page: 3,
         sort: "cited_by_count:desc",
         select: "display_name,publication_year",
@@ -108,7 +108,7 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
         return ok(compact({
           from_description: fromText.length ? fromText.filter((k) => profiles.has(k.id)).map((k) => card(k.id, { score: k.score })) : undefined,
           from_phrases: byPhrase.length ? byPhrase.map((b) => ({ phrase: b.phrase, keywords: b.ids.filter((k) => profiles.has(k.id)).map((k) => card(k.id)) })) : undefined,
-          works_note: "works = how many works carry the keyword now (what a keyword clause matches), excluding retracted works.",
+          works_note: "works = how many works carry the keyword now (what a keyword clause matches), excluding pulled (retracted, withdrawn or removed) works, as the API's default view does.",
           next: "Keep, per facet, the keywords that mean that facet; then call keyword_search with each facet's text and keyword_ids.",
           notes: notes.length ? notes : undefined,
         }));
@@ -143,7 +143,7 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
         open_access_only: z.boolean().optional().describe("Only works with a free-to-read copy."),
         language: z.string().length(2).optional().describe("ISO-639-1 language code, e.g. \"en\". Note that keywords are what find works in other languages."),
         extra_oql: z.string().max(2000).optional().describe("Any further OQL condition ANDed onto every count, e.g. country is (BR) or \"citation count is at least 10\"."),
-        include_retracted: z.boolean().optional().describe("Include retracted works. Default false."),
+        ...pulledShape,
         sample_size: z.number().int().min(0).max(25).optional().describe("Random works to show from the keyword-only additions (up to 8 are also drawn from the whole search). Default 8."),
       },
       annotations: { title: "Keyword-aware search", ...READ_ONLY },
@@ -156,9 +156,12 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
         } catch (e: any) {
           return fail(e?.message ?? String(e));
         }
+        // Pulled works are the API's to hide (oxjob #2264): include_pulled rides on every count and sample, never a clause.
+        const includePulled = !!pulledChoice(args);
+        const pulled = pulledParams(includePulled);
         const count = async (oql: string | null): Promise<number | null> => {
           if (!oql) return null;
-          const d = await client.post<ListResponse>({ oql, per_page: 1, select: "id" });
+          const d = await client.post<ListResponse>({ oql, per_page: 1, select: "id" }, pulled);
           return d.meta.count ?? 0;
         };
         const { queries, perFacet } = built;
@@ -195,7 +198,7 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
             oql: `${oql} sample ${size}`,
             per_page: size,
             select: "id,display_name,publication_year,language,primary_topic,abstract_inverted_index",
-          });
+          }, pulled);
           return d.results.map((w: any) => {
             const abs = abstractFromInvertedIndex(w.abstract_inverted_index);
             return compact({
@@ -215,7 +218,8 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
         const share = textOnly && added !== null ? `${added >= 0 ? "+" : ""}${Math.round((100 * added) / textOnly)}%` : null;
         return ok(compact({
           oql: queries.combined,
-          reproduce_url: reproduceUrl(queries.combined),
+          reproduce_url: reproduceUrl(queries.combined, includePulled),
+          pulled_works: pulledNote(includePulled, oqlNamesPulled(args.extra_oql ?? "")),
           counts: compact({
             combined,
             search_alone: textOnly,
@@ -231,7 +235,7 @@ export function registerKeywordTools(server: McpServer, deps: KeywordDeps) {
           overall_sample_basis: overall ? `random ${overall.length} of all ${combined} works; if many are off topic, tighten the facets' text` : undefined,
           queries: compact({ search_alone: queries.text_only, added_by_keywords: queries.added_by_keywords }),
           warnings: warnings.length ? warnings : undefined,
-          next: "Show results with search_works(oql=<oql>) (relevance order is reranked: the most on-topic works first), and give the user the oql and reproduce_url.",
+          next: `Show results with search_works(oql=<oql>${includePulled ? ", include_pulled=true" : ""}) (relevance order is reranked: the most on-topic works first), and give the user the oql and reproduce_url.`,
         }));
       })()
   );

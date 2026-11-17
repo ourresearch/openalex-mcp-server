@@ -1,5 +1,6 @@
 /** Helpers for the OQL/OQO query path. Pure, unit-tested. */
-import { retractedNote, RETRACTED_PER_QUERY_NOTE } from "./filters";
+import { pulledNote, PULLED_PER_QUERY_NOTE, PULLED_FOR_CALCULATION_NOTE, type PulledView } from "./filters";
+import { pulledParams } from "./openalex";
 
 const ENTITIES = ["works", "authors", "institutions", "sources", "funders", "publishers", "topics", "keywords", "awards", "locations", "countries", "languages", "sdgs", "types", "fields", "subfields", "domains", "continents", "licenses", "concepts"];
 
@@ -142,18 +143,19 @@ export function oneLine(oql: string | null | undefined): string | null {
   return oql.replace(/\s+/g, " ").trim();
 }
 
-export function reproduceUrl(oql: string | null | undefined): string | null {
+/** A URL that reruns the query; with includePulled it keeps pulled works in, as the run did (oxjob #2264). */
+export function reproduceUrl(oql: string | null | undefined, includePulled = false): string | null {
   const o = oneLine(oql);
-  return o ? "https://api.openalex.org/?oql=" + encodeURIComponent(o) : null;
+  return o ? "https://api.openalex.org/?oql=" + encodeURIComponent(o) + (includePulled ? "&include_pulled=true" : "") : null;
 }
 
 /** Canonical OQL echo (one line) and a URL that reruns it, from a list response: the sentence with its
  *  names (x_new_oql, `get [MIT](I63966007)'s works ...`), as the website shows it; `oql` names no one
  *  (`get (I63966007)'s works ...`) and is the fallback (oxjob #1555). */
-export function queryEcho(data: { meta?: any }): { oql?: string; reproduce_url?: string | null } {
+export function queryEcho(data: { meta?: any }, includePulled = false): { oql?: string; reproduce_url?: string | null } {
   const xq = data?.meta?.x_query;
   const oql = oneLine(xq?.x_new_oql) ?? oneLine(xq?.oql);
-  return oql ? { oql, reproduce_url: reproduceUrl(oql) } : {};
+  return oql ? { oql, reproduce_url: reproduceUrl(oql, includePulled) } : {};
 }
 
 /** OQL group-by dimension names for the group_works keys (verified against the API). */
@@ -166,61 +168,24 @@ export const OQL_GROUP_DIMS: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Retractions (oxjob #1281): works queries hide retracted works unless the query says otherwise.
+// Pulled works (oxjobs #1281, #2264; openalex.ts pulledParams). The tools add no clause of their own. A query's own
+// retracted or pulled clause passes through: the API reads it as include_pulled=true. A later step that splits or
+// calculates on them (`percent retracted`) is no filter the API reads that way, so the tools ask for them.
 // ---------------------------------------------------------------------------
 
-// the new form says it before the noun: `get non-retracted works`, `get retracted articles` (#1555)
-const NEW_FORM_RETRACTED = new RegExp(String.raw`\bnon-retracted\b|\bretracted\s+(?:works|articles|reviews|preprints|books|book chapters|datasets|conference papers|dissertations|editorials|letters|reports)\b`, "i");
+const NOUNS = "works|articles|reviews|preprints|books|book chapters|datasets|conference papers|dissertations|editorials|letters|reports";
+// the new form says it before the noun: `get non-retracted works`, `get retracted articles`, `get pulled works` (#1555)
+const NEW_FORM_PULLED = new RegExp(String.raw`\bnon-(?:retracted|pulled)\b|\b(?:retracted|pulled)\s+(?:${NOUNS})\b`, "i");
 
-/** Does the query already carry its own retracted filter (`retracted is (…)`, `is_retracted`, `it's retracted`, `non-retracted`)? */
-export function oqlMentionsRetracted(oql: string): boolean {
-  return /\bretracted\s+is\b|\bis_retracted\b|\bit'?s\s+(?:not\s+)?retracted\b|\bnot\s+retracted\b/i.test(oql)
-    || NEW_FORM_RETRACTED.test(oql);
+/** Does the query carry its own retracted or pulled filter (`retracted is (…)`, `is_pulled`, `it's not retracted`, `non-retracted`, `pulled works`)? */
+export function oqlNamesPulled(oql: string): boolean {
+  return /\b(?:retracted|pulled)\s+is\b|\bis_(?:retracted|pulled)\b|\bit'?s\s+(?:not\s+)?(?:retracted|pulled)\b|\bnot\s+(?:retracted|pulled)\b/i.test(oql)
+    || NEW_FORM_PULLED.test(oql);
 }
 
-const TAIL_RE = /^(?:group\s+by|sort\s+by|sample\s+\d|return\b|limit\b)/i;
-
-/** Split a where-clause body into [clause, tail] at the first top-level group by / sort by / sample / return / limit. */
-export function splitOqlTail(body: string): [string, string] {
-  let depth = 0;
-  let quote: string | null = null;
-  for (let i = 0; i < body.length; i++) {
-    const c = body[i];
-    if (quote) { if (c === quote) quote = null; continue; }
-    if (c === '"') { quote = c; continue; }
-    if (c === "(") depth++;
-    else if (c === ")") depth = Math.max(0, depth - 1);
-    else if (depth === 0 && (i === 0 || /\s/.test(body[i - 1]!)) && TAIL_RE.test(body.slice(i))) {
-      return [body.slice(0, i).trim(), body.slice(i).trim()];
-    }
-  }
-  return [body.trim(), ""];
-}
-
-/**
- * Add `retracted is (false)` to a works query unless it already filters on retracted.
- * `works where X sort by y` → `works where (X) and retracted is (false) sort by y`; a bare `works` gets a where clause.
- * Non-works queries are returned untouched. In a pipeline (a classic query is a one-step pipeline) the default goes on
- * the starting set; a later step that splits or calculates on retracted (`percent retracted`) wants them in.
- */
-export function oqlExcludeRetracted(oql: string): { oql: string; applied: boolean } {
-  const q = oql.trim();
-  if (oqlMentionsRetracted(q)) return { oql: q, applied: false };
-  const [first = "", ...rest] = splitOqlSteps(q);
-  if (rest.some((s) => /\bretracted\b/i.test(s))) return { oql: q, applied: false };
-  // `get authors at [UBC] since 2022 who published works where ...`: the works it names (#1555)
-  const tf = oqlThingFirst(first);
-  const m = tf ? [first, tf.head, tf.body] : first.match(/^(get\s+)?works\b\s*([\s\S]*)$/i);
-  if (!m) return { oql: q, applied: false };
-  let lead = tf ? tf.head : m[1] ? "get works" : "works";
-  let body = m[2]!.trim();
-  // a start from a saved list keeps its place: `get works in the collection [Our lab](col_x) where ...` (#1555)
-  const coll = body.match(/^in\s+(?:the\s+)?(?:collection|set)\s+(?:\[[^\]]*\])?\([^)]*\)|^in\s+\([^)]*\)/i);
-  if (coll) { lead = `${lead} ${coll[0]}`; body = body.slice(coll[0].length).trim(); }
-  const whereMatch = body.match(/^where\b\s*([\s\S]*)$/i);
-  const [clause, tail] = whereMatch ? splitOqlTail(whereMatch[1]!) : ["", body];
-  const where = clause ? `${lead} where (${clause}) and retracted is (false)` : `${lead} where retracted is (false)`;
-  return { oql: [tail ? `${where} ${tail}` : where, ...rest].join("; "), applied: true };
+/** Does a later step split or calculate on retracted or pulled works (`then summarize using percent retracted`)? */
+export function oqlCalculatesOnPulled(oql: string): boolean {
+  return splitOqlSteps(oql).slice(1).some((s) => /\b(?:retracted|pulled)\b/i.test(s));
 }
 
 // ---------------------------------------------------------------------------
@@ -266,19 +231,21 @@ export async function sentenceInTodaysForm(api: OqlChecker, oql: string): Promis
 }
 
 /** `prepareOql` for any form: a new-form sentence goes to today's step form first (one free API call). */
-export async function prepareAnyOql(api: OqlChecker, input: string, includeRetracted: boolean) {
+export async function prepareAnyOql(api: OqlChecker, input: string, askedPulled: boolean) {
   const q = input.trim();
   const t = oqlIsSentence(q) ? await sentenceInTodaysForm(api, q) : { oql: q };
-  return { ...prepareOql(t.oql, includeRetracted), statedSort: t.sort, fromSentence: t.oql !== q };
+  return { ...prepareOql(t.oql, askedPulled), statedSort: t.sort, fromSentence: t.oql !== q };
 }
 
 /**
- * The query as the works tools run it: shorthand expanded, a trailing sort split off (OQL has none), and retracted
- * works left out unless asked for, with the note that says which.
+ * The query as the works tools run it: shorthand expanded and a trailing sort split off (OQL has none); the text is
+ * otherwise as written. `pulled` includes pulled works when asked, or when a later step splits or calculates on them.
  */
-export function prepareOql(input: string, includeRetracted: boolean) {
+export function prepareOql(input: string, askedPulled: boolean) {
   const sort = splitOqlSort(normalizeOql(input));
-  if (includeRetracted) return { oql: sort.oql, sort, retractedWorks: oqlMentionsRetracted(sort.oql) ? RETRACTED_PER_QUERY_NOTE : retractedNote(true) };
-  const r = oqlExcludeRetracted(sort.oql);
-  return { oql: r.oql, sort, retractedWorks: r.applied ? retractedNote(false) : RETRACTED_PER_QUERY_NOTE };
+  const calculates = oqlCalculatesOnPulled(sort.oql);
+  const include = askedPulled || calculates;
+  const note = oqlNamesPulled(sort.oql) ? PULLED_PER_QUERY_NOTE : calculates ? PULLED_FOR_CALCULATION_NOTE : pulledNote(askedPulled);
+  const pulled: PulledView = { include, params: pulledParams(include), note };
+  return { oql: sort.oql, sort, pulled };
 }

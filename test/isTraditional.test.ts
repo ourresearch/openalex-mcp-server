@@ -12,10 +12,10 @@ import { shapeWork } from "../src/shape";
 
 describe("is_traditional filter", () => {
   it("maps true and false to the API filter, and adds nothing when unset", () => {
-    expect(buildWorkFilter({ is_traditional: true, include_retracted: true })).toBe("is_traditional:true");
-    expect(buildWorkFilter({ is_traditional: false, include_retracted: true })).toBe("is_traditional:false");
-    expect(buildWorkFilter({ include_retracted: true })).toBeNull();
-    expect(buildWorkFilter({ types: ["article"], is_traditional: true })).toBe("type:article,is_traditional:true,is_retracted:false");
+    expect(buildWorkFilter({ is_traditional: true })).toBe("is_traditional:true");
+    expect(buildWorkFilter({ is_traditional: false })).toBe("is_traditional:false");
+    expect(buildWorkFilter({})).toBeNull();
+    expect(buildWorkFilter({ types: ["article"], is_traditional: true })).toBe("type:article,is_traditional:true");
   });
   it("takes a boolean only", () => {
     const shape = z.object(workFilterShape);

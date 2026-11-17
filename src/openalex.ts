@@ -55,6 +55,16 @@ export class OpenAlexError extends Error {
 
 export type Params = Record<string, string | number | boolean | undefined | null>;
 
+/**
+ * The URL parameter that brings pulled works back (oxjob #2264). The API's default view leaves out works their
+ * publisher, host or authors retracted, withdrew or removed (is_pulled) from every works list, search, count,
+ * group_by and OQL run; `include_pulled=true` includes them. Sent only as true, never as false: an explicit false
+ * would override the API reading a user's own is_retracted / is_pulled filter as a request for them.
+ */
+export function pulledParams(include: boolean | undefined): Params {
+  return include ? { include_pulled: "true" } : {};
+}
+
 export class OpenAlexClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -107,9 +117,12 @@ export class OpenAlexClient {
     }
   }
 
-  /** POST an OQL/OQO query to the API root (no URL length limit). Same retry policy as get(). */
-  async post<T = any>(body: Record<string, any>): Promise<T> {
-    const url = this.buildUrl("/", { oql_style: this.oqlStyle });
+  /**
+   * POST an OQL/OQO query to the API root (no URL length limit). Same retry policy as get(). `query` rides in the
+   * URL, where the executor reads it (e.g. pulledParams(true)).
+   */
+  async post<T = any>(body: Record<string, any>, query: Params = {}): Promise<T> {
+    const url = this.buildUrl("/", { oql_style: this.oqlStyle, ...query });
     const init = { method: "POST" as const, body: JSON.stringify(body), contentType: "application/json" };
     try {
       return await this.request<T>(url, init);
@@ -126,11 +139,12 @@ export class OpenAlexClient {
    * The free OQL check (GET /query/oql/<q>, #1533): parse, canonical text, validation, and for queries the
    * new executor runs, a `check` block with limits, time estimate and price. A refused query comes back as
    * HTTP 400 with the same body, so it is returned here rather than thrown. `style` asks for the echo in one form
-   * (`pipeline` = today's step form, which the tools' string handling reads; #1555).
+   * (`pipeline` = today's step form, which the tools' string handling reads; #1555). `query` adds URL parameters
+   * (e.g. pulledParams(true), to check the query as it will run).
    */
-  async checkOql<T = any>(oql: string, style?: string): Promise<T> {
+  async checkOql<T = any>(oql: string, style?: string, query: Params = {}): Promise<T> {
     try {
-      return await this.getOnce<T>("/query/oql/" + encodeURIComponent(oql), { oql_style: style ?? this.oqlStyle });
+      return await this.getOnce<T>("/query/oql/" + encodeURIComponent(oql), { oql_style: style ?? this.oqlStyle, ...query });
     } catch (e) {
       if (e instanceof OpenAlexError && e.status === 400 && e.body && typeof e.body === "object") return e.body as T;
       throw e;
@@ -144,6 +158,8 @@ export class OpenAlexClient {
   private async request<T = any>(url: string, init: { method: "GET" | "POST"; body?: string; contentType?: string }): Promise<T> {
     let res: Response;
     try {
+      // fetch follows redirects (the default): the API answers a works filter naming is_retracted / is_pulled with a
+      // 302 to the same URL plus include_pulled=true (oxjob #2264), and that must land, so never set redirect: "manual".
       res = await fetch(url, {
         method: init.method,
         body: init.body,

@@ -98,14 +98,15 @@ describe("ids", () => {
 });
 
 describe("buildWorkFilter", () => {
-  it("defaults to excluding retracted", () => {
-    expect(buildWorkFilter({})).toBe("is_retracted:false");
+  it("adds no retracted filter: the API's default view hides pulled works, include_pulled is a URL parameter (oxjob #2264)", () => {
+    expect(buildWorkFilter({})).toBeNull();
+    expect(buildWorkFilter({ raw_filter: "is_retracted:true" })).toBe("is_retracted:true");
   });
   it("builds year ranges", () => {
-    expect(buildWorkFilter({ from_year: 2020, to_year: 2024, include_retracted: true })).toBe("publication_year:2020-2024");
-    expect(buildWorkFilter({ from_year: 2020, include_retracted: true })).toBe("publication_year:>2019");
-    expect(buildWorkFilter({ to_year: 2020, include_retracted: true })).toBe("publication_year:<2021");
-    expect(buildWorkFilter({ from_year: 2020, to_year: 2020, include_retracted: true })).toBe("publication_year:2020");
+    expect(buildWorkFilter({ from_year: 2020, to_year: 2024 })).toBe("publication_year:2020-2024");
+    expect(buildWorkFilter({ from_year: 2020 })).toBe("publication_year:>2019");
+    expect(buildWorkFilter({ to_year: 2020 })).toBe("publication_year:<2021");
+    expect(buildWorkFilter({ from_year: 2020, to_year: 2020 })).toBe("publication_year:2020");
     expect(() => buildWorkFilter({ from_year: 2024, to_year: 2020 })).toThrow();
   });
   it("joins ids and composes", () => {
@@ -118,12 +119,12 @@ describe("buildWorkFilter", () => {
       raw_filter: "has_abstract:true",
     });
     expect(f).toBe(
-      "type:article|review,is_oa:true,cited_by_count:>99,authorships.author.id:A1|A2,authorships.institutions.country_code:US|GB,is_retracted:false,has_abstract:true"
+      "type:article|review,is_oa:true,cited_by_count:>99,authorships.author.id:A1|A2,authorships.institutions.country_code:US|GB,has_abstract:true"
     );
   });
   it("topic_ids is the primary topic (as OQL and group_by); any_topic_ids is any of them (oxjob #1885)", () => {
-    expect(buildWorkFilter({ topic_ids: ["https://openalex.org/T10878", "T10102"], include_retracted: true })).toBe("primary_topic.id:T10878|T10102");
-    expect(buildWorkFilter({ any_topic_ids: ["T10878"], include_retracted: true })).toBe("topics.id:T10878");
+    expect(buildWorkFilter({ topic_ids: ["https://openalex.org/T10878", "T10102"] })).toBe("primary_topic.id:T10878|T10102");
+    expect(buildWorkFilter({ any_topic_ids: ["T10878"] })).toBe("topics.id:T10878");
   });
   it("offers no retired work types: libguides (oxjob #1647) and grant (oxjob #1836)", () => {
     expect(WORK_TYPES).toHaveLength(25);
@@ -133,7 +134,7 @@ describe("buildWorkFilter", () => {
   });
   it("offers study-registration, added 7 Nov 2026 (oxjob #2063)", () => {
     expect(workFilterShape.types.safeParse(["study-registration"]).success).toBe(true);
-    expect(buildWorkFilter({ types: ["study-registration"], include_retracted: true })).toBe("type:study-registration");
+    expect(buildWorkFilter({ types: ["study-registration"] })).toBe("type:study-registration");
   });
   it("rejects semantic-incompatible filters", () => {
     expect(() => assertSemanticCompatible({ min_citations: 5 })).toThrow(/min_citations/);

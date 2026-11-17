@@ -5,7 +5,7 @@
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { OpenAlexClient, OpenAlexError, type ListResponse } from "./openalex";
+import { OpenAlexClient, OpenAlexError, pulledParams, type ListResponse } from "./openalex";
 import { UsersApiClient, UsersApiError, type MeRecord, type CurationPayload, type CurationRow } from "./users";
 import { shortId, workPath } from "./ids";
 import { shapeWork, shapeEntity, compact } from "./shape";
@@ -313,6 +313,9 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
         if (args.from_year) extra.push(`from_publication_date:${args.from_year}-01-01`);
         if (args.to_year) extra.push(`to_publication_date:${args.to_year}-12-31`);
         const select = listSelect.join(",");
+        // A profile should be complete, so its candidates include pulled works (retracted, withdrawn, removed), which
+        // the API's default view leaves out (oxjob #2264).
+        const pulledIn = pulledParams(true);
         const shapeCandidate = (w: any, source: string) => {
           const pick = pickAuthorship(w.authorships ?? [], null, name || null);
           const ta = pick.this_authorship;
@@ -340,6 +343,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
             last = v;
             const data = await client.get<ListResponse>("/works", {
               filter: [`raw_author_name.search:${v}`, "type:!paratext", exclude, ...extra].join(","),
+              ...pulledIn,
               per_page: 50,
               select,
             });
@@ -375,7 +379,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
             const seen = new Set<string>();
             const works: any[] = [];
             for (const f of [`authorships.raw_orcid:${orcid}`, `authorships.author.orcid:${orcid}`]) {
-              const data = await client.get<ListResponse>("/works", { filter: [f, exclude].join(","), per_page: limit, select, sort: "cited_by_count:desc" });
+              const data = await client.get<ListResponse>("/works", { filter: [f, exclude].join(","), ...pulledIn, per_page: limit, select, sort: "cited_by_count:desc" });
               for (const w of data.results) {
                 const id = shortId(w.id)!;
                 if (seen.has(id)) continue;
@@ -392,7 +396,7 @@ export function registerCurationTools(server: McpServer, deps: CurationDeps) {
               const onProfile: string[] = [];
               for (let i = 0; i < dois.length; i += 50) {
                 const batch = dois.slice(i, i + 50);
-                const data = await client.get<ListResponse>("/works", { filter: `doi:${batch.join("|")}`, per_page: 50, select });
+                const data = await client.get<ListResponse>("/works", { filter: `doi:${batch.join("|")}`, ...pulledIn, per_page: 50, select });
                 for (const w of data.results) {
                   const onIt = (w.authorships ?? []).some((a: any) => shortId(a?.author?.id) === aid);
                   if (onIt) { onProfile.push(shortId(w.id)!); continue; }

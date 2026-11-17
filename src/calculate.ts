@@ -35,9 +35,10 @@ function shapeRow(g: any, cols: Col[]): Record<string, any> {
  * The response of a grouped or calculated query, compactly: one row per group keyed by the OQL words of each
  * calculation, nested splits under `groups`, the summary (the whole starting set, and each split's groups on their
  * own), paging and the price.
- * `sortBy` (a column label) orders the returned rows; the API itself returns groups by count.
+ * `sortBy` (a column label) orders the returned rows; the API itself returns groups by count. `includePulled` (the
+ * run sent include_pulled=true) carries into the reproduce_url.
  */
-export function shapeCalculation(data: any, opts: { page?: number; sortBy?: string; ascending?: boolean } = {}): Record<string, any> {
+export function shapeCalculation(data: any, opts: { page?: number; sortBy?: string; ascending?: boolean; includePulled?: boolean } = {}): Record<string, any> {
   const meta = data?.meta ?? {};
   const cols = calculationColumns(meta.measures);
   const labels = cols.map((c) => c[1]);
@@ -71,7 +72,7 @@ export function shapeCalculation(data: any, opts: { page?: number; sortBy?: stri
   // The pipeline engine itemizes the price in meta.cost; a classic grouped response carries only cost_usd (1 credit = $0.0001).
   const cost = meta.cost ?? (typeof meta.cost_usd === "number" ? { credits: Math.round(meta.cost_usd * 10000), usd: meta.cost_usd } : undefined);
   return compact({
-    ...queryEcho(data),
+    ...queryEcho(data, opts.includePulled),
     total_works: meta.count,
     columns: labels,
     summary,

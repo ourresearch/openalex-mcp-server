@@ -5,10 +5,10 @@
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { OpenAlexClient, type ListResponse } from "./openalex";
+import { OpenAlexClient, pulledParams, type ListResponse } from "./openalex";
 import { shortId, idList } from "./ids";
 import { compact, openalexUrl } from "./shape";
-import { workFilterShape, buildWorkFilter, assertSemanticCompatible, type WorkFilterArgs, retractedNote } from "./filters";
+import { workFilterShape, buildWorkFilter, assertSemanticCompatible, type WorkFilterArgs, pulledShape, pulledChoice, pulledView, type PulledView } from "./filters";
 import { prepareOql } from "./oql";
 import {
   countAuthors, candidatesFromGroups, attributeEvidence, coauthorIds, currentlyAt, affiliatedWith, currentCountry,
@@ -25,7 +25,7 @@ export interface ExpertDeps {
   ok: (payload: Record<string, any>) => ToolResult;
   fail: (message: string) => ToolResult;
   searchParams: (query: string | undefined, mode: Mode, searchIn: SearchIn) => { filters: string[]; params: Record<string, string> };
-  queryEcho: (data: ListResponse) => Record<string, any>;
+  queryEcho: (data: ListResponse, includePulled?: boolean) => Record<string, any>;
   modeSchema: z.ZodOptional<z.ZodEnum<any>>;
   searchInSchema: z.ZodOptional<z.ZodEnum<any>>;
 }
@@ -42,8 +42,8 @@ const BATCH = 50;
 const MAX_ANCHORS = 10;
 
 /** The subset of the shared works filters that make sense for an expert census. */
-const { from_year, to_year, types, topic_ids, institution_ids, funder_ids, language, core_sources_only, include_retracted, raw_filter } = workFilterShape;
-const expertFilterShape = { from_year, to_year, types, topic_ids, institution_ids, funder_ids, language, core_sources_only, include_retracted, raw_filter };
+const { from_year, to_year, types, topic_ids, institution_ids, funder_ids, language, core_sources_only, raw_filter } = workFilterShape;
+const expertFilterShape = { from_year, to_year, types, topic_ids, institution_ids, funder_ids, language, core_sources_only, raw_filter };
 
 export const FIND_EXPERTS_DESCRIPTION =
   "Find the researchers who work most on a topic, optionally at an institution or in a country, ranked with evidence: " +
@@ -78,6 +78,7 @@ export function registerExpertTools(server: McpServer, deps: ExpertDeps) {
         sort: z.enum(["matching_works", "recent", "citations", "h_index"]).optional().describe("matching_works (default): most matching works, citations as tiebreak. recent: most matching works within recent_years (rising researchers, active reviewers). citations: citations to their matching works in the evidence sample. h_index: overall standing."),
         limit: z.number().int().min(1).max(50).optional().describe("How many experts to return. Default 10."),
         ...expertFilterShape,
+        ...pulledShape,
       },
       annotations: { title: "Find experts", ...READ_ONLY },
     },
@@ -109,27 +110,28 @@ export function registerExpertTools(server: McpServer, deps: ExpertDeps) {
         let echo: Record<string, any> = {};
         let totalWorks: number;
         let filterUsed: string | null = null;
-        let retractedWorks = retractedNote(!!args.include_retracted);
+        const askedPulled = !!pulledChoice(args);
+        let pulled: PulledView;
         const sampleSort = sort === "recent" ? "publication_date:desc" : "cited_by_count:desc";
 
         if (args.oql !== undefined) {
-          const used = ["query", "mode", "search_in", ...Object.keys(expertFilterShape)].filter((k) => k !== "include_retracted" && (args as any)[k] !== undefined);
+          const used = ["query", "mode", "search_in", ...Object.keys(expertFilterShape)].filter((k) => (args as any)[k] !== undefined);
           if (used.length) return fail(`oql is a complete selection; put year, type, institution and other filters inside it instead of using: ${used.join(", ")}.`);
-          const prep = prepareOql(args.oql, !!args.include_retracted);
+          const prep = prepareOql(args.oql, askedPulled);
           const q = prep.oql;
-          retractedWorks = prep.retractedWorks;
+          pulled = prep.pulled;
           const parsed = oqlWhereClause(q);
           if ("error" in parsed) return fail(parsed.error);
           const [groups, sampleData, recent] = await Promise.all([
-            client.post<ListResponse>({ oql: `${q} group by author`, per_page: GROUP_PAGE }),
-            client.post<ListResponse>({ oql: q, per_page: SAMPLE_SIZE, sort: sampleSort, select: SAMPLE_SELECT }),
-            client.post<ListResponse>({ oql: `${oqlWithYearFloor(parsed.clause, recentFloor)} group by author`, per_page: GROUP_PAGE }),
+            client.post<ListResponse>({ oql: `${q} group by author`, per_page: GROUP_PAGE }, pulled.params),
+            client.post<ListResponse>({ oql: q, per_page: SAMPLE_SIZE, sort: sampleSort, select: SAMPLE_SELECT }, pulled.params),
+            client.post<ListResponse>({ oql: `${oqlWithYearFloor(parsed.clause, recentFloor)} group by author`, per_page: GROUP_PAGE }, pulled.params),
           ]);
           candidates = candidatesFromGroups(groups.group_by ?? []);
           sample = sampleData.results;
           recentByAuthor = new Map(candidatesFromGroups(recent.group_by ?? []).map((c) => [c.id, c.matching_works]));
           totalWorks = groups.meta.count ?? 0;
-          echo = queryEcho(sampleData);
+          echo = queryEcho(sampleData, pulled.include);
           basis = `the ${candidates.length} most frequent authors across ${totalWorks.toLocaleString("en-US")} matching works`;
         } else {
           const mode: Mode = (args.mode as Mode) ?? "keyword";
@@ -139,7 +141,8 @@ export function registerExpertTools(server: McpServer, deps: ExpertDeps) {
             if (!query) return fail("Semantic mode needs a query.");
             assertSemanticCompatible(filterArgs);
             const filter = buildWorkFilter(filterArgs);
-            const data = await client.get<ListResponse>("/works", { "search.semantic": query, filter, per_page: SEMANTIC_SIZE, select: SAMPLE_SELECT });
+            pulled = pulledView(askedPulled, filter);
+            const data = await client.get<ListResponse>("/works", { "search.semantic": query, filter, ...pulled.params, per_page: SEMANTIC_SIZE, select: SAMPLE_SELECT });
             sample = data.results;
             candidates = countAuthors(sample);
             recentByAuthor = new Map(countAuthors(sample.filter((w) => (w.publication_year ?? 0) >= recentFloor)).map((c) => [c.id, c.matching_works]));
@@ -152,21 +155,22 @@ export function registerExpertTools(server: McpServer, deps: ExpertDeps) {
             const extra = [...sp.filters];
             if (country) extra.push(`authorships.institutions.country_code:${country}`);
             const filter = buildWorkFilter(filterArgs, extra);
-            // buildWorkFilter always adds is_retracted:false, so test the inputs, not the string.
+            // Years, types, language or a country fill the filter without naming a topic, so test the inputs, not the string.
             const scoped = !!query || !!args.topic_ids?.length || !!args.institution_ids?.length || !!args.funder_ids?.length || !!args.raw_filter?.trim();
             if (!scoped) return fail("Give the topic: query text (preferred), topic_ids, an oql selection, or at least institution_ids/funder_ids/raw_filter.");
             filterUsed = filter;
-            const base = { ...sp.params, filter, per_page: GROUP_PAGE, group_by: "authorships.author.id" };
+            pulled = pulledView(askedPulled, filter);
+            const base = { ...sp.params, filter, ...pulled.params, per_page: GROUP_PAGE, group_by: "authorships.author.id" };
             const [groups, sampleData, recent] = await Promise.all([
               client.get<ListResponse>("/works", base),
-              client.get<ListResponse>("/works", { ...sp.params, filter, per_page: SAMPLE_SIZE, sort: sampleSort, select: SAMPLE_SELECT }),
+              client.get<ListResponse>("/works", { ...sp.params, filter, ...pulled.params, per_page: SAMPLE_SIZE, sort: sampleSort, select: SAMPLE_SELECT }),
               client.get<ListResponse>("/works", { ...base, filter: [filter, `publication_year:>${recentFloor - 1}`].filter(Boolean).join(",") }),
             ]);
             candidates = candidatesFromGroups(groups.group_by ?? []);
             sample = sampleData.results;
             recentByAuthor = new Map(candidatesFromGroups(recent.group_by ?? []).map((c) => [c.id, c.matching_works]));
             totalWorks = groups.meta.count ?? 0;
-            echo = queryEcho(sampleData);
+            echo = queryEcho(sampleData, pulled.include);
             basis = `the ${candidates.length} most frequent authors across ${totalWorks.toLocaleString("en-US")} matching works`;
           }
         }
@@ -186,8 +190,9 @@ export function registerExpertTools(server: McpServer, deps: ExpertDeps) {
         for (let i = 0; i < pool.length; i += BATCH) chunks.push(pool.slice(i, i + BATCH).map((c) => c.id));
         const [profilePages, coauthorSets] = await Promise.all([
           Promise.all(chunks.map((ids) => client.get<ListResponse>("/authors", { filter: `ids.openalex:${ids.join("|")}`, per_page: BATCH, select: AUTHOR_SELECT }))),
-          // each anchor page is cut to its coauthor ids as it arrives, so whole pages are never held together
-          Promise.all(anchors.map((a) => client.get<ListResponse>("/works", { filter: `authorships.author.id:${a},publication_year:>${recentFloor - 1}`, per_page: 200, select: "id,authorships" })
+          // each anchor page is cut to its coauthor ids as it arrives, so whole pages are never held together; a pulled
+          // work's coauthors are still a conflict, so these reads keep pulled works in (oxjob #2264)
+          Promise.all(anchors.map((a) => client.get<ListResponse>("/works", { filter: `authorships.author.id:${a},publication_year:>${recentFloor - 1}`, ...pulledParams(true), per_page: 200, select: "id,authorships" })
             .then((page) => coauthorIds(page.results, [a])))),
         ]);
         const profiles = new Map<string, any>();
@@ -250,7 +255,7 @@ export function registerExpertTools(server: McpServer, deps: ExpertDeps) {
           basis,
           total_matching_works: totalWorks,
           filter: filterUsed,
-          retracted_works: retractedWorks,
+          pulled_works: pulled.note,
           ...echo,
           recent_years: recentYears,
           recent_since: recentFloor,

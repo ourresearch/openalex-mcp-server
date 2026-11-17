@@ -23,7 +23,6 @@ export interface SearchFilters {
   types?: string[];
   open_access_only?: boolean;
   language?: string;
-  include_retracted?: boolean;
   /** Extra OQL condition ANDed onto every query, e.g. `country is (BR)`. */
   extra_oql?: string;
 }
@@ -77,7 +76,6 @@ export function filterClauses(fl: SearchFilters): string[] {
   if (fl.open_access_only) out.push("open access is (true)");
   if (fl.language) out.push(`language is (${fl.language.toLowerCase()})`);
   if (fl.extra_oql?.trim()) out.push(`(${fl.extra_oql.trim()})`);
-  if (!fl.include_retracted && !/\bretracted\b/i.test(fl.extra_oql ?? "")) out.push("retracted is (false)");
   return out;
 }
 
@@ -104,7 +102,7 @@ export function buildKeywordSearch(facets: Facet[], filters: SearchFilters) {
   const queries = {
     combined: where(combinedBody),
     text_only: textBody ? where(textBody) : null,
-    // The not-clause goes before the filters: after `retracted is (false)` the parser reads it as a second retracted value.
+    // The not-clause goes before the filters: after a yes/no clause (`open access is (true)`) the parser reads it as a second value.
     added_by_keywords: notText && anyKeywords ? where([...fs.map(facetClause), notText, ...fc]) : null,
   };
   /** Additions that carry one given keyword (how much each keyword brings in). */

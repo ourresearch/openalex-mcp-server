@@ -140,10 +140,15 @@ describe("shapeCheck (#1537)", () => {
 });
 
 describe("prepareOql (#1537)", () => {
-  it("expands, splits the sort off, and hides retracted works on the starting set", () => {
+  it("expands and splits the sort off, adding no retracted clause (the API hides pulled works, oxjob #2264)", () => {
     const p = prepareOql("get works where topic is (T10878); then group those works by year; then summarize using count, mean FWCI; then sort by mean FWCI", false);
-    expect(p.oql).toBe("get works where (topic is (T10878)) and retracted is (false); then group those works by year; then summarize using count, mean FWCI");
+    expect(p.oql).toBe("get works where topic is (T10878); then group those works by year; then summarize using count, mean FWCI");
     expect(p.sort.by).toBe("mean FWCI");
-    expect(prepareOql("get works where topic is (T10878); then summarize using count", true).oql).toBe("get works where topic is (T10878); then summarize using count");
+    expect(p.pulled.include).toBe(false);
+    expect(p.pulled.note).toMatch(/^excluded by default/);
+    const asked = prepareOql("get works where topic is (T10878); then summarize using count", true);
+    expect(asked.oql).toBe("get works where topic is (T10878); then summarize using count");
+    expect(asked.pulled.include).toBe(true);
+    expect(asked.pulled.note).toMatch(/^included/);
   });
 });

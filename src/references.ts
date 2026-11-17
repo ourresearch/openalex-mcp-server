@@ -11,7 +11,7 @@
  * citation holds, year, authors, venue, volume/first page (which pick the right copy of a co-published article), and
  * its type (a review, a peer review or a journal's front matter is not the cited work).
  */
-import type { OpenAlexClient, ListResponse } from "./openalex";
+import { pulledParams, type OpenAlexClient, type ListResponse } from "./openalex";
 import { titleCoverage, queryCoverage, extractYear, guessSurnames, titleHypotheses, contentTokens, venueness, venueCoverage, tokenKey, mainTitle } from "./text";
 import { MAX_CANDIDATES, type SameWorkJudge, type SameWorkAnswer } from "./sameWork";
 
@@ -171,9 +171,12 @@ function canonical(input: string, best: Scored, scored: Scored[]): any {
   return pick.w;
 }
 
-/** Run searches in parallel: each query's results (null if it failed); throws only if every one failed. */
+/**
+ * Run searches in parallel: each query's results (null if it failed); throws only if every one failed. Pulled works
+ * (retracted, withdrawn, removed) stay findable: a bibliography check must match them to flag them (oxjob #2264).
+ */
 async function search(client: OpenAlexClient, queries: Query[], select: string): Promise<Array<any[] | null>> {
-  const settled = await Promise.allSettled(queries.map((q) => client.get<ListResponse>("/works", { ...q, select })));
+  const settled = await Promise.allSettled(queries.map((q) => client.get<ListResponse>("/works", { ...q, select, ...pulledParams(true) })));
   if (settled.length && settled.every((s) => s.status === "rejected")) throw (settled[0] as PromiseRejectedResult).reason;
   return settled.map((s) => (s.status === "fulfilled" ? s.value.results ?? [] : null));
 }

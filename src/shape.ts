@@ -71,6 +71,8 @@ export const MAX_FULL_AUTHORS = 100;
 
 /** Leads every retracted record so the model cannot miss it (oxjob #1281). */
 export const RETRACTION_WARNING = "This work has been RETRACTED. Do not present it as valid evidence; if you mention it, say it was retracted.";
+/** Leads every pulled record that is not a retraction: withdrawn or removed by its publisher, host or authors (oxjob #2264). */
+export const PULLED_WARNING = "This work was WITHDRAWN or REMOVED by its publisher, host or authors (is_pulled). Do not present it as valid evidence; if you mention it, say it was withdrawn.";
 
 export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
   const maxAuthors = opts.maxAuthors ?? 5;
@@ -80,10 +82,13 @@ export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
   const oa = w.open_access ?? {};
   const abstractText = abstractFromInvertedIndex(w.abstract_inverted_index);
 
-  // Retracted works lead with the flag (and, in full records, the warning) so it is the first thing read.
+  // Retracted works lead with the flag (and, in full records, the warning) so it is the first thing read; so do other
+  // pulled works (withdrawn, removed), which the API hides by default and shows only on request or by ID (#2264).
   const retracted: Record<string, any> = w.is_retracted ? { is_retracted: true, ...(opts.full ? { warning: RETRACTION_WARNING } : {}) } : {};
+  const pulled: Record<string, any> = w.is_pulled ? { is_pulled: true, ...(opts.full && !w.is_retracted ? { warning: PULLED_WARNING } : {}) } : {};
   const base: Record<string, any> = {
     ...retracted,
+    ...pulled,
     id: shortId(w.id),
     doi: w.doi ? String(w.doi).replace(/^https?:\/\/doi\.org\//i, "") : null,
     title: w.display_name ?? w.title ?? null,

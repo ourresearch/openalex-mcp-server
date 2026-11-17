@@ -5,6 +5,7 @@
 import { z } from "zod";
 import { idList } from "./ids";
 import { keywordSlug } from "./keywordSearch";
+import { pulledParams, type Params } from "./openalex";
 
 // The live /types vocabulary (elastic-api config/work-types.yaml): 25 types as of 2026-11-07
 // (libguides retired, oxjob #1647; study-registration added, oxjob #2063).
@@ -16,6 +17,14 @@ export const WORK_TYPES = [
 ] as const;
 
 export const OA_STATUSES = ["gold", "green", "hybrid", "bronze", "diamond", "closed"] as const;
+
+/** The tool parameters for pulled works (oxjob #2264; see openalex.ts pulledParams). URL parameters, not filters. */
+export const pulledShape = {
+  include_pulled: z.boolean().optional()
+    .describe("Include pulled works: ones their publisher, host or authors retracted, withdrew or removed. Default false: they are hidden, as in the API's default view."),
+  include_retracted: z.boolean().optional()
+    .describe("Deprecated: same as include_pulled."),
+};
 
 /** Shared filter fields for works. Used by search_works, group_works and list_citations. */
 export const workFilterShape = {
@@ -55,8 +64,6 @@ export const workFilterShape = {
     .describe("ISO-639-1 language code, e.g. \"en\"."),
   core_sources_only: z.boolean().optional()
     .describe("Only works published in 'core' sources: reputable, well-indexed journals and repositories (see https://help.openalex.org/data/sources/). Useful to exclude low-quality venues."),
-  include_retracted: z.boolean().optional()
-    .describe("Include retracted works. Default false: retracted works are hidden and the response says so (retracted_works). Also honoured with oql, where the default leaves them out unless the query says otherwise (the echo then reads `it's not retracted`, or `non-retracted works` in the new form)."),
   raw_filter: z.string().max(2000).optional()
     .describe("Escape hatch: extra OpenAlex filter expression appended verbatim, using the syntax documented at https://help.openalex.org/api/filtering/ (e.g. \"has_abstract:true,primary_topic.field.id:17\"). Combined with the structured filters above using AND."),
 };
@@ -99,7 +106,7 @@ export function buildWorkFilter(args: WorkFilterArgs, extra: string[] = []): str
   if (args.countries?.length) parts.push(`authorships.institutions.country_code:${args.countries.map((c) => c.toUpperCase()).join("|")}`);
   if (args.language) parts.push(`language:${args.language.toLowerCase()}`);
   if (args.core_sources_only) parts.push("primary_location.source.is_core:true");
-  if (!args.include_retracted) parts.push("is_retracted:false");
+  // No is_retracted:false (oxjob #2264): the API hides pulled works, and a filter naming it would bring them back.
   if (args.raw_filter?.trim()) parts.push(args.raw_filter.trim());
   return parts.length ? parts.join(",") : null;
 }
@@ -141,8 +148,32 @@ export const GROUP_BY_FIELDS = {
 
 export type GroupByKey = keyof typeof GROUP_BY_FIELDS;
 
-/** What the response says about retracted works (oxjob #1281). */
-export const RETRACTED_EXCLUDED_NOTE = "excluded by default; set include_retracted=true to include them";
-export const RETRACTED_INCLUDED_NOTE = "included; retracted rows carry is_retracted: true";
-export const RETRACTED_PER_QUERY_NOTE = "as filtered by the query's own retracted clause";
-export const retractedNote = (included: boolean) => (included ? RETRACTED_INCLUDED_NOTE : RETRACTED_EXCLUDED_NOTE);
+/**
+ * include_pulled, or the deprecated include_retracted that means the same: true when either is true, undefined when
+ * neither was given (so a tool can pick its own default, as the profile audit view does).
+ */
+export function pulledChoice(args: { include_pulled?: boolean; include_retracted?: boolean }): boolean | undefined {
+  if (args.include_pulled === undefined && args.include_retracted === undefined) return undefined;
+  return !!(args.include_pulled || args.include_retracted);
+}
+
+/** Does a filter string name is_retracted or is_pulled (the user's own clause, which the API answers itself)? */
+export function filterNamesPulled(filter: string | null | undefined): boolean {
+  return /(?:^|,)\s*is[_-](?:retracted|pulled)\s*:/i.test(filter ?? "");
+}
+
+/** What the response says about pulled works (`pulled_works`; oxjob #1281, reworded for the API's default view in #2264). */
+export const PULLED_EXCLUDED_NOTE = "excluded by default (retracted, withdrawn or removed works); set include_pulled=true to include them";
+export const PULLED_INCLUDED_NOTE = "included; pulled rows carry is_pulled: true";
+export const PULLED_PER_QUERY_NOTE = "as filtered by the query's own retracted or pulled clause (naming one brings pulled works back, so only that clause filters them)";
+export const PULLED_FOR_CALCULATION_NOTE = "included, because the query splits or calculates on retracted or pulled works";
+export const pulledNote = (included: boolean, ownClause = false) =>
+  (ownClause ? PULLED_PER_QUERY_NOTE : included ? PULLED_INCLUDED_NOTE : PULLED_EXCLUDED_NOTE);
+
+/** What one works call does about pulled works: whether it includes them, the URL parameters that say so, the note. */
+export interface PulledView { include: boolean; params: Params; note: string }
+
+/** The view for a call built from a filter string; a filter naming is_retracted / is_pulled is the user's own clause. */
+export function pulledView(include: boolean, filter?: string | null): PulledView {
+  return { include, params: pulledParams(include), note: pulledNote(include, filterNamesPulled(filter)) };
+}

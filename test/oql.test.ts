@@ -19,30 +19,34 @@ describe("oql helpers", () => {
   });
 });
 
-import { oqlMentionsRetracted, oqlExcludeRetracted, splitOqlTail } from "../src/oql";
+import { oqlNamesPulled, oqlCalculatesOnPulled, prepareOql } from "../src/oql";
+import { PULLED_PER_QUERY_NOTE, PULLED_FOR_CALCULATION_NOTE, PULLED_INCLUDED_NOTE, PULLED_EXCLUDED_NOTE } from "../src/filters";
 
-describe("retraction default in OQL (oxjob #1281)", () => {
-  it("detects an existing retracted filter, not the word in a search term", () => {
-    expect(oqlMentionsRetracted("works where retracted is (true)")).toBe(true);
-    expect(oqlMentionsRetracted("works where is_retracted is (false)")).toBe(true);
-    expect(oqlMentionsRetracted("works where it's retracted")).toBe(true);
-    expect(oqlMentionsRetracted("works where title has (retracted papers)")).toBe(false);
+// oxjob #2264: the API's default view hides pulled works, so the tools add no `retracted is (false)` of their own (it
+// would now bring the withdrawn ones back); include_pulled rides as a URL parameter.
+describe("pulled works in OQL (oxjob #2264)", () => {
+  it("detects the query's own retracted or pulled filter, not the word in a search term", () => {
+    for (const q of ["works where retracted is (true)", "works where is_retracted is (false)", "works where it's retracted",
+      "get works where it's not pulled", "works where pulled is (true)", "get pulled works from 2020", "get pulled non-retracted works",
+      "works where is_pulled is (false)"]) {
+      expect(oqlNamesPulled(q), q).toBe(true);
+    }
+    expect(oqlNamesPulled("works where title has (retracted papers)")).toBe(false);
+    expect(oqlNamesPulled("works where title has (pulled pork)")).toBe(false);
   });
-  it("splits the tail at top level only", () => {
-    expect(splitOqlTail("title has (x) sort by year")).toEqual(["title has (x)", "sort by year"]);
-    expect(splitOqlTail('title has ("return on investment") group by year')).toEqual(['title has ("return on investment")', "group by year"]);
-    expect(splitOqlTail("title has (return) and year >= (2020)")).toEqual(["title has (return) and year >= (2020)", ""]);
-    expect(splitOqlTail("year is (2020) sample 25")).toEqual(["year is (2020)", "sample 25"]);
+  it("leaves the query as written and says pulled works are hidden", () => {
+    for (const q of ["works where title has (x) or title has (y)", "works where year is (2020)", "works", "works group by year"]) {
+      const p = prepareOql(q, false);
+      expect(p.oql, q).toBe(q);
+      expect(p.pulled.include).toBe(false);
+      expect(p.pulled.note).toBe(PULLED_EXCLUDED_NOTE);
+    }
+    expect(prepareOql("works where year is (2020)", true)).toMatchObject({ oql: "works where year is (2020)", pulled: { include: true, note: PULLED_INCLUDED_NOTE } });
   });
-  it("wraps the clause and keeps the tail", () => {
-    expect(oqlExcludeRetracted("works where title has (x) or title has (y) sort by year")).toEqual({ oql: "works where (title has (x) or title has (y)) and retracted is (false) sort by year", applied: true });
-    expect(oqlExcludeRetracted("works where year is (2020)")).toEqual({ oql: "works where (year is (2020)) and retracted is (false)", applied: true });
-    expect(oqlExcludeRetracted("works")).toEqual({ oql: "works where retracted is (false)", applied: true });
-    expect(oqlExcludeRetracted("works group by year")).toEqual({ oql: "works where retracted is (false) group by year", applied: true });
-  });
-  it("leaves explicit retracted filters and non-works queries alone", () => {
-    expect(oqlExcludeRetracted("works where retracted is (true)")).toEqual({ oql: "works where retracted is (true)", applied: false });
-    expect(oqlExcludeRetracted("authors where works count >= (10)")).toEqual({ oql: "authors where works count >= (10)", applied: false });
+  it("passes the user's own clause through untouched; the API reads it as include_pulled", () => {
+    for (const q of ["works where retracted is (true)", "works where retracted is (false)", "get non-retracted works about kelp"]) {
+      expect(prepareOql(q, false)).toMatchObject({ oql: q, pulled: { include: false, note: PULLED_PER_QUERY_NOTE } });
+    }
   });
 });
 
@@ -91,19 +95,21 @@ describe("pipeline queries (#1537)", () => {
     expect(oqlAddGroupBy("get works where topic is (T10878); then summarize using count, mean FWCI", "oa status")).toBe("get works where topic is (T10878); then group those works by oa status; then summarize using count, mean FWCI");
     expect(oqlAddGroupBy("get works where topic is (T10878)", "year")).toBe("get works where topic is (T10878); then group those works by year");
   });
-  it("puts the retracted default on the starting set only", () => {
-    expect(oqlExcludeRetracted(CRISPR)).toEqual({ oql: "get works where (topic is (T10878)) and retracted is (false); then group those works by institution in (I63966007, I97018004, I136199984); then summarize using count, mean FWCI, percent open access", applied: true });
-    expect(oqlExcludeRetracted("get works; then group those works by year")).toEqual({ oql: "get works where retracted is (false); then group those works by year", applied: true });
-    expect(oqlExcludeRetracted("works where topic is (T10878); then summarize using count")).toEqual({ oql: "works where (topic is (T10878)) and retracted is (false); then summarize using count", applied: true });
-    expect(oqlExcludeRetracted("get works where year is (2020) or type is (review)")).toEqual({ oql: "get works where (year is (2020) or type is (review)) and retracted is (false)", applied: true });
+  it("adds no retracted clause to a pipeline (oxjob #2264)", () => {
+    for (const q of [CRISPR, "get works; then group those works by year", "get works where year is (2020) or type is (review)",
+      "get works where title has (kelp); then group those works by author where count of those works > (10) and h-index > (20)"]) {
+      expect(prepareOql(q, false)).toMatchObject({ oql: q, pulled: { include: false } });
+    }
   });
-  it("leaves pipelines alone that mention retracted or don't start from works", () => {
-    expect(oqlExcludeRetracted("get works where topic is (T10878); then summarize using count, percent retracted").applied).toBe(false);
-    expect(oqlExcludeRetracted("get works where topic is (T10878); then group those works by retracted").applied).toBe(false);
-    expect(oqlExcludeRetracted("get works where retracted is (true); then summarize using count").applied).toBe(false);
-    expect(oqlExcludeRetracted("get authors where h-index > (50)")).toEqual({ oql: "get authors where h-index > (50)", applied: false });
-    expect(oqlExcludeRetracted("get works where title has (kelp); then group those works by author where count of those works > (10) and h-index > (20)").oql)
-      .toBe("get works where (title has (kelp)) and retracted is (false); then group those works by author where count of those works > (10) and h-index > (20)");
+  it("asks for pulled works when a later step splits or calculates on them (the API reads only filters that way)", () => {
+    for (const q of ["get works where topic is (T10878); then summarize using count, percent retracted",
+      "get works where topic is (T10878); then group those works by retracted"]) {
+      expect(oqlCalculatesOnPulled(q), q).toBe(true);
+      expect(prepareOql(q, false)).toMatchObject({ oql: q, pulled: { include: true, note: PULLED_FOR_CALCULATION_NOTE } });
+    }
+    expect(oqlCalculatesOnPulled(CRISPR)).toBe(false);
+    // a starting filter of its own: the API brings pulled works back itself, so nothing is sent
+    expect(prepareOql("get works where retracted is (true); then summarize using count", false)).toMatchObject({ pulled: { include: false, note: PULLED_PER_QUERY_NOTE } });
   });
   it("splits a sort off a pipeline and keeps the column words", () => {
     expect(splitOqlSort(CRISPR + "; then sort by mean FWCI")).toEqual({ oql: CRISPR, sort: undefined, by: "mean FWCI", ascending: undefined, stripped: true });
@@ -132,11 +138,10 @@ describe("the #1555 step words", () => {
     expect(oqlAddGroupBy("get works where topic is (T10878); finally, summarize using count", "oa status"))
       .toBe("get works where topic is (T10878); then group those works by oa status; finally, summarize using count");
   });
-  it("keeps a saved list's place when it leaves retracted works out", () => {
-    expect(oqlExcludeRetracted("get works in the collection [Our lab](col_x) where year > 2020").oql)
-      .toBe("get works in the collection [Our lab](col_x) where (year > 2020) and retracted is (false)");
-    expect(oqlExcludeRetracted("get works in the collection (col_x)").oql)
-      .toBe("get works in the collection (col_x) where retracted is (false)");
+  it("runs a saved list's query as written", () => {
+    for (const q of ["get works in the collection [Our lab](col_x) where year > 2020", "get works in the collection (col_x)"]) {
+      expect(prepareOql(q, false).oql).toBe(q);
+    }
   });
 });
 
@@ -157,11 +162,8 @@ describe("thing-first", () => {
     expect(oqlHasGroupBy(UBC)).toBe(true);
     expect(oqlHasGroupBy("get authors where h-index is above 20")).toBe(false);
   });
-  it("leaves retracted works out of the works it names", () => {
-    expect(oqlExcludeRetracted(UBC + "; then, summarize each author using count")).toEqual({
-      oql: "get authors at [University of British Columbia](I141945490) since 2022 who published works where (title-abstract has kelp) and retracted is (false); then, summarize each author using count",
-      applied: true });
-    expect(oqlExcludeRetracted("get authors where h-index is above 20").applied).toBe(false);
+  it("runs as written: the API leaves pulled works out of the works it names", () => {
+    expect(prepareOql(UBC + "; then, summarize each author using count", false)).toMatchObject({ oql: UBC + "; then, summarize each author using count", pulled: { include: false } });
   });
 });
 
@@ -186,11 +188,12 @@ describe("new-form sentences", () => {
       expect(oqlIsSentence(s), s).toBe(false);
     }
   });
-  it("say retracted before the noun", () => {
-    expect(oqlMentionsRetracted("get non-retracted works about kelp")).toBe(true);
-    expect(oqlMentionsRetracted("get retracted articles since 2020")).toBe(true);
-    expect(oqlMentionsRetracted("get the count of retracted works by year")).toBe(true);
-    expect(oqlMentionsRetracted("get works about kelp")).toBe(false);
+  it("say retracted or pulled before the noun", () => {
+    expect(oqlNamesPulled("get non-retracted works about kelp")).toBe(true);
+    expect(oqlNamesPulled("get retracted articles since 2020")).toBe(true);
+    expect(oqlNamesPulled("get the count of retracted works by year")).toBe(true);
+    expect(oqlNamesPulled("get pulled works about kelp")).toBe(true);
+    expect(oqlNamesPulled("get works about kelp")).toBe(false);
   });
   it("calculate when they start `get the`", () => {
     expect(oqlHasCalculate("get the count of works about kelp by year")).toBe(true);
@@ -206,14 +209,14 @@ describe("new-form sentences", () => {
       .toEqual({ oql: "get works where title-abstract-keywords has (kelp) and published since 2020", sort: "publication_date:desc" });
     expect(calls).toEqual([["get works since 2020 about kelp, newest first", "pipeline"]]);
     const prep = await prepareAnyOql(api, "get works since 2020 about kelp, newest first", false);
-    expect(prep.oql).toBe("get works where (title-abstract-keywords has (kelp) and published since 2020) and retracted is (false)");
+    expect(prep.oql).toBe("get works where title-abstract-keywords has (kelp) and published since 2020");
     expect(prep.statedSort).toBe("publication_date:desc");
     expect(prep.fromSentence).toBe(true);
   });
   it("leave today's forms alone, with no API call", async () => {
     const api = { async checkOql(): Promise<any> { throw new Error("not called"); } };
     const prep = await prepareAnyOql(api, "works where title has (kelp)", false);
-    expect(prep.oql).toBe("works where (title has (kelp)) and retracted is (false)");
+    expect(prep.oql).toBe("works where title has (kelp)");
     expect(prep.statedSort).toBeUndefined();
     expect(prep.fromSentence).toBe(false);
   });

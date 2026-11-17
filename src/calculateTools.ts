@@ -7,6 +7,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { OpenAlexClient, ListResponse } from "./openalex";
+import { pulledShape, pulledChoice } from "./filters";
 import { compact, shapeEntity, type EntityKind } from "./shape";
 import { prepareAnyOql, oneLine, oqlIsNumbers, oqlHasGroupBy, oqlHasCalculate, oqlHasSample, oqlThingFirst, splitOqlSteps, queryEcho } from "./oql";
 import { shapeCalculation, calculationResult, shapeCheck } from "./calculate";
@@ -45,19 +46,20 @@ export function registerCalculateTools(server: McpServer, deps: CalculateDeps): 
         "get works where topic is [CRISPR and Genetic Engineering](T10878); then, compare institution [Massachusetts Institute of Technology](I63966007) versus [Stanford University](I97018004) versus [Harvard University](I136199984) using count, mean FWCI, and percent open access. " +
         "The full guide is the OQL reference in the server instructions (read_docs topic oql). Check a new query with check_oql first (free: limits with fixes, time estimate, price). " +
         "Returns one row per group, keyed by the OQL words of each calculation (count, mean FWCI, ...), nested splits under groups, the summary (summary.all for the whole starting set; with two or more splits, summary.splits with each split's groups on their own, computed from the works: read these, never sum or average group rows), groups_count and next_page, the price, the canonical OQL and a reproduce_url. " +
-        "A query with no split or calculation gets then, summarize using count; a query that starts from authors, institutions, sources, topics, funders or publishers with no split lists them with their own fields. Retracted works are left out unless include_retracted=true or the query says otherwise.",
+        "A query with no split or calculation gets then, summarize using count; a query that starts from authors, institutions, sources, topics, funders or publishers with no split lists them with their own fields. Pulled works (retracted, withdrawn or removed) are left out, as in the API's default view, unless include_pulled=true or the query has its own retracted or pulled clause.",
       inputSchema: {
         oql: z.string().max(20000).describe("A pipeline OQL query, e.g. get works where country is [Kenya](KE) and published since 2015; then, group those works by year; finally, summarize using percent open access."),
         limit: z.number().int().min(1).max(200).optional().describe("Groups per page (the outer split), 1-200. Default 50. Groups come back by count."),
         page: z.number().int().min(1).max(200).optional().describe("Page of groups. Default 1."),
         sort: z.string().max(100).optional().describe("Order this page's rows by a calculated column, e.g. \"mean FWCI\" (descending). OQL itself has no sort; the API picks each page's groups by count."),
-        include_retracted: z.boolean().optional().describe("Include retracted works. Default false."),
+        ...pulledShape,
       },
       annotations: { title: "Calculate over works", ...READ_ONLY },
     },
     async (args) =>
       run("calculate_works", async () => {
-        const prep = await prepareAnyOql(client, args.oql, !!args.include_retracted);
+        const prep = await prepareAnyOql(client, args.oql, !!pulledChoice(args));
+        const { pulled } = prep;
         let q = prep.oql;
         const order = prep.statedSort ? { sort: prep.statedSort } : {};   // a sentence's own order (#1555)
         const limit = args.limit ?? 50;
@@ -70,18 +72,18 @@ export function registerCalculateTools(server: McpServer, deps: CalculateDeps): 
         if (start !== "works" && bare) {
           const kind = start as EntityKind;
           if (!LIST_KINDS.includes(kind)) return fail(`calculate_works lists ${LIST_KINDS.join(", ")} with their own fields; "${start}" isn't one of them.`);
-          const data = await client.post<ListResponse>({ oql: q, per_page: limit, page, ...order });
+          const data = await client.post<ListResponse>({ oql: q, per_page: limit, page, ...order }, pulled.params);
           return deps.ok(compact({
-            ...queryEcho(data), total_results: data.meta.count,
+            ...queryEcho(data, pulled.include), total_results: data.meta.count,
             page, next_page: page * limit < (data.meta.count ?? 0) ? page + 1 : null,
             results: data.results.map((e: any) => shapeEntity(kind, e)),
           }));
         }
         if (bare && !oqlHasCalculate(q)) q = `${q}; then summarize using count`;
-        const data = await client.post<ListResponse>({ oql: q, per_page: limit, page, ...order });
+        const data = await client.post<ListResponse>({ oql: q, per_page: limit, page, ...order }, pulled.params);
         return calculationResult(compact({
-          retracted_works: start === "works" ? prep.retractedWorks : undefined,
-          ...shapeCalculation(data, { page, sortBy: args.sort ?? prep.sort.by, ascending: args.sort ? false : prep.sort.ascending }),
+          pulled_works: start === "works" ? pulled.note : undefined,
+          ...shapeCalculation(data, { page, sortBy: args.sort ?? prep.sort.by, ascending: args.sort ? false : prep.sort.ascending, includePulled: pulled.include }),
         }));
       })()
   );
@@ -92,22 +94,23 @@ export function registerCalculateTools(server: McpServer, deps: CalculateDeps): 
       title: "Check an OQL query (free)",
       description:
         "Free check of any OQL query before running it, the calculation pipelines above all: whether it is valid, every problem with its fix (a parse error, a fourth split, too many groups, too slow), the time estimate against the ~10-second budget, the price in credits and USD, and the canonical text with each entity's name in brackets so you can confirm the IDs mean what you think. " +
-        "The query is checked as calculate_works would run it (retracted works left out unless include_retracted=true). When it is not valid, apply the fix and check again.",
+        "The query is checked as calculate_works would run it (pulled works left out, as in the API's default view, unless include_pulled=true). When it is not valid, apply the fix and check again.",
       inputSchema: {
         oql: z.string().max(6000).describe("The OQL query to check."),
-        include_retracted: z.boolean().optional().describe("Check it with retracted works included. Default false, as the tools run it."),
+        ...pulledShape,
+        include_pulled: pulledShape.include_pulled.describe("Check it with pulled works (retracted, withdrawn or removed) included. Default false, as the tools run it."),
       },
       annotations: { title: "Check an OQL query", ...READ_ONLY },
     },
     async (args) =>
       run("check_oql", async () => {
-        const prep = await prepareAnyOql(client, args.oql, !!args.include_retracted);
-        const body = await client.checkOql(prep.oql);
+        const prep = await prepareAnyOql(client, args.oql, !!pulledChoice(args));
+        const body = await client.checkOql(prep.oql, undefined, prep.pulled.params);
         return deps.ok(compact({
           ...shapeCheck(body),
           // a sentence was checked in today's step form; show it back in the API's own form
           checked_oql: prep.fromSentence ? oneLine(body?.oql) ?? prep.oql : prep.oql,
-          retracted_works: prep.retractedWorks,
+          pulled_works: prep.pulled.note,
           sort_note: prep.sort.stripped ? "OQL has no sort; the trailing sort was removed (calculate_works' sort orders a page of rows by a calculated column)." : undefined,
           cost_of_this_check: "free",
         }));

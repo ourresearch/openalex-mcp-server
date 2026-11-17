@@ -138,8 +138,9 @@ async function topics() {
       call("analyze_works", { topic_ids: [t.id], ...year, sections: ["by_type"] }),
       call("calculate_works", { oql: `get works from 2023 in the topic (${t.id})` }),
       call("search_works", { any_topic_ids: [t.id], ...year, limit: 1, include_abstracts: false }),
-      api("works", { filter: `primary_topic.id:${t.id},publication_year:2023,is_retracted:false`, per_page: "1", select: "id" }),
-      api("works", { filter: `topics.id:${t.id},publication_year:2023,is_retracted:false`, per_page: "1", select: "id" }),
+      // the API's default view, as the tools see it (pulled works hidden; oxjob #2264)
+      api("works", { filter: `primary_topic.id:${t.id},publication_year:2023`, per_page: "1", select: "id" }),
+      api("works", { filter: `topics.id:${t.id},publication_year:2023`, per_page: "1", select: "id" }),
     ]);
     const n = { search: numberFrom(s.json), group: g.json?.total_works, analyze: a.json?.total_works, calculate: c.json?.summary?.all?.count ?? numberFrom(c.json) };
     const vals = Object.values(n);
