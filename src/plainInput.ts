@@ -107,11 +107,8 @@ const ORG_WORDS = /(?<![\p{L}\p{N}])(?:university of|universidad|universidade|un
 const NAMED_ORG = /\p{Lu}\p{L}+ (?:University|Institute|College)\b/u;
 const ORG_AT_END = /\p{L} university$/iu;
 
-/** The words to search: quotes made straight, and a lone quote at either end dropped (`“Lean Leadership`). */
-export function keywordText(text: string): string {
-  const s = text.trim().replace(/[“”„‟«»]/g, '"').replace(/\s+/g, " ");
-  return (s.match(/"/g) ?? []).length === 1 ? s.replace(/^"\s*|\s*"$/g, "") : s;
-}
+/** The words to search: quotes made straight, spaces collapsed. */
+export const keywordText = (text: string): string => text.trim().replace(/[“”„‟«»]/g, '"').replace(/\s+/g, " ");
 
 /**
  * Plain words worth a keyword search: no question, request, year, citation or organization, and no Boolean syntax
@@ -125,6 +122,10 @@ export function keywordsOk(text: string): boolean {
   // Boolean syntax the Boolean check couldn't read (an odd quote, an operator, a wildcard), or a citation's author list
   if ((s.match(/"/g) ?? []).length % 2 || /\b(?:AND|OR|NOT)\b/.test(s) || /\*/.test(s)) return false;
   if ((s.match(/\(/g) ?? []).length !== (s.match(/\)/g) ?? []).length) return false;   // "mentoring and industry 5.0) and type is (book"
+  // grouping or quotes with a lowercase operator, or OQL's own words: a search string, not plain words
+  // ("(logica) or (razonamiento) or ("sentido comun")", "not stemmed "mental health" and within 1 (mental, health)")
+  if (/[()"]/.test(s) && /(?<![\p{L}])(?:and|or|not)(?![\p{L}])/u.test(s)) return false;
+  if (/(?<![\p{L}])(?:stemmed|within)(?![\p{L}])/iu.test(s) && /[()"]/.test(s)) return false;
   if (/(?<![\p{L}])\p{Lu}\.\s*,/u.test(s)) return false;   // "Alarcón Díaz, N., Alarcón Díaz, O."
   const words = fold(s).match(/[\p{L}\p{N}]+/gu) ?? [];
   if (!words.length) return false;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { keywordsOk, keywordText, parseId, readName, sameName, type Candidate } from "../src/plainInput";
+import { keywordsOk, parseId, readName, sameName, type Candidate } from "../src/plainInput";
 import { frontDoor, nearTitle, type Lookup } from "../src/frontDoor";
 
 describe("parseId", () => {
@@ -37,13 +37,10 @@ describe("keywordsOk", () => {
     }
   });
   it("leaves wildcards, a citation's author list and a named university to the model", () => {
-    for (const s of ["disrup* care mental health", "Alarcón Díaz, N., Alarcón Díaz, O.", "aspen plus from curtin university", "https://doi.org/10.1061"]) {
+    for (const s of ["disrup* care mental health", "Alarcón Díaz, N., Alarcón Díaz, O.", "aspen plus from curtin university", "https://doi.org/10.1061",
+      "“Lean Leadership", "(logica) or  (razonamiento) or  (\"sentido comun\")", "mentoring and industry 5.0) and type is (book"]) {
       expect(keywordsOk(s), s).toBe(false);
     }
-  });
-  it("drops a lone quote at either end", () => {
-    expect(keywordText("“Lean Leadership")).toBe("Lean Leadership");
-    expect(keywordsOk("“Lean Leadership")).toBe(true);
   });
 });
 
@@ -123,6 +120,14 @@ describe("frontDoor's plain-input routes", () => {
     expect(await frontDoor("Journal of Healthcare Engineering", noRun, { oa: fakeApi({ "/sources": [jhe] }, 1427) }))
       .toMatchObject({ path: "name", oql: "get works in (S36625193)", note: "Works in Journal of Healthcare Engineering, the journal with this name." });
     expect(await frontDoor("kelp", noRun, { oa: fakeApi({}, 16050) })).toMatchObject({ path: "keywords", oql: "get works about (kelp)" });
+  });
+  it("checks a keyword search whose OQL quotes words, and leaves it to the model when the counts differ", async () => {
+    const quoting = (oqlCount: number): Lookup => ({
+      async get() { return { meta: { count: 78, x_query: { x_new_oql: 'get works about ("Group" analysis of fMRI data)' } }, results: [] }; },
+      async post() { return { meta: { count: oqlCount, x_query: { x_new_oql: 'get works about ("Group" analysis of fMRI data)' } }, results: [] }; },
+    });
+    expect(await frontDoor("group analysis of fmri data", noRun, { oa: quoting(78) })).toMatchObject({ path: "keywords", preview: { count: 78 } });
+    expect(await frontDoor("group analysis of fmri data", noRun, { oa: quoting(67) })).toEqual({ path: "model", tried: ["keywords"] });
   });
   it("leaves a one-word name to the model unless the switch is on", async () => {
     const cell = { id: "https://openalex.org/S110447773", display_name: "Cell", works_count: 27158, type: "journal" };

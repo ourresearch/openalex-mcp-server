@@ -445,8 +445,14 @@ export async function frontDoor<P extends TitlePreview>(text: string, run: (oql:
     maybe = ` Did you mean the ${kindWord(m)} ${m.name} (${m.id})?`;
   }
   if (r.kw?.count && keywordsOk(text)) {
-    const preview: TitlePreview = { ok: true, canonical: r.kw.oql, count: r.kw.count, top_rows: r.kw.rows };
-    return { path: "keywords", oql: r.kw.oql, preview, note: `Works with these words in the title, abstract or keywords.${maybe}` };
+    // The API's OQL for the search quotes some words (an "and", a word OQL reads as its own, a phrase), and a quoted
+    // word isn't stemmed: then the OQL is run to check it finds what the box finds ("Group analysis of fMRI data":
+    // 67 against 78), and the model reads it if not.
+    const same = !r.kw.oql.includes('"') || (await runQuick(oa, r.kw.oql)).count === r.kw.count;
+    if (same) {
+      const preview: TitlePreview = { ok: true, canonical: r.kw.oql, count: r.kw.count, top_rows: r.kw.rows };
+      return { path: "keywords", oql: r.kw.oql, preview, note: `Works with these words in the title, abstract or keywords.${maybe}` };
+    }
   }
   tried.push("keywords");
   return { path: "model", tried };
