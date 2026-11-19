@@ -9,7 +9,7 @@
  *
  * Pure helpers here (unit-tested): parseId, keywordsOk, readName. The lookups that feed them are in frontDoor.ts.
  */
-import { fold } from "./text";
+import { fold, titleWords } from "./text";
 import { arxivDoi, isSafeDoi } from "./ids";
 
 // ---- identifiers -----------------------------------------------------------------------------------------------
@@ -87,28 +87,36 @@ export function parseId(text: string): ParsedId | null {
 
 // ---- plain keywords --------------------------------------------------------------------------------------------
 
-// Words that make plain input a request or a question rather than search words ("Tolong carikan paper mengenai
-// matahari", "Facts about polar bears", "Artículo de medicina"), in the languages of the box's traffic (#1522: en, es,
-// fr, zh, pt, de, id). frontDoor.ts's REQUEST list covers the request words of Boolean strings; these are added here.
-const ASKING = new Set([...["find", "search", "show", "list", "give", "get", "me", "my", "our", "papers", "paper", "articles",
-  "article", "works", "publications", "publication", "since", "between", "published", "about", "how", "what", "which",
-  "who", "where", "when", "why", "many", "much", "most", "top", "cited", "citations", "count", "number", "percent",
-  "percentage", "share", "rank", "ranking", "compare", "versus", "vs", "please", "want", "need", "looking", "can",
-  "could", "would", "should", "do", "does", "did", "i", "we", "you", "latest", "recent", "best", "journals",
+/**
+ * Words that make a string a request in prose rather than a search string ("papers on kelp AND climate since 2020"),
+ * in the languages of #1494's traffic sample (frontDoor.ts's Boolean check compares them unfolded). Prose in other
+ * languages is caught there by MAX_PLAIN_WORDS when it has no operator.
+ */
+export const REQUEST = new Set(["find", "search", "show", "list", "give", "get", "me", "my", "our", "papers", "paper", "articles",
+  "article", "works", "publications", "since", "between", "published", "about", "how", "what", "which", "who", "where",
+  "when", "why", "many", "much", "most", "top", "cited", "citations", "count", "number", "percent", "percentage", "share",
+  "rank", "ranking", "compare", "versus", "please", "want", "need", "looking", "can", "could", "would", "should", "do",
+  "does", "did", "i", "we", "you",
   "buscar", "busca", "busque", "encontre", "encuentra", "encontrar", "trabajos", "trabalhos", "artículos", "artigos",
-  "artículo", "artigo", "sobre", "acerca", "qué", "cuál", "cuáles", "cuántos", "cuantos", "quais", "quantos",
-  "trouve", "trouver", "cherche", "travaux", "comment", "pourquoi", "quels", "quelles",
-  "finde", "finden", "suche", "arbeiten", "wie", "warum", "welche", "über", "finn", "cerca", "trova",
-  "tolong", "carikan", "cari", "mengenai", "tentang", "bagaimana", "apa", "mengapa", "jurnal", "skripsi"].map(fold)]);
+  "trouve", "trouver", "cherche", "travaux", "articles", "finde", "finden", "suche", "arbeiten", "finn", "cerca", "trova"]);
 
-/** A university, institute or journal named inside other words: the model reads the name and the topic apart. */
-const ORG_WORDS = /(?<![\p{L}\p{N}])(?:university of|universidad|universidade|université|universität|università|universiteit|universitas|üniversitesi|institute of|instituto|journal of|revista|proceedings of)(?![\p{L}\p{N}])/iu;
-// "Stanford University", and "... curtin university" at the end; not "part time student college"
-const NAMED_ORG = /\p{Lu}\p{L}+ (?:University|Institute|College)\b/u;
-const ORG_AT_END = /\p{L} university$/iu;
+// The same for plain input, plus the question and request words of the box's other languages (#1522: en, es, fr, zh,
+// pt, de, id): "Tolong carikan paper mengenai matahari", "Facts about polar bears", "Artículo de medicina". Folded.
+const ASKING = new Set([...REQUEST, "publication", "vs", "latest", "recent", "best", "journals",
+  "artículo", "artigo", "sobre", "acerca", "qué", "cuál", "cuáles", "cuántos", "cuantos", "quais", "quantos",
+  "comment", "pourquoi", "quels", "quelles", "wie", "warum", "welche", "über",
+  "tolong", "carikan", "cari", "mengenai", "tentang", "bagaimana", "apa", "mengapa", "jurnal", "skripsi"].map(fold));
+
+// A university, institute or journal named inside other words: the model reads the name and the topic apart.
+// "university of ...", "Stanford University", and "... curtin university" at the end; not "part time student college".
+const ORG_PATTERNS = [
+  /(?<![\p{L}\p{N}])(?:university of|universidad|universidade|université|universität|università|universiteit|universitas|üniversitesi|institute of|instituto|journal of|revista|proceedings of)(?![\p{L}\p{N}])/iu,
+  /\p{Lu}\p{L}+ (?:University|Institute|College)\b/u,
+  /\p{L} university$/iu,
+];
 
 /** The words to search: quotes made straight, spaces collapsed. */
-export const keywordText = (text: string): string => text.trim().replace(/[“”„‟«»]/g, '"').replace(/\s+/g, " ");
+const keywordText = (text: string): string => text.trim().replace(/[“”„‟«»]/g, '"').replace(/\s+/g, " ");
 
 /**
  * Plain words worth a keyword search: no question, request, year, citation or organization, and no Boolean syntax
@@ -118,18 +126,16 @@ export function keywordsOk(text: string): boolean {
   const s = keywordText(text);
   if (!s || /[?？¿]/.test(s) || /:\/\/|\bwww\./i.test(s)) return false;   // a question, or a link (a DOI prefix, a site)
   if (/\b(?:1[5-9]|20)\d{2}\b/.test(s) || /\bet al\b/i.test(s)) return false;   // a year or a citation: the model reads it
-  if (ORG_WORDS.test(s) || NAMED_ORG.test(s) || ORG_AT_END.test(s)) return false;
+  if (ORG_PATTERNS.some((re) => re.test(s))) return false;
   // Boolean syntax the Boolean check couldn't read (an odd quote, an operator, a wildcard), or a citation's author list
   if ((s.match(/"/g) ?? []).length % 2 || /\b(?:AND|OR|NOT)\b/.test(s) || /\*/.test(s)) return false;
   if ((s.match(/\(/g) ?? []).length !== (s.match(/\)/g) ?? []).length) return false;   // "mentoring and industry 5.0) and type is (book"
   // grouping or quotes with a lowercase operator, or OQL's own words: a search string, not plain words
   // ("(logica) or (razonamiento) or ("sentido comun")", "not stemmed "mental health" and within 1 (mental, health)")
-  if (/[()"]/.test(s) && /(?<![\p{L}])(?:and|or|not)(?![\p{L}])/u.test(s)) return false;
-  if (/(?<![\p{L}])(?:stemmed|within)(?![\p{L}])/iu.test(s) && /[()"]/.test(s)) return false;
+  if (/[()"]/.test(s) && (/(?<![\p{L}])(?:and|or|not)(?![\p{L}])/u.test(s) || /(?<![\p{L}])(?:stemmed|within)(?![\p{L}])/iu.test(s))) return false;
   if (/(?<![\p{L}])\p{Lu}\.\s*,/u.test(s)) return false;   // "Alarcón Díaz, N., Alarcón Díaz, O."
-  const words = fold(s).match(/[\p{L}\p{N}]+/gu) ?? [];
-  if (!words.length) return false;
-  return !words.some((w) => ASKING.has(w));
+  const words = titleWords(s);
+  return words.length > 0 && !words.some((w) => ASKING.has(w));
 }
 
 // ---- names -----------------------------------------------------------------------------------------------------
@@ -150,7 +156,7 @@ export interface Candidate {
 }
 
 /** Folded words of a name: case, accents and punctuation off ("Martelo-Landroguez" = "martelo landroguez"). */
-export const nameKey = (s: string) => (fold(s).match(/[\p{L}\p{N}]+/gu) ?? []).join(" ");
+export const nameKey = (s: string) => titleWords(s).join(" ");
 /**
  * A person's name typed family name first or last ("PARTHIBAN S" = "S. Parthiban", "Liu Yujie" = "Yujie Liu"): the
  * same words with the first or last moved to the other end. Any other order is another name ("Gamal Ahmed Mohammed"
@@ -184,20 +190,23 @@ export function sameWords(text: string, names: Array<string | null | undefined>)
  * An organization whose works are fewer than this share of the keyword search's isn't a likely reading ("Ocean
  * Dynamics", a journal of 3,575 works, against 64,648 works about ocean dynamics).
  */
-export const ORG_SHARE = 0.1;
+const ORG_SHARE = 0.1;
 /** The same for the people of that name together ("Kelp", an author of 4 works, against 16,050 works about kelp). */
-export const PERSON_SHARE = 0.1;
+const PERSON_SHARE = 0.1;
 /**
  * A one-word name counts as a reading from this many works up ("Cell", the journal, 27,158 works, against 13.7 million
  * works about cells; not "Nanomedicine", a journal of 3,766).
  */
-export const ONE_WORD_MIN_WORKS = 10000;
+const ONE_WORD_MIN_WORKS = 10000;
 /** Two organizations of the same name: the bigger one is the reading when it has this many times the works (Harvard University the institution, 973K, and the funder, 47K). */
-export const ORG_LEAD = 5;
+const ORG_LEAD = 5;
 /** One person's profile is the reading when it holds this share of the works of everyone by that name (profile splits). */
-export const PERSON_LEAD = 0.8;
+const PERSON_LEAD = 0.8;
 /** People of the same name offered as choices; more than this and the page lists the authors instead. */
-export const MAX_PEOPLE = 4;
+const MAX_PEOPLE = 4;
+
+const byWorks = (cs: Candidate[]) => [...cs].sort((a, b) => b.works - a.works);
+const sumWorks = (cs: Candidate[]) => cs.reduce((n, c) => n + c.works, 0);
 
 export type NameReading =
   | { route: "org"; pick: Candidate }
@@ -215,23 +224,20 @@ export type NameReading =
  * pick from, or the list of them); a one-word name never decides alone.
  */
 export function readName(text: string, orgs: Candidate[], people: Candidate[], kw: number): NameReading {
-  const oneWord = nameKey(text).split(" ").length === 1;
-  const likelyOrg = (c: Candidate) => c.exact && (oneWord ? c.works >= ONE_WORD_MIN_WORKS : c.works >= ORG_SHARE * kw && c.works > 0);
-  const o = orgs.filter(likelyOrg).sort((a, b) => b.works - a.works);
-  // a one-word place or short name whose institution outweighs the words ("Michigan": the University of Michigan)
-  const word = nameKey(text);
-  const contains = oneWord
-    ? orgs.filter((c) => !c.exact && c.kind === "institution" && ` ${nameKey(c.name)} `.includes(` ${word} `) && c.works >= kw && c.works >= ONE_WORD_MIN_WORKS)
-      .sort((a, b) => b.works - a.works)
-    : [];
-  const p = oneWord ? [] : people.filter((c) => c.exact && c.works > 0).sort((a, b) => b.works - a.works);
-  const peopleWorks = p.reduce((n, c) => n + c.works, 0);
-  const likelyPeople = p.length > 0 && peopleWorks >= PERSON_SHARE * kw;
-
-  if (oneWord) {
-    const maybe = o[0] ?? contains[0];
+  const key = nameKey(text);
+  if (!key.includes(" ")) {
+    // one word: never decides alone. An exact name with real weight, or a place or short name whose institution
+    // outweighs the words ("Michigan": the University of Michigan), makes it unsure.
+    const named = byWorks(orgs.filter((c) => c.exact && c.works >= ONE_WORD_MIN_WORKS));
+    const within = byWorks(orgs.filter((c) => !c.exact && c.kind === "institution" && ` ${nameKey(c.name)} `.includes(` ${key} `)
+      && c.works >= kw && c.works >= ONE_WORD_MIN_WORKS));
+    const maybe = named[0] ?? within[0];
     return maybe ? { route: "unsure", maybe } : { route: "keywords" };
   }
+  const o = byWorks(orgs.filter((c) => c.exact && c.works > 0 && c.works >= ORG_SHARE * kw));
+  const p = byWorks(people.filter((c) => c.exact && c.works > 0));
+  const peopleWorks = sumWorks(p);
+  const likelyPeople = p.length > 0 && peopleWorks >= PERSON_SHARE * kw;
   if (o.length && likelyPeople) return { route: "unsure", maybe: o[0] };
   if (o.length) {
     const [top, next] = o;
@@ -247,8 +253,8 @@ export function readName(text: string, orgs: Candidate[], people: Candidate[], k
     return { route: "people" };
   }
   // no one has the name, but people have its words in another order: a name, but whose isn't sure
-  const reordered = people.filter((c) => c.sameWords && c.works > 0).sort((a, b) => b.works - a.works);
-  if (reordered.length && reordered.reduce((n, c) => n + c.works, 0) >= PERSON_SHARE * kw) return { route: "unsure", maybe: reordered[0] };
+  const reordered = byWorks(people.filter((c) => c.sameWords && c.works > 0));
+  if (reordered.length && sumWorks(reordered) >= PERSON_SHARE * kw) return { route: "unsure", maybe: reordered[0] };
   return { route: "keywords" };
 }
 

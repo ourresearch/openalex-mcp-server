@@ -12,6 +12,7 @@
  * (Opus 5.5 rejects edited history, so thinking blocks must round-trip untouched).
  */
 import type Anthropic from "@anthropic-ai/sdk";
+import { rowsOf } from "./frontDoor";
 import { OpenAlexError } from "./openalex";
 import { newWords, typedVocabulary } from "./searchWords";
 import CHAT_GUIDE from "./chat_guide.md";
@@ -224,9 +225,7 @@ export async function runOql(oa: OpenAlexLike, oql: string, sort?: string | null
   if (Array.isArray(r?.group_by) && r.group_by.length) {
     p.top_groups = r.group_by.slice(0, 5).map(({ key, ...rest }: any) => rest);
   } else if (!r?.summary) {
-    p.top_rows = (r?.results ?? []).slice(0, 5).map((x: any) => ({
-      id: String(x.id ?? "").split("/").pop(), name: x.display_name ?? x.title, year: x.publication_year, cited_by: x.cited_by_count,
-    }));
+    p.top_rows = rowsOf(r?.results);
   }
   return p;
 }

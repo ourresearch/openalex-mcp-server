@@ -5,6 +5,11 @@ const STOP = new Set(["a", "an", "the", "of", "and", "or", "in", "on", "for", "t
 /** Lowercase, accents off, every script kept ("Arañas" -> "aranas", Cyrillic stays Cyrillic). */
 export const fold = (s: string) => s.toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "");
 
+/** Folded words, stopwords kept, every script: for comparing a pasted title or name with a record's. */
+export function titleWords(s: string): string[] {
+  return fold(s).match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
 export function tokens(s: string | null | undefined): Set<string> {
   if (!s) return new Set();
   return new Set(
