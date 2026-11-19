@@ -17,12 +17,14 @@ Auth: API key free + strongly recommended (10x the no-key budget); openalex.org/
       No key? Get one for your user in one call: POST https://api.openalex.org/api-keys {"email": "<user's email>"}
       (ask your user for their email first; never invent one: made-up addresses are refused or never activate)
       (we email them a link; the key works once they click it, at $1/day; until then it gets 403 key_not_activated)
-Rate: $1/day free usage with key, $0.10/day without; 429 on over-budget or over the per-second limit (10/s no key, 30/s free key or prepaid, 50/s annual plan)
+Rate: $1/day free usage with key, $0.10/day without; 429 on over-budget or over a per-second limit: all requests 10/s no key, 30/s free key or prepaid, 50/s annual plan; searches with more than 5 AND/OR/NOT 1/s no key, 2/s free key or Member, 5/s Member+ or Partner; filters with more than 10 OR'd topics.id/concepts.id values and semantic search 1/s. The 429 body's "reason" names the limit; GET /rate-limit lists yours under per_second_limits
 Corpus: default = curated core (~295M works; ~323M with include_parts=true, which adds back
         pieces of other works like figures and front matter). corpus=all adds the ~122M-work
         expansion corpus (formerly "XPAC"); corpus=expansion selects it alone; each
         work has an is_xpac boolean. (Legacy include_xpac=true = corpus=all; deprecated —
-        never combine it with corpus=.)
+        never combine it with corpus=.) Pulled works (~118K retracted, withdrawn or removed;
+        is_pulled) are left out whatever the corpus; include_pulled=true brings them back, and so
+        does a filter or group_by on is_pulled / is_retracted.
 ```
 
 ## Entity Endpoints
@@ -95,7 +97,7 @@ api_key=        - Free, strongly recommended (get at openalex.org/settings/api)
 filter=         - Filter results (see syntax below)
 search=         - Full-text search across title/abstract/fulltext, plus keywords a phrase in it names
 search.title_abstract_keywords= - Title/abstract text OR keywords the query names (openalex.org's default; /works)
-rerank=true     - Reorder the top 100 of a relevance-sorted works search by relevance (+10 credits per request; result 101+ unchanged)
+rerank=true     - Reorder the top 100 of a relevance-sorted works search by relevance (+10 credits per reranked page; result 101+ unchanged, at no extra cost)
 sort=           - Sort results (e.g., cited_by_count:desc)
 per_page=       - Results per page (default: 25, max: 100)
 page=           - Page number for pagination
@@ -105,6 +107,7 @@ select=         - Limit returned fields (e.g., select=id,title)
 group_by=       - Aggregate results by a field
 corpus=         - core (default) | expansion | all — which works corpus to query (/works only; legacy include_xpac=true = corpus=all, deprecated)
 include_parts=  - true adds pieces of other works (figures, front matter, data-series records) that the default /works view leaves out
+include_pulled= - true adds pulled works (retracted, withdrawn or removed: is_pulled) that the default /works view leaves out
 ```
 
 > **Note:**
@@ -195,7 +198,7 @@ cited_by_count                - Total citations
 | Singleton (`/works/W123`) | Free |
 | List (`/works?filter=...`) | $0.0001 |
 | Search (`?search=`) | $0.001 |
-| Rerank (`rerank=true`), added to the request | +$0.001 (a reranked search: $0.002) |
+| Rerank (`rerank=true`), added to a page it reranks | +$0.001 (a reranked search: $0.002) |
 | Content download (PDF) | $0.01 |
 
 ## Query Limits

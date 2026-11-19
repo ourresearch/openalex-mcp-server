@@ -41,7 +41,7 @@ Lists and tables describe their works with the same words: `get works since 2020
 | # | Part | Examples |
 |---|---|---|
 | 1 | Whose works, when one institution, country or person defines the set | `[University of Kansas](I146416000)'s works`, `[Kenya](KE)'s works`, `[Jason R Priem](A5023888391)'s works` |
-| 2 | Yes/no words | `open access`, `closed access`, `retracted`, `non-retracted`, `top 1% cited`, `top 10% cited` |
+| 2 | Yes/no words | `open access`, `closed access`, `retracted`, `non-retracted`, `pulled`, `top 1% cited`, `top 10% cited` |
 | 3 | The type | `works` (every type), `articles`, `reviews`, `preprints`, `datasets`, `books`, `book chapters`, `conference papers`, `dissertations`, `editorials`, `letters` |
 | 4 | Time | `since 2020`, `from 2022`, `before 2010`, `from 2018–2025`, `from 2020-10-01 through 2021-09-30` |
 | 5 | What it's about | `about kelp`, `with conjugal in the title` |
@@ -156,7 +156,7 @@ get works where (published before 2000 and title-abstract has "global warming") 
 
 Nesting and OR across *different* fields are what the classic URL syntax can't express. Inside a `where`, searches use `has` with the field name (`title has`, `abstract has`, `title-abstract has`, `title-abstract-keywords has`, `full text has`, `raw affiliation has`, `byline has`) and years read `published since 2020`, `published before 2000`, `published after 2020`, `published in 2023`, `published from 2015 through 2024`.
 
-**Fields for `where`, on works:** type, language, open access, open access status, license, retracted, has DOI, has abstract, has full text, has ORCID, global south, top 1% cited, top 10% cited; institution, institution type, institution country, country, continent, author, corresponding author, corresponding institution, source, source type, publisher, funder, awards, topic (primary), topics (any), subfield, field, domain, keyword, SDG; citation count, FWCI, citation percentile by subfield, reference count, authors count, institutions count, countries count, APC paid; DOI, PMID, ISSN, ORCID, ROR ID; added, updated. API column names (`publication_year`, `primary_topic.id`) work too; the echo uses the OQL names.
+**Fields for `where`, on works:** type, language, open access, open access status, license, retracted, pulled, has DOI, has abstract, has full text, has ORCID, global south, top 1% cited, top 10% cited; institution, institution type, institution country, country, continent, author, corresponding author, corresponding institution, source, source type, publisher, funder, awards, topic (primary), topics (any), subfield, field, domain, keyword, SDG; citation count, FWCI, citation percentile by subfield, reference count, authors count, institutions count, countries count, APC paid; DOI, PMID, ISSN, ORCID, ROR ID; added, updated. API column names (`publication_year`, `primary_topic.id`) work too; the echo uses the OQL names.
 
 ## Lists
 
@@ -231,7 +231,7 @@ Join numbers with `and` (an Oxford comma for three or more). A number covers the
 | `mean FWCI`, `median FWCI`, `mean citations`, `median citations` | averages over the works |
 | `sum of citations` | total citations to the works (`the sum of citations to works ...`) |
 | `sum of APCs paid` | total article processing charges paid (`the sum of APCs paid for works ...`) |
-| `percent <yes/no word>` | the rate within each row: `percent open access`, `percent retracted`, `percent with an abstract`, `percent with a DOI`, `percent top 1% cited`, `percent top 10% cited` |
+| `percent <yes/no word>` | the rate within each row: `percent open access`, `percent retracted`, `percent pulled`, `percent with an abstract`, `percent with a DOI`, `percent top 1% cited`, `percent top 10% cited` |
 
 ```
 get the count of [University of Kansas](I146416000)'s works
@@ -245,7 +245,7 @@ get the median FWCI and median citations of works about kelp by year
 
 One or two, joined with `and`:
 
-- **Fields of the works:** `year`, `type`, `language`, `open access`, `open access status`, `retracted`, `topic`, `subfield`, `field`, `domain`, `SDG`.
+- **Fields of the works:** `year`, `type`, `language`, `open access`, `open access status`, `retracted`, `pulled`, `topic`, `subfield`, `field`, `domain`, `SDG`.
 - **Things:** `author`, `corresponding author`, `institution`, `company`, `country`, `journal`, `source`, `repository`, `publisher`, `funder`.
 
 ```
@@ -405,6 +405,7 @@ OQL's text never hides a condition the query carries, with these exceptions: sen
 |---|---|
 | `about` | searches the title, the abstract and the keywords |
 | The core corpus | every query of works runs on OpenAlex's [core corpus](/data/works/corpus/) unless it asks for another, after the works noun: `get works (all corpora) about kelp`, or `(expansion corpus)` |
+| No pulled works | every query of works leaves out [pulled works](/data/works/pulled/) (retracted, withdrawn or removed) unless it asks about them: `get pulled works about kelp`, `where it's retracted`, `percent retracted`, `by pulled`; on the API, `include_pulled=true` brings them all back |
 | Authors with works | lists of authors leave out authors with no works |
 | Sub-units count | `from [institution]` and `[institution]'s works` include its sub-units (a university's hospitals and institutes) |
 | Primary topic | `in the topic / subfield / field / domain` and splits by them use each work's primary topic, not every topic it has |

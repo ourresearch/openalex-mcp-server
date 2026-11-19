@@ -111,7 +111,7 @@ Lists and tables describe their works with the same words. The parts go in this 
 | # | Part | Canonical words |
 |---|---|---|
 | 1 | Whose works | `[University of Kansas](I146416000)'s works`: one institution, country or author that defines the set |
-| 2 | Yes/no words | `open access`, `closed access`, `retracted`, `non-retracted`, `top 1% cited`, `top 10% cited` |
+| 2 | Yes/no words | `open access`, `closed access`, `retracted`, `non-retracted`, `pulled`, `top 1% cited`, `top 10% cited` |
 | 3 | The type | `works`, `articles`, `reviews`, `preprints`, `books`, `book chapters`, `datasets`, `conference papers`, `dissertations`, `editorials`, `letters`, `reports`; `all works` in a table when nothing else narrows them |
 | 4 | Time | `since 2020`, `from 2022`, `before 2010`, `through 2010`, `from 2018–2025`; dates `since 2021-06-01`, `through 2021-09-30`, `from 2020-10-01 through 2021-09-30` |
 | 5 | Searches | `about kelp`; `with kelp in the title`, `in the abstract`, `in the title, abstract, or full text`, `in the title or abstract` |
@@ -183,7 +183,7 @@ A thing's own fields (`h-index`, `works count`) are not numbers about the works:
 
 One or two splits, joined with `and`, never the same split twice:
 
-- **Fields of the works:** `year`, `type`, `language`, `open access`, `open access status`, `license`, `retracted`, `topic`, `subfield`, `field`, `domain`, `keyword`, `SDG`, `continent`, `global south`, `institution type`, `source type`.
+- **Fields of the works:** `year`, `type`, `language`, `open access`, `open access status`, `license`, `retracted`, `pulled`, `topic`, `subfield`, `field`, `domain`, `keyword`, `SDG`, `continent`, `global south`, `institution type`, `source type`.
 - **Things:** `author`, `corresponding author`, `corresponding institution`, `institution`, `company`, `country`, `journal`, `source`, `repository`, `publisher`, `funder`.
 
 ```
@@ -466,7 +466,7 @@ get works from 2024 about kelp where institution is unknown
 
 ### Yes/no fields
 
-Yes/no fields read as words about the work. In the works phrase, the adjectives come before the type: `open access`, `closed access`, `retracted`, `non-retracted`, `top 1% cited`, `top 10% cited`.
+Yes/no fields read as words about the work. In the works phrase, the adjectives come before the type: `open access`, `closed access`, `retracted`, `non-retracted`, `pulled`, `top 1% cited`, `top 10% cited`.
 
 ```
 get open access retracted articles
@@ -653,6 +653,7 @@ OQL's text never hides a condition the query carries, with these exceptions: sen
 |---|---|
 | `about` | searches the title, the abstract and the keywords |
 | The core corpus | every query runs on OpenAlex's core corpus; `(all corpora)` or `(expansion corpus)` after the works noun (`get works (all corpora) about kelp`), or `include_xpac=true` on the API, adds the rest |
+| No pulled works | every query of works leaves out [pulled works](/data/works/pulled/) (retracted, withdrawn or removed) unless it asks about them: `get pulled works about kelp`, `where it's retracted`, `percent retracted`, `by pulled`; on the API, `include_pulled=true` brings them all back |
 | Authors with works | lists of authors leave out authors with no works |
 | Sub-units count | `from [institution]` and `[institution]'s works` include its sub-units (a university's hospitals and institutes) |
 | Primary topic | `in the topic / subfield / field / domain` and splits by them use each work's primary topic, not every topic it has |
@@ -864,7 +865,7 @@ works         ::= possessive? adjective* typeNoun corpus? time? search* citing* 
                   ( 'where' conditions )?
 
 possessive    ::= link "'s"                 /* one institution, country or author */
-adjective     ::= 'open access' | 'closed access' | 'retracted' | 'non-retracted'
+adjective     ::= 'open access' | 'closed access' | 'retracted' | 'non-retracted' | 'pulled'
                 | 'top 1% cited' | 'top 10% cited'
 typeNoun      ::= 'works' | 'all works' | 'articles' | 'reviews' | 'preprints' | 'books'
                 | 'book chapters' | 'datasets' | 'conference papers' | 'dissertations'
@@ -914,7 +915,7 @@ numbers       ::= number | number 'and' number | number ( ',' number )+ ',' 'and
 number        ::= 'count' | 'share' | 'sum of citations' | 'sum of APCs paid'
                 | ( 'mean' | 'median' ) ( 'FWCI' | 'citations' )
                 | 'percent' yesNoNumber
-yesNoNumber   ::= 'open access' | 'retracted' | 'top 1% cited' | 'top 10% cited'
+yesNoNumber   ::= 'open access' | 'retracted' | 'pulled' | 'top 1% cited' | 'top 10% cited'
                 | 'with an abstract' | 'with full text' | 'with a DOI'
 
 /* ---------- Splits and which groups ---------- */
@@ -922,7 +923,7 @@ splits        ::= split ( 'and' split )?            /* two different splits at m
 split         ::= 'year' time?
                 | fieldSplit valueSet?
                 | thingSplit ( valueSet | groupPart* )
-fieldSplit    ::= 'type' | 'language' | 'open access' | 'open access status' | 'license' | 'retracted'
+fieldSplit    ::= 'type' | 'language' | 'open access' | 'open access status' | 'license' | 'retracted' | 'pulled'
                 | 'topic' | 'subfield' | 'field' | 'domain' | 'keyword' | 'SDG' | 'continent'
                 | 'global south' | 'institution type' | 'source type'
                 | 'corresponding author' | 'corresponding institution'
@@ -978,7 +979,7 @@ value         ::= link | NUMBER | WORD | 'unknown'
 
 yesNoClause   ::= "it's" 'not'? yesNoWord
                 | 'it' ( 'has' | "doesn't have" ) flagNoun
-yesNoWord     ::= 'open access' | 'retracted' | 'top 1% cited' | 'top 10% cited'
+yesNoWord     ::= 'open access' | 'retracted' | 'pulled' | 'top 1% cited' | 'top 10% cited'
                 | 'from the global south'
 flagNoun      ::= 'a DOI' | 'an ORCID' | 'an abstract' | 'full text'
 
