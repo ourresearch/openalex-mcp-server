@@ -385,19 +385,25 @@ export async function frontDoor<P extends TitlePreview>(text: string, run: (oql:
   }
   const t = titleCandidate(text);
   const b = booleanSearch(text);
-  // names, keywords and the title's words are looked up beside the title, so none waits on another
-  const plain = oa && !b && !t?.explicit ? { oa, found: lookupPlain(oa, text) } : null;
+  // names (and a sure name's works), keywords and the title's words are looked up beside the title, so none waits on
+  // another
+  let plain: { found: Promise<Plain | null>; named: Promise<FrontDoor<P> | null> } | null = null;
+  if (oa && !b && !t?.explicit) {
+    const found = lookupPlain(oa, text);
+    plain = { found, named: found.then((r) => (r ? nameAnswer<P>(oa, text, r) : null)) };
+  }
   // (a capitalized title only: "age-related low testosterone in men" is a topic)
-  const near = plain && t && /^\p{Lu}/u.test(t.title) && titleContent(t.title).length >= MIN_NEAR_TITLE_WORDS
-    ? runQuick(plain.oa, titleWordsOql(t.title)) : null;
+  const near = oa && plain && t && /^\p{Lu}/u.test(t.title) && titleContent(t.title).length >= MIN_NEAR_TITLE_WORDS
+    ? runQuick(oa, titleWordsOql(t.title)) : null;
   if (t) {
-    const hit = await lookupTitle(run, t.title, t.explicit);
+    // the front door's own query runs in one call when it has the API; a follow-up keeps runOql
+    const hit = oa ? await lookupTitle((q) => runQuick(oa, q), t.title, t.explicit) : await lookupTitle(run, t.title, t.explicit);
     if (hit) {
       // the full name of a journal or institution is that thing, even when one paper carries it as a title
       // ("Journal of Healthcare Engineering"); a name that may be the thing, or may not, is the model's call
       // ("Journal of Scholarly Publishing": a journal, and five works with that title)
       const r = plain && nameWords(text) <= MAX_NAME_WORDS ? await plain.found : null;
-      const name = plain && r ? await nameAnswer<P>(plain.oa, text, r) : null;
+      const name = plain && r ? await plain.named : null;
       if (name) return name;
       if (r?.reading?.route === "unsure") return { path: "model", tried: ["title", "name"] };
       const n = hit.preview.count ?? 0;
@@ -417,7 +423,7 @@ export async function frontDoor<P extends TitlePreview>(text: string, run: (oql:
   if (!plain) return { path: "model", tried };
   const r = await plain.found;
   if (!r) return { path: "model", tried: [...tried, "name"] };
-  const name = await nameAnswer<P>(plain.oa, text, r);
+  const name = await plain.named;
   if (name) return name;
   // a title pasted with a word missing or changed: the few works whose titles have all its words
   const nt = near ? await near : null;
@@ -453,8 +459,8 @@ export const rowsOf = (results: any) => (Array.isArray(results) ? results : []).
 }));
 
 /** A list response as an answer's preview: the count, the top rows and the API's echo of the query (names filled in). */
-function previewOf(r: any): TitlePreview {
-  const echo = queryEcho(r).oql;
+function previewOf(r: any, asked?: string): TitlePreview {
+  const echo = queryEcho(r).oql ?? asked;   // a query we wrote stands for itself if the API sends no echo
   return typeof r?.meta?.count === "number" && echo ? { ok: true, canonical: echo, count: r.meta.count, top_rows: rowsOf(r.results) } : { ok: false };
 }
 
@@ -464,7 +470,7 @@ function previewOf(r: any): TitlePreview {
  */
 async function runQuick(oa: Lookup, oql: string): Promise<TitlePreview> {
   try {
-    return previewOf(await oa.post({ oql, per_page: 5 }));
+    return previewOf(await oa.post({ oql, per_page: 5 }), oql);
   } catch {
     return { ok: false };
   }
