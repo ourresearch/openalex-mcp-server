@@ -6,6 +6,10 @@
  */
 
 import { fold } from "./text";
+import {
+  keywordsOk, keywordText, kindWord, nameKey, parseId, readName, sameName, worksOf,
+  type Candidate, type IdKind, type NameReading, type OrgKind, type ParsedId,
+} from "./plainInput";
 
 export type SearchField = "title-abstract-keywords" | "title" | "abstract";
 
@@ -323,31 +327,62 @@ export function sameTitle(candidate: string, title: string | null | undefined): 
 }
 
 export type FrontDoor<P> =
-  | { path: "title" | "search_string"; oql: string; preview: P; note: string }
+  | { path: "title" | "search_string" | "id" | "name" | "keywords"; oql: string; preview: P | TitlePreview; note: string }
   | { path: "model"; tried: string[] };
 
 const SEARCHED: Record<SearchField, string> = {
   "title-abstract-keywords": "titles, abstracts and keywords", title: "titles", abstract: "abstracts",
 };
 
+/** The API calls the plain-input routes make (an OpenAlexClient satisfies it; tests pass a fake). */
+export interface Lookup {
+  get(path: string, params?: Record<string, string | number | boolean | undefined | null>): Promise<any>;
+  post(body: Record<string, any>): Promise<any>;
+}
+
+export interface FrontDoorOptions {
+  /** The API, for the plain-input routes (an id, a name, keywords; plainInput.ts). Without it only titles and Boolean strings answer here. */
+  oa?: Lookup;
+  /** A follow-up edits the page's query ("only open access"): its words are never a fresh search, so only the model reads them. */
+  followUp?: boolean;
+  /** A one-word name that could also be keywords ("Cell") runs as keywords with a "did you mean" note; off, the model reads it. */
+  oneWordNames?: boolean;
+}
+
 /**
- * The deterministic pass, in order: a pasted title that a lookup confirms; a Boolean search string that runs; else
- * the model (`tried` says what was tried, for the response's meta). `run` is chat.ts's runOql. An answer comes with
- * its note to the person.
+ * The deterministic pass, in order: an identifier; a pasted title that a lookup confirms, unless the input is the full
+ * name of an institution, journal, funder or person; a Boolean search string that runs; plain keywords; else the model
+ * (`tried` says what was tried, for the response's meta). `run` is chat.ts's runOql. An answer comes with its note to
+ * the person.
  */
-export async function frontDoor<P extends TitlePreview>(text: string, run: (oql: string) => Promise<P>): Promise<FrontDoor<P>> {
+export async function frontDoor<P extends TitlePreview>(text: string, run: (oql: string) => Promise<P>, opts: FrontDoorOptions = {}): Promise<FrontDoor<P>> {
   const tried: string[] = [];
+  const oa = opts.followUp ? undefined : opts.oa;
+  if (oa) {
+    const id = parseId(text);
+    if (id) {
+      const hit = await lookupId<P>(oa, id);
+      if (hit) return hit;
+      tried.push("id");
+    }
+  }
   const t = titleCandidate(text);
+  const b = booleanSearch(text);
+  // names and keywords are looked up beside the title, so neither waits on the other
+  const plain = oa && !b && !t?.explicit ? lookupPlain(oa, text) : null;
   if (t) {
     const hit = await lookupTitle(run, t.title, t.explicit);
     if (hit) {
+      // the full name of a journal or institution is that thing, even when one paper carries it as a title
+      // ("Journal of Healthcare Engineering")
+      const name = plain && oa ? await nameAnswer<P>(oa, text, await plain) : null;
+      if (name) return name;
       const n = hit.preview.count ?? 0;
       return { path: "title", oql: hit.oql, preview: hit.preview, note: n === 1 ? "The paper with this title." : `The ${n} works with this title.` };
     }
     tried.push("title");
     if (t.explicit) return { path: "model", tried };   // a request in prose, never a search string
   }
-  const b = booleanSearch(text);
   if (b) {
     const p = await run(b.oql);
     if (p.ok) {
@@ -356,7 +391,153 @@ export async function frontDoor<P extends TitlePreview>(text: string, run: (oql:
     }
     tried.push("search_string");
   }
+  if (!plain || !oa) return { path: "model", tried };
+  const r = await plain;
+  if (r.failed) return { path: "model", tried: [...tried, "name"] };
+  const name = await nameAnswer<P>(oa, text, r);
+  if (name) return name;
+  let maybe = "";
+  if (r.reading?.route === "unsure") {
+    tried.push("name");
+    if (!(opts.oneWordNames && nameKey(text).split(" ").length === 1)) return { path: "model", tried };
+    const m = r.reading.maybe;
+    maybe = ` Did you mean the ${kindWord(m)} ${m.name} (${m.id})?`;
+  }
+  if (r.kw?.count && keywordsOk(text)) {
+    const preview: TitlePreview = { ok: true, canonical: r.kw.oql, count: r.kw.count, top_rows: r.kw.rows };
+    return { path: "keywords", oql: r.kw.oql, preview, note: `Works with these words in the title, abstract or keywords.${maybe}` };
+  }
+  tried.push("keywords");
   return { path: "model", tried };
+}
+
+// ---- the plain-input routes' lookups (rules in plainInput.ts) ----------------------------------------------------
+
+/** Notes for an id's works, by what it names. */
+const ID_NOTE: Record<IdKind, string> = {
+  work: "The work with this", author: "Works by the author with this", institution: "Works from the institution with this",
+  source: "Works in the source with this", funder: "Works funded by the funder with this", publisher: "Works from the publisher with this",
+  topic: "Works in the topic with this",
+};
+
+/**
+ * Run an OQL query the front door wrote itself in one call (runOql checks first, for the model's queries): the count,
+ * the top rows, and the API's echo with names filled in. Never throws: ok is false on an error.
+ */
+async function runQuick(oa: Lookup, oql: string): Promise<TitlePreview> {
+  try {
+    const r = await oa.post({ oql, per_page: 5 });
+    const echo = r?.meta?.x_query?.x_new_oql ?? r?.meta?.x_query?.oql;
+    if (typeof r?.meta?.count !== "number" || !echo) return { ok: false };
+    return { ok: true, canonical: String(echo), count: r.meta.count, top_rows: rowsOf(r.results) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** The preview rows the page and the API's answer show, as runOql makes them. */
+const rowsOf = (results: any) => (Array.isArray(results) ? results : []).slice(0, 5).map((x: any) => ({
+  id: String(x.id ?? "").split("/").pop(), name: x.display_name ?? x.title, year: x.publication_year, cited_by: x.cited_by_count,
+}));
+
+/** The works an identifier names; null when the lookup fails (the model takes over). */
+async function lookupId<P>(oa: Lookup, id: ParsedId): Promise<FrontDoor<P> | null> {
+  let oql = id.oql;
+  if (!oql && id.resolve) {
+    try {
+      const e = await oa.get(id.resolve, { select: "id" });
+      const short = String(e?.id ?? "").split("/").pop();
+      if (short) oql = worksOf(id.kind, short);
+    } catch {
+      // not found: the works that carry the id, if any
+    }
+    oql = oql ?? id.fallback ?? null;
+  }
+  if (!oql) return null;
+  const p = await runQuick(oa, oql);
+  if (!p.ok) return null;
+  const note = p.count ? `${ID_NOTE[id.kind]} ${id.scheme}.` : `Nothing in OpenAlex has this ${id.scheme}.`;
+  return { path: "id", oql: p.canonical ?? oql, preview: p, note };
+}
+
+/** Longer input isn't looked up as a name (a journal's full name runs to 13 words); a person's, from 2 to 6 words. */
+const MAX_NAME_WORDS = 15;
+const MAX_PERSON_WORDS = 6;
+
+// the names each kind is known by besides its display name
+const ORG_PATHS: Array<[OrgKind, string, string[]]> = [
+  ["institution", "/institutions", ["display_name_alternatives", "display_name_acronyms"]],
+  ["source", "/sources", ["alternate_titles", "abbreviated_title"]],
+  ["funder", "/funders", ["alternate_titles"]],
+];
+
+interface Plain {
+  /** What the input names; null when it is too long to be a name. */
+  reading: NameReading | null;
+  /** A lookup failed, so what the input names is unknown: the model reads it. */
+  failed: boolean;
+  /** The keyword search: what openalex.org's box finds for the input, and the API's OQL for it. */
+  kw: { count: number; oql: string; rows: Array<Record<string, any>> } | null;
+}
+
+/** Search the input as institutions, sources, funders and authors, and as keywords, all at once. Never throws. */
+async function lookupPlain(oa: Lookup, text: string): Promise<Plain> {
+  const s = keywordText(cleanSearchText(text));
+  const words = nameKey(s).split(" ").filter(Boolean).length;
+  const search = (path: string, select: string[], perPage: number) =>
+    oa.get(path, { search: s, per_page: perPage, select: ["id", "display_name", "works_count", ...select].join(",") })
+      .then((d: any) => (Array.isArray(d?.results) ? d.results : []))
+      .catch(() => null);
+  const names = words <= MAX_NAME_WORDS;
+  const person = names && words >= 2 && words <= MAX_PERSON_WORDS && !/\d/.test(s);
+  const [kw, people, ...orgs] = await Promise.all([
+    oa.get("/works", { "search.title_abstract_keywords": s, per_page: 5, select: "id,display_name,publication_year,cited_by_count" }).catch(() => null),
+    person ? search("/authors", ["display_name_alternatives"], 50) : Promise.resolve([]),
+    ...ORG_PATHS.map(([kind, path, alts]) => (names ? search(path, kind === "source" ? [...alts, "type"] : alts, 10) : Promise.resolve([]))),
+  ]);
+  const oql = kw?.meta?.x_query?.x_new_oql ?? kw?.meta?.x_query?.oql;
+  const k = kw && typeof kw.meta?.count === "number" && oql
+    ? {
+      count: kw.meta.count as number, oql: String(oql),
+      rows: rowsOf(kw.results),
+    }
+    : null;
+  if (!k || people === null || orgs.some((o) => o === null)) return { reading: null, failed: true, kw: k };
+  if (!names) return { reading: null, failed: false, kw: k };
+  const cand = (kind: Candidate["kind"], x: any, other: string[]): Candidate => {
+    const alts = other.flatMap((f) => (Array.isArray(x[f]) ? x[f] : x[f] ? [x[f]] : []));
+    return {
+      kind, id: String(x.id ?? "").split("/").pop() ?? "", name: String(x.display_name ?? ""), works: Number(x.works_count ?? 0),
+      exact: sameName(s, [x.display_name, ...alts], kind === "author"), ...(x.type ? { type: String(x.type) } : {}),
+    };
+  };
+  const orgCands = ORG_PATHS.flatMap(([kind, , other], i) => (orgs[i] as any[]).map((x) => cand(kind, x, other)));
+  const peopleCands = (people as any[]).map((x) => cand("author", x, ["display_name_alternatives"]));
+  return { reading: readName(s, orgCands, peopleCands, k.count), failed: false, kw: k };
+}
+
+/** The OQL and note for a name the input is sure to mean; null when it isn't one (keywords, unsure, or a failed run). */
+async function nameAnswer<P>(oa: Lookup, text: string, r: Plain): Promise<FrontDoor<P> | null> {
+  const n = r.reading;
+  if (!n || n.route === "keywords" || n.route === "unsure") return null;
+  const typed = cleanSearchText(text).replace(/"/g, "");
+  let oql: string;
+  let note: string;
+  if (n.route === "org") {
+    oql = worksOf(n.pick.kind as IdKind, n.pick.id);
+    note = `Works ${n.pick.kind === "institution" ? "from" : n.pick.kind === "funder" ? "funded by" : "in"} ${n.pick.name}, the ${kindWord(n.pick)} with this name.`;
+  } else if (n.route === "person") {
+    oql = worksOf("author", n.pick.id);
+    note = n.others.length
+      ? `Works by ${n.pick.name}, the author named "${typed}" with the most works. Others with this name: ${n.others.map((c) => `${c.name} (${c.id})`).join(", ")}.`
+      : `Works by ${n.pick.name}, the author with this name.`;
+  } else {
+    oql = `get authors where name has "${typed}", most cited first`;
+    note = `Many authors are named "${typed}": pick one to see their works.`;
+  }
+  const p = await runQuick(oa, oql);
+  if (!p.ok) return null;
+  return { path: "name", oql: p.canonical ?? oql, preview: p, note };
 }
 
 /** More works than this share the phrase: a common phrase, not one paper's title ("Letter to the editor"). */

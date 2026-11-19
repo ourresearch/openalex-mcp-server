@@ -14,6 +14,8 @@
  *
  * 200: {text, route, oql, sort, note, confidence, count, preview, meta: {path, model, effort, turns, elapsed_ms, cost}}
  *   route "title" / "search_string": a pasted title or a Boolean search string, answered with no model (frontDoor.ts)
+ *   route "id" / "name" / "keywords": an identifier, the full name of one institution, journal, funder or person, or
+ *     plain keywords, answered with no model (plainInput.ts); never on a follow-up
  *   route "help_desk": a how-to with no subject, answered from help.openalex.org: {answer, link}, oql null (router.ts)
  *   route "query": the agent's query, plus left_out (a second question left out), out_of_reach and howto when they apply
  * 422: no query found; 400: a bad request; 502: the model failed. The proxy charges none of these (errors are free).
@@ -46,6 +48,11 @@ export interface QueryWriterEnv {
   FOLLOWUP_EFFORT?: string;
   /** The price as a multiple of our model cost; unset = PRICE_MULTIPLIER. A wrangler var, so it can come down without code. */
   PRICE_MULTIPLIER?: string;
+  /**
+   * "keywords": a one-word name that is also a search word ("Cell", "Nature") runs as keywords with a "did you mean"
+   * note. Unset: the model reads it. Off until the rule is confirmed (#1660).
+   */
+  ONE_WORD_NAMES?: string;
 }
 
 /** Jason, 2026-10-20: charge on the expensive side while it's new, and bring it down later. */
@@ -226,9 +233,12 @@ export async function handle(
   const anthropic = deps.anthropic ?? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const openalex = deps.openalex ?? new OpenAlexClient({ apiKey: key, baseUrl: env.OPENALEX_API_BASE, oqlStyle: env.OQL_STYLE, keyLabel: "your OpenAlex key" });
 
-  // Before any model: a pasted title a lookup confirms, or a Boolean search string, runs as typed (frontDoor.ts).
-  // No model, so no model cost; the searches themselves are charged by the proxy like any call.
-  const door = await frontDoor(parsed.text, (q) => runOql(openalex, q));
+  // Before any model (frontDoor.ts): an identifier, the full name of an institution, journal, funder or person, a
+  // pasted title a lookup confirms, a Boolean search string, or plain keywords. No model, so no model cost; the
+  // searches themselves are charged by the proxy like any call. A follow-up gets only the title and Boolean checks.
+  const door = await frontDoor(parsed.text, (q) => runOql(openalex, q), {
+    oa: openalex, followUp: !!parsed.currentQuery, oneWordNames: env.ONE_WORD_NAMES === "keywords",
+  });
   if (door.path !== "model") {
     return reply(200, {
       text: parsed.text, route: door.path, oql: door.oql, sort: null, note: door.note, confidence: null, count: door.preview.count ?? null,
