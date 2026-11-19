@@ -103,7 +103,9 @@ const ASKING = new Set([...["find", "search", "show", "list", "give", "get", "me
 
 /** A university, institute or journal named inside other words: the model reads the name and the topic apart. */
 const ORG_WORDS = /(?<![\p{L}\p{N}])(?:university of|universidad|universidade|université|universität|università|universiteit|universitas|üniversitesi|institute of|instituto|journal of|revista|proceedings of)(?![\p{L}\p{N}])/iu;
-const NAMED_ORG = /\p{Lu}\p{L}+ (?:University|Institute|College)\b/u;   // "Stanford University", not "student college"
+// "Stanford University", and "... curtin university" at the end; not "part time student college"
+const NAMED_ORG = /\p{Lu}\p{L}+ (?:University|Institute|College)\b/u;
+const ORG_AT_END = /\p{L} university$/iu;
 
 /** The words to search: quotes made straight, and a lone quote at either end dropped (`“Lean Leadership`). */
 export function keywordText(text: string): string {
@@ -117,10 +119,13 @@ export function keywordText(text: string): string {
  */
 export function keywordsOk(text: string): boolean {
   const s = keywordText(text);
-  if (!s || /[?？¿]/.test(s)) return false;
+  if (!s || /[?？¿]/.test(s) || /:\/\/|\bwww\./i.test(s)) return false;   // a question, or a link (a DOI prefix, a site)
   if (/\b(?:1[5-9]|20)\d{2}\b/.test(s) || /\bet al\b/i.test(s)) return false;   // a year or a citation: the model reads it
-  if (ORG_WORDS.test(s) || NAMED_ORG.test(s)) return false;
-  if ((s.match(/"/g) ?? []).length % 2 || /\b(?:AND|OR|NOT)\b/.test(s)) return false;
+  if (ORG_WORDS.test(s) || NAMED_ORG.test(s) || ORG_AT_END.test(s)) return false;
+  // Boolean syntax the Boolean check couldn't read (an odd quote, an operator, a wildcard), or a citation's author list
+  if ((s.match(/"/g) ?? []).length % 2 || /\b(?:AND|OR|NOT)\b/.test(s) || /\*/.test(s)) return false;
+  if ((s.match(/\(/g) ?? []).length !== (s.match(/\)/g) ?? []).length) return false;   // "mentoring and industry 5.0) and type is (book"
+  if (/(?<![\p{L}])\p{Lu}\.\s*,/u.test(s)) return false;   // "Alarcón Díaz, N., Alarcón Díaz, O."
   const words = fold(s).match(/[\p{L}\p{N}]+/gu) ?? [];
   if (!words.length) return false;
   return !words.some((w) => ASKING.has(w));
@@ -139,18 +144,39 @@ export interface Candidate {
   exact: boolean;
   /** A source's type (journal, repository, conference...), for the note. */
   type?: string;
+  /** Not the name, but the same words in another order ("Ahmed Gamal Mohammed" for "Gamal Ahmed Mohammed"). */
+  sameWords?: boolean;
 }
 
 /** Folded words of a name: case, accents and punctuation off ("Martelo-Landroguez" = "martelo landroguez"). */
 export const nameKey = (s: string) => (fold(s).match(/[\p{L}\p{N}]+/gu) ?? []).join(" ");
-/** A person's name read in any order ("PARTHIBAN S" = "S. Parthiban"). */
-const personKey = (s: string) => nameKey(s).split(" ").sort().join(" ");
+/**
+ * A person's name typed family name first or last ("PARTHIBAN S" = "S. Parthiban", "Liu Yujie" = "Yujie Liu"): the
+ * same words with the first or last moved to the other end. Any other order is another name ("Gamal Ahmed Mohammed"
+ * isn't "Ahmed Gamal Mohammed").
+ */
+const personKeys = (s: string): string[] => {
+  const all = nameKey(s).split(" ");
+  const out: string[] = [];
+  // a middle initial the person didn't type ("aric hagberg" for "Aric A. Hagberg"); a lone initial stays
+  for (const w of [all, all.filter((x, i) => x.length > 1 || i === 0 || i === all.length - 1)]) {
+    out.push(...[w, [...w.slice(1), w[0]], [w[w.length - 1], ...w.slice(0, -1)]].map((x) => x.join(" ")));
+  }
+  return out;
+};
 
 /** The thing's names that count as typing its name exactly. */
 export function sameName(text: string, names: Array<string | null | undefined>, person = false): boolean {
-  const key = person ? personKey : nameKey;
-  const k = key(text);
-  return !!k && names.some((n) => !!n && key(n) === k);
+  const k = nameKey(text);
+  if (!k) return false;
+  return names.some((n) => !!n && (person ? personKeys(n).includes(k) : nameKey(n) === k));
+}
+
+/** One of the names has exactly the typed words, in any order. */
+export function sameWords(text: string, names: Array<string | null | undefined>): boolean {
+  const sorted = (s: string) => nameKey(s).split(" ").sort().join(" ");
+  const k = sorted(text);
+  return !!k && names.some((n) => !!n && sorted(n) === k);
 }
 
 /**
@@ -219,6 +245,9 @@ export function readName(text: string, orgs: Candidate[], people: Candidate[], k
     if (real.length <= MAX_PEOPLE) return { route: "person", pick: top, others: real.slice(1, MAX_PEOPLE) };
     return { route: "people" };
   }
+  // no one has the name, but people have its words in another order: a name, but whose isn't sure
+  const reordered = people.filter((c) => c.sameWords && c.works > 0).sort((a, b) => b.works - a.works);
+  if (reordered.length && reordered.reduce((n, c) => n + c.works, 0) >= PERSON_SHARE * kw) return { route: "unsure", maybe: reordered[0] };
   return { route: "keywords" };
 }
 

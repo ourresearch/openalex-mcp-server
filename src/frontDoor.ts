@@ -7,7 +7,7 @@
 
 import { fold } from "./text";
 import {
-  keywordsOk, keywordText, kindWord, nameKey, parseId, readName, sameName, worksOf,
+  keywordsOk, keywordText, kindWord, nameKey, parseId, readName, sameName, sameWords, worksOf,
   type Candidate, type IdKind, type NameReading, type OrgKind, type ParsedId,
 } from "./plainInput";
 
@@ -58,7 +58,7 @@ const SCOPUS_FILTERS = new Set(["AUTH", "AUTHOR", "AFFIL", "AFFILORG", "AFFILCOU
 type Tok =
   | { t: "(" | ")" }
   | { t: "op"; v: "AND" | "OR" | "NOT" }
-  | { t: "term"; v: string; quoted: boolean; field?: SearchField | "words" }
+  | { t: "term"; v: string; quoted: boolean; field?: SearchField | "words"; stemmed?: boolean }
   | { t: "near"; n: number };
 
 function tagField(tag: string): SearchField | "words" | null {
@@ -85,6 +85,7 @@ function tokenize(s: string, notes: Set<string>): Tok[] | null {
   const scope: Array<SearchField | "words" | undefined> = [];
   let i = 0;
   const cur = () => scope[scope.length - 1];
+  let stemNext = false;
   const boundary = (j: number) => j >= s.length || /[\s()[\]]/.test(s[j]);
   while (i < s.length) {
     const c = s[i];
@@ -138,8 +139,9 @@ function tokenize(s: string, notes: Set<string>): Tok[] | null {
       if (tag) { field = tagField(tag[1]) ?? field; i += tag[0].length; }
       const slop = s.slice(i).match(/^~(\d+)/);
       if (slop) i += slop[0].length;
-      if (v) out.push({ t: "term", v: slop ? `"${v}"~${slop[1]}` : v, quoted: !slop, field });
+      if (v) out.push({ t: "term", v: slop ? `"${v}"~${slop[1]}` : v, quoted: !slop, field, ...(stemNext && !slop ? { stemmed: true } : {}) });
       else notes.add("empty");
+      stemNext = false;
       continue;
     }
     const m = s.slice(i).match(/^[^\s()"|,[\]]+/);
@@ -147,6 +149,8 @@ function tokenize(s: string, notes: Set<string>): Tok[] | null {
     let w = m[0];
     i += w.length;
     if (/^(AND|OR|NOT)$/.test(w)) { out.push({ t: "op", v: w as "AND" | "OR" | "NOT" }); continue; }
+    // OQL's own `stemmed "phrase"` (a phrase kept together that keeps stemming): a modifier, not a word to find
+    if (/^stemmed$/i.test(w) && /^\s*"/.test(s.slice(i))) { stemNext = true; continue; }
     // proximity: Scopus W/3 PRE/3, WoS NEAR/3 NEAR, Ovid ADJ3 ADJ
     const near = w.match(/^(?:W|PRE|NEAR|N)\/(\d+)$/) ?? w.match(/^(?:NEAR|ADJ)(\d*)$/);
     if (near) {
@@ -234,7 +238,7 @@ export function booleanSearch(text: string): BooleanSearch | null {
         last = "op";
         flags.add("near-and");
       }
-    } else if (t.t === "term") term(t.quoted ? `"${t.v.replace(/"/g, "")}"` : t.v, !t.quoted && !/^".*"~\d+$/.test(t.v));
+    } else if (t.t === "term") term(t.quoted ? `${t.stemmed ? "stemmed " : ""}"${t.v.replace(/"/g, "")}"` : t.v, !t.quoted && !/^".*"~\d+$/.test(t.v));
   }
   // join, with no space after "(" or before ")"
   let out = parts.join(" ").replace(/\(\s+/g, "(").replace(/\s+\)/g, ")");
@@ -275,7 +279,7 @@ function mixesWithoutParens(toks: Tok[]): boolean {
 }
 
 // "Find the paper titled "..."", "Encuentra el artículo titulado "..."", "Trouve l'ouvrage intitulé « ... »"
-const TITLED = /(?<!\p{L})(?:titled|entitled|called|named|title|titulado|titulada|intitulé|intitulée|intitulado|intitulada|intitolato|betitelt|mit dem titel|titel)(?!\p{L})/iu;
+const TITLED = /(?<!\p{L})(?:titled|entitled|called|named|title|titulado|titulada|intitulé|intitulée|intitulado|intitulada|intitolato|betitelt|mit dem titel|titel)(?![\p{L}_-])/iu;   // not a field tag: TITLE-ABS-KEY(...), title_and_abstract.search:
 
 /** Folded words of a title, stopwords kept, for comparing a pasted title with a work's. */
 export function titleWords(s: string): string[] {
@@ -326,6 +330,33 @@ export function sameTitle(candidate: string, title: string | null | undefined): 
   return main.split(" ").length >= 4 && a === main;
 }
 
+// words a title search leaves out: too common to narrow it, and "and"/"or"/"not" would read as operators
+const TITLE_STOP = new Set(["a", "an", "the", "of", "and", "or", "not", "in", "on", "for", "to", "with", "by", "from", "at", "as",
+  "is", "are", "de", "la", "le", "les", "des", "du", "el", "los", "las", "y", "e", "et", "da", "do", "das", "dos", "der", "die",
+  "und", "zur", "zum", "von"]);
+const titleContent = (s: string) => titleWords(s).filter((w) => !TITLE_STOP.has(w));
+/** Fewer words than this (stopwords aside) read as a topic, not a title with a word missing ("Macroeconomic effects of AI"). */
+const MIN_NEAR_TITLE_WORDS = 5;
+/** More words than this in a work's title beyond the pasted ones, and it isn't the same title. */
+const MAX_EXTRA_TITLE_WORDS = 3;
+
+/**
+ * True when a work's title is the pasted one with a little missing or changed: every pasted word is in it (a pasted
+ * word may be the start of the title's: "plot" in "plots"), and it has at most a few words more ("Embedding a
+ * restricted class of partial designs" for "... partial K-4-designs"; a stripped "$L_1$ and $L_2$").
+ */
+export function nearTitle(candidate: string, title: string | null | undefined): boolean {
+  if (!title) return false;
+  const typed = titleContent(candidate);
+  const got = titleContent(title);
+  if (typed.length < MIN_NEAR_TITLE_WORDS) return false;
+  const missing = typed.filter((w) => !got.some((g) => g === w || (w.length >= 4 && g.startsWith(w))));
+  return missing.length === 0 && got.length <= typed.length + MAX_EXTRA_TITLE_WORDS;
+}
+
+/** The OQL for works whose titles have all of these words (any order, stemmed). */
+export const titleWordsOql = (candidate: string) => `get works with (${titleContent(candidate).join(" ")}) in the title`;
+
 export type FrontDoor<P> =
   | { path: "title" | "search_string" | "id" | "name" | "keywords"; oql: string; preview: P | TitlePreview; note: string }
   | { path: "model"; tried: string[] };
@@ -368,15 +399,20 @@ export async function frontDoor<P extends TitlePreview>(text: string, run: (oql:
   }
   const t = titleCandidate(text);
   const b = booleanSearch(text);
-  // names and keywords are looked up beside the title, so neither waits on the other
+  // names, keywords and the title's words are looked up beside the title, so none waits on another
   const plain = oa && !b && !t?.explicit ? lookupPlain(oa, text) : null;
+  // (a capitalized one only: "age-related low testosterone in men" is a topic)
+  const near = plain && oa && t && /^\p{Lu}/u.test(t.title) && titleContent(t.title).length >= MIN_NEAR_TITLE_WORDS ? runQuick(oa, titleWordsOql(t.title)) : null;
   if (t) {
     const hit = await lookupTitle(run, t.title, t.explicit);
     if (hit) {
       // the full name of a journal or institution is that thing, even when one paper carries it as a title
-      // ("Journal of Healthcare Engineering")
-      const name = plain && oa ? await nameAnswer<P>(oa, text, await plain) : null;
+      // ("Journal of Healthcare Engineering"); a name that may be the thing, or may not, is the model's call
+      // ("Journal of Scholarly Publishing": a journal, and five works with that title)
+      const r = plain && oa ? await plain : null;
+      const name = r && oa ? await nameAnswer<P>(oa, text, r) : null;
       if (name) return name;
+      if (r?.reading?.route === "unsure") return { path: "model", tried: ["title", "name"] };
       const n = hit.preview.count ?? 0;
       return { path: "title", oql: hit.oql, preview: hit.preview, note: n === 1 ? "The paper with this title." : `The ${n} works with this title.` };
     }
@@ -396,6 +432,11 @@ export async function frontDoor<P extends TitlePreview>(text: string, run: (oql:
   if (r.failed) return { path: "model", tried: [...tried, "name"] };
   const name = await nameAnswer<P>(oa, text, r);
   if (name) return name;
+  // a title pasted with a word missing or changed: the few works whose titles have all its words
+  const nt = near ? await near : null;
+  if (t && nt?.ok && nt.count && nt.count <= MAX_TITLE_HITS && (nt.top_rows ?? []).some((x) => nearTitle(t.title, x.name))) {
+    return { path: "title", oql: nt.canonical ?? titleWordsOql(t.title), preview: nt, note: nt.count === 1 ? "The paper whose title has these words." : `The ${nt.count} works whose titles have these words.` };
+  }
   let maybe = "";
   if (r.reading?.route === "unsure") {
     tried.push("name");
@@ -509,6 +550,7 @@ async function lookupPlain(oa: Lookup, text: string): Promise<Plain> {
     return {
       kind, id: String(x.id ?? "").split("/").pop() ?? "", name: String(x.display_name ?? ""), works: Number(x.works_count ?? 0),
       exact: sameName(s, [x.display_name, ...alts], kind === "author"), ...(x.type ? { type: String(x.type) } : {}),
+      ...(kind === "author" && sameWords(s, [x.display_name, ...alts]) ? { sameWords: true } : {}),
     };
   };
   const orgCands = ORG_PATHS.flatMap(([kind, , other], i) => (orgs[i] as any[]).map((x) => cand(kind, x, other)));

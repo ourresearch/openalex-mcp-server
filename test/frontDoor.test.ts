@@ -94,6 +94,11 @@ describe("sameTitle", () => {
     expect(sameTitle("Conceptualizing the Visitor Experience", "Conceptualizing the Visitor Experience: A Review of Literature")).toBe(true);
     expect(sameTitle("Rational approximations of algebraic irrationals", "Errata: “Rational approximations of algebraic irrationals,” vol. 3")).toBe(false);
   });
+  it("keeps OQL's stemmed phrases, and reads field tags named title as tags, not as a title asked for", () => {
+    expect(oql('stemmed "ghost stories" or stemmed "ghost story"')).toBe('get works where title-abstract-keywords has (stemmed "ghost stories" OR stemmed "ghost story")');
+    expect(titleCandidate('TITLE-ABS-KEY("machine learning" OR "deep learning") AND TITLE-ABS-KEY("natural language processing")')).toBeNull();
+    expect(titleCandidate('title_and_abstract.search:("affective computing" OR "emotion recognition")')).toBeNull();
+  });
 });
 
 describe("frontDoor", () => {

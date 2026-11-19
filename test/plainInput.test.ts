@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { keywordsOk, keywordText, parseId, readName, sameName, type Candidate } from "../src/plainInput";
-import { frontDoor, type Lookup } from "../src/frontDoor";
+import { frontDoor, nearTitle, type Lookup } from "../src/frontDoor";
 
 describe("parseId", () => {
   it("reads one identifier, in its common forms", () => {
@@ -33,6 +33,11 @@ describe("keywordsOk", () => {
     for (const s of ["how has kelp research grown?", "Facts about polar bears", "Artículo de medicina", "Tolong carikan paper mengenai matahari",
       "de witte job insecurity 1990", "jolliff et al", "Selçuk Üniversitesi uluslararası ilişkiler", "Stanford University kelp",
       'physical education" OR "educación física', "kelp OR seaweed"]) {
+      expect(keywordsOk(s), s).toBe(false);
+    }
+  });
+  it("leaves wildcards, a citation's author list and a named university to the model", () => {
+    for (const s of ["disrup* care mental health", "Alarcón Díaz, N., Alarcón Díaz, O.", "aspen plus from curtin university", "https://doi.org/10.1061"]) {
       expect(keywordsOk(s), s).toBe(false);
     }
   });
@@ -70,10 +75,26 @@ describe("readName", () => {
     const many = readName("Yujie Liu", [], [385, 265, 195, 150, 120, 100].map((n) => org("author", "Yujie Liu", n)), 111);
     expect(many).toEqual({ route: "people" });
   });
-  it("matches names whatever their case, accents, punctuation or (for people) order", () => {
+  it("matches names whatever their case, accents, punctuation or (for people) family name first or last", () => {
     expect(sameName("silvia martelo landroguez", ["Silvia Martelo-Landroguez"])).toBe(true);
     expect(sameName("PARTHIBAN S", ["S. Parthiban"], true)).toBe(true);
+    expect(sameName("Liu Yujie", ["Yujie Liu"], true)).toBe(true);
+    expect(sameName("aric hagberg", ["Aric A. Hagberg"], true)).toBe(true);
     expect(sameName("PARTHIBAN S", ["S. Parthiban"])).toBe(false);
+    expect(sameName("Gamal Ahmed Mohammed", ["Ahmed Gamal Mohammed"], true)).toBe(false);
+  });
+  it("is unsure, not keywords, when people have the typed name's words in another order", () => {
+    const reordered = { ...org("author", "Ahmed Gamal Mohammed", 40, false), sameWords: true };
+    expect(readName("Gamal Ahmed Mohammed", [], [reordered], 30)).toMatchObject({ route: "unsure" });
+  });
+});
+
+describe("nearTitle", () => {
+  it("takes a pasted title with a word missing, not a short topic phrase", () => {
+    expect(nearTitle("Embedding a restricted class of partial designs", "Embedding a restricted class of partial K-4-designs")).toBe(true);
+    expect(nearTitle("Crossings in the total time on test plot", "Crossings in the total time on test plots")).toBe(true);
+    expect(nearTitle("Macroeconomic effects of AI", "Macroeconomic effects of AI")).toBe(false);   // too short to tell from a topic
+    expect(nearTitle("neural operators for turbulent channel flows", "A systematic survey of neural operators for turbulent channel and pipe flows at industrial scale")).toBe(false);
   });
 });
 
