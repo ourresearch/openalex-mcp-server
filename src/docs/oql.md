@@ -395,7 +395,7 @@ get works where title-abstract-keywords has (kelp); then, group those works by c
 get works where title-abstract-keywords has (kelp); then, group those works by year; finally, summarize using mean reference count and median authors count
 ```
 
-The first counts distinct CRISPR authors. Bins at `(1, 10, 100)` give `0`, `1-9`, `10-99` and `100+`; `into FWCI bins of 0.5` gives equal widths. A sample with a seed is the same sample every time. The general form splits up to three ways, by any field (`exact institution`, `institution country`, `best OA version`), and takes `mean`, `median`, `sum`, `min` and `max` of any number field and `percent` of any yes/no field.
+The first counts distinct CRISPR authors. Bins at `(1, 10, 100)` give `0`, `1-9`, `10-99` and `100+`; `into FWCI bins of 0.5` gives equal widths. A sample with a seed is the same sample every time. A sample is a list of works: it can't be grouped or summarized, since a group would count every match, not the sample (the API answers with a 400 that says so). The general form splits up to three ways, by any field (`exact institution`, `institution country`, `best OA version`), and takes `mean`, `median`, `sum`, `min` and `max` of any number field and `percent` of any yes/no field.
 
 ## What OQL assumes
 
