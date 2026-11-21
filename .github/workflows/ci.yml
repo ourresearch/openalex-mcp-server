@@ -8,8 +8,9 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    # Daily: the bundled help pages must match help.openalex.org (npm run check-docs).
+    # Daily: re-sync the bundled help pages from help.openalex.org (the sync-docs job below).
     - cron: "23 6 * * *"
+  workflow_dispatch:
 
 jobs:
   test:
@@ -23,5 +24,45 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # Pull requests only. On main the daily sync-docs job keeps the bundle current, so a help page edited
+      # between syncs no longer fails every push and the daily run (oxjob #2088).
       - name: Bundled docs match help.openalex.org
+        if: github.event_name == 'pull_request'
         run: npm run check-docs
+
+  # The bundled help pages must match help.openalex.org. Re-sync them daily; when a page changed, typecheck and
+  # test with the new pages, then commit them to main. Production gets them at its next deploy.
+  sync-docs:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run sync-docs
+      - name: Did a page change?
+        id: diff
+        run: |
+          if git diff --quiet -- src/docs; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat -- src/docs
+          fi
+      - name: Typecheck and test with the new pages
+        if: steps.diff.outputs.changed == 'true'
+        run: npm run typecheck && npm test
+      - name: Commit the re-synced pages to main
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/docs
+          git commit -m "Bundled docs: daily re-sync from help.openalex.org (npm run sync-docs)"
+          git pull --rebase -q origin main
+          git push origin HEAD:main
