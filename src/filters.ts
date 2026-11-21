@@ -65,7 +65,7 @@ export const workFilterShape = {
   core_sources_only: z.boolean().optional()
     .describe("Only works published in 'core' sources: reputable, well-indexed journals and repositories (see https://help.openalex.org/data/sources/). Useful to exclude low-quality venues."),
   exclude_ai_authors: z.boolean().optional()
-    .describe("Leave out works that list an AI author: an author whose type is software-agent (an AI system or other bot named on the byline). Works whose authors' type is not stated stay in. Not supported with semantic search. See https://help.openalex.org/data/author-types/."),
+    .describe("Leave out works with known AI authors (authors typed software-agent: authorships.author.type:!software-agent). Only typed authors are caught; most authors have no type, so works with untyped AI authors stay in. Not supported with semantic search. See https://help.openalex.org/data/author-types/."),
   raw_filter: z.string().max(2000).optional()
     .describe("Escape hatch: extra OpenAlex filter expression appended verbatim, using the syntax documented at https://help.openalex.org/api/filtering/ (e.g. \"has_abstract:true,primary_topic.field.id:17\"). Combined with the structured filters above using AND."),
 };
@@ -127,7 +127,7 @@ export function assertSemanticCompatible(args: WorkFilterArgs & { sort?: string 
     throw new Error("countries is not supported with semantic search. Use keyword mode, or filter by institution_ids instead.");
   // The semantic search index carries no author type (oxjob #2437).
   if (args.exclude_ai_authors)
-    throw new Error("exclude_ai_authors is not supported with semantic search. Use keyword mode to leave out works with an AI author.");
+    throw new Error("exclude_ai_authors is not supported with semantic search. Use keyword mode to leave out works with known AI authors.");
 }
 
 export const GROUP_BY_FIELDS = {
