@@ -66,6 +66,8 @@ export const workFilterShape = {
     .describe("ISO-639-1 language code, e.g. \"en\"."),
   core_sources_only: z.boolean().optional()
     .describe("Only works published in 'core' sources: reputable, well-indexed journals and repositories (see https://help.openalex.org/data/sources/). Useful to exclude low-quality venues."),
+  exclude_ai_authors: z.boolean().optional()
+    .describe("Leave out works that list an AI author: an author whose type is software-agent (an AI system or other bot named on the byline). Works whose authors' type is not stated stay in. Not supported with semantic search. See https://help.openalex.org/data/author-types/."),
   raw_filter: z.string().max(2000).optional()
     .describe("Escape hatch: extra OpenAlex filter expression appended verbatim, using the syntax documented at https://help.openalex.org/api/filtering/ (e.g. \"has_abstract:true,primary_topic.field.id:17\"). Combined with the structured filters above using AND."),
 };
@@ -109,6 +111,9 @@ export function buildWorkFilter(args: WorkFilterArgs, extra: string[] = []): str
   if (args.countries?.length) parts.push(`authorships.institutions.country_code:${args.countries.map((c) => c.toUpperCase()).join("|")}`);
   if (args.language) parts.push(`language:${args.language.toLowerCase()}`);
   if (args.core_sources_only) parts.push("primary_location.source.is_core:true");
+  // A switch, not a type enum (oxjob #2437): the negation keeps every work with no declared software-agent author,
+  // including the many whose authors' type is not stated. Most author types are null, so a `human` filter would mislead.
+  if (args.exclude_ai_authors) parts.push("authorships.author.type:!software-agent");
   // No is_retracted:false (oxjob #2264): the API hides pulled works, and a filter naming it would bring them back.
   if (args.raw_filter?.trim()) parts.push(args.raw_filter.trim());
   return parts.length ? parts.join(",") : null;
@@ -125,6 +130,9 @@ export function assertSemanticCompatible(args: WorkFilterArgs & { sort?: string 
     throw new Error("min_reviews is not supported with semantic search. Use keyword mode to keep works that have reviews.");
   if (args.countries?.length)
     throw new Error("countries is not supported with semantic search. Use keyword mode, or filter by institution_ids instead.");
+  // The semantic search index carries no author type (oxjob #2437).
+  if (args.exclude_ai_authors)
+    throw new Error("exclude_ai_authors is not supported with semantic search. Use keyword mode to leave out works with an AI author.");
 }
 
 export const GROUP_BY_FIELDS = {
