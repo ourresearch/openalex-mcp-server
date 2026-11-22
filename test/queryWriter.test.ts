@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRequest, callerKey, creditsFor, handle, confidence, PRICE_MULTIPLIER, MAX_QUERY_CHARS } from "../src/queryText";
+import { parseRequest, callerKey, creditsFor, handle, confidence, shapeOf, PRICE_MULTIPLIER, MAX_QUERY_CHARS } from "../src/queryText";
 import { costUsd } from "../src/chat";
 
 /** A request message's text, whether sent as a string or as blocks (the newest carries a cache mark). */
@@ -142,6 +142,41 @@ describe("handle", () => {
     expect(body.meta.cost.usd).toBe(body.meta.cost.credits / 10000);   // the price, not our cost
     expect(res.headers.get("X-Credits-Cost")).toBe(String(body.meta.cost.credits));
     expect(body.meta.model).toBe("claude-opus-5-5");
+  });
+
+  it("logs one line per request saying how it went, never what was asked or answered", async () => {
+    const lines: string[] = [];
+    const anthropic = fakeAnthropic([[tool("r", "run_oql", { oql: SUBMIT.input.oql })], [SUBMIT]]);
+    await handle(post({ text: "open access articles about coffee and health", current_query: "get works about coffee", history: [{ text: "coffee", oql: "get works about coffee" }] }),
+      { OPENALEX_API_BASE: BASE, TYPESAFE_API_KEY: "t" }, { anthropic, openalex: fakeOpenAlex(), fetchImpl: jevFetch(0.874), guide: "G", route: DATA }, (l) => lines.push(l));
+    await handle(get("/query/text/kelp"), { OPENALEX_API_BASE: BASE }, { anthropic: fakeAnthropic([[{ type: "text", text: "hmm" }]]), openalex: fakeOpenAlex(), guide: "G", route: DATA }, (l) => lines.push(l));
+    await handle(post({ text: "" }), { OPENALEX_API_BASE: BASE }, {}, (l) => lines.push(l));
+    expect(lines).toHaveLength(3);
+    for (const l of lines) expect(l).not.toMatch(/coffee|kelp|health|Bearer|test-key/i);
+    const [ok, none, bad] = lines.map((l) => JSON.parse(l));
+    expect(ok).toMatchObject({ event: "query_text", status: 200, route: "query", follow_up: true, history: 1, words: 7, tries: 1,
+      count: 5559, confidence: 0.874, shape: "list" });
+    expect(ok.credits).toBeGreaterThan(0);
+    expect(none).toMatchObject({ status: 422, follow_up: false, count: null });
+    expect(bad).toMatchObject({ status: 400, words: null });
+  });
+
+  it("logs a thrown request as a 500 and logs nothing without a logger", async () => {
+    const lines: string[] = [];
+    const broken = { messages: { async create() { throw new Error("boom"); } } };
+    const failing = { ...fakeOpenAlex(), async post() { throw new Error("down"); }, async get() { throw new Error("down"); } };
+    await handle(post({ text: "kelp" }), { OPENALEX_API_BASE: BASE }, { anthropic: broken, openalex: failing, guide: "G", route: async () => { throw new Error("router down"); } }, (l) => lines.push(l)).catch(() => {});
+    expect(JSON.parse(lines[0])).toMatchObject({ status: 500, words: 1 });
+    expect(await handle(post({ text: "" }), { OPENALEX_API_BASE: BASE })).toBeTruthy();
+  });
+
+  it("names a query's shape: one number, a table, a list or the general form", () => {
+    expect(shapeOf("get the count of works about kelp")).toBe("number");
+    expect(shapeOf("get the count and mean FWCI of works about kelp by country")).toBe("table");
+    expect(shapeOf("get authors at [UBC](I141945490), most cited first")).toBe("list");
+    expect(shapeOf("get works where it's about kelp; then, group those works by year; finally, summarize using count")).toBe("general");
+    expect(shapeOf("get authors at [UBC](I141945490) who published works where it's about kelp")).toBe("table");
+    expect(shapeOf(null)).toBeNull();
   });
 
   it("needs the caller's key and charges nothing without one", async () => {

@@ -3,6 +3,6 @@ import { handle, type QueryWriterEnv } from "./queryText";
 
 export default {
   fetch(req: Request, env: QueryWriterEnv): Promise<Response> {
-    return handle(req, env);
+    return handle(req, env, {}, console.log);   // one outcome line per request, to Better Stack
   },
 };

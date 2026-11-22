@@ -16,7 +16,15 @@
   "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "workers_dev": false,
   "preview_urls": false,
-  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  // Each request logs one line saying how it went, never what was asked (queryText.ts outcomeLine; #1494). The lines go
+  // to Better Stack through the account's OTLP destination betterstack-mcp-server (source cf-mcp-server, service
+  // openalex-query-writer), kept 30 days there; Cloudflare keeps no copy. No invocation logs: a GET carries the
+  // question in its URL, and the proxy's own logs already record requests.
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "persist": false, "enabled": true, "head_sampling_rate": 1, "invocation_logs": false, "destinations": ["betterstack-mcp-server"] }
+  },
   "vars": {
     "ENVIRONMENT": "production",
     "OPENALEX_API_BASE": "https://api.openalex.org"

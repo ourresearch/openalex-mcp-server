@@ -27,6 +27,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { CHAT_EFFORT, CHAT_MODEL, publicPreview, runChat, runOql, type ChatEvent, type Institution, type Preview, type Turn } from "./chat";
+import { oqlIsNumbers, oqlThingFirst, splitOqlSteps } from "./oql";
 import { frontDoor } from "./frontDoor";
 import { HELP_EFFORT, HELP_MODEL, helpDesk, routeQuestion, type RouteResult } from "./router";
 import { OpenAlexClient } from "./openalex";
@@ -182,11 +183,16 @@ export function multiplierOf(env: QueryWriterEnv): number {
   return Number.isFinite(m) && m >= 1 ? m : PRICE_MULTIPLIER;
 }
 
+/** What each reply said, so the outcome line reads it without parsing the response back. */
+const sent = new WeakMap<Response, Record<string, any>>();
+
 function reply(status: number, body: Record<string, any>, credits: number): Response {
-  return new Response(JSON.stringify(body), {
+  const res = new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json", "X-Credits-Cost": String(credits) },
   });
+  sent.set(res, body);
+  return res;
 }
 
 interface AgentRun {
@@ -218,14 +224,59 @@ async function runAgent(deps: Parameters<typeof runChat>[0], parsed: QueryTextRe
   return run;
 }
 
-/** One question to one answer. Exported for tests; the deps default to the real clients. */
-export async function handle(
-  req: Request, env: QueryWriterEnv,
-  deps: { anthropic?: any; openalex?: any; fetchImpl?: typeof fetch; guide?: string; route?: (text: string, currentQuery: string | null) => Promise<RouteResult> } = {},
-): Promise<Response> {
+type Deps = { anthropic?: any; openalex?: any; fetchImpl?: typeof fetch; guide?: string; route?: (text: string, currentQuery: string | null) => Promise<RouteResult> };
+
+/**
+ * One question to one answer. Exported for tests; the deps default to the real clients. `log`, when given (the Worker
+ * passes console.log, whose lines go to Better Stack), gets one outcome line per request, a thrown one included.
+ */
+export async function handle(req: Request, env: QueryWriterEnv, deps: Deps = {}, log?: (line: string) => void): Promise<Response> {
   const started = Date.now();
   const parsed = await parseRequest(req);
-  if ("error" in parsed) return reply(parsed.status, { error: parsed.error }, 0);
+  const asked = "error" in parsed ? null : parsed;
+  let res: Response | undefined;
+  try {
+    res = "error" in parsed ? reply(parsed.status, { error: parsed.error }, 0) : await answer(req, parsed, env, deps, started);
+    return res;
+  } finally {
+    try {
+      log?.(JSON.stringify(outcomeLine(res?.status ?? 500, (res && sent.get(res)) ?? {}, asked, Date.now() - started)));
+    } catch { /* the line never breaks a reply */ }
+  }
+}
+
+/** The kind of answer a query gives: one number, a table of groups, a list of things, or the general form (oql.ts). */
+export function shapeOf(oql: string | null | undefined): "number" | "table" | "list" | "general" | null {
+  const q = oql?.trim();
+  if (!q) return null;
+  if (splitOqlSteps(q).length > 1) return "general";
+  if (oqlThingFirst(q)) return "table";
+  if (oqlIsNumbers(q)) return /\sby\s/i.test(q) ? "table" : "number";
+  return "list";
+}
+
+const num = (v: unknown) => (typeof v === "number" ? v : null);
+
+/**
+ * How a request fared, never what it said: no question text, query, key, institution or answer. The weekly health
+ * numbers for /query/text (answered, empty results, help desk, follow-ups, time, price) come from these lines (#1494).
+ */
+export function outcomeLine(status: number, body: Record<string, any>, asked: QueryTextRequest | null, ms: number): Record<string, unknown> {
+  const meta = body.meta ?? {};
+  const steps: Array<{ tool: string }> = meta.steps ?? [];
+  return {
+    event: "query_text", v: 1, status, route: body.route ?? null, ms,
+    follow_up: !!asked?.currentQuery, history: asked?.history.length ?? 0, institution: !!asked?.institution,
+    words: asked?.text.match(/\S+/g)?.length ?? null,
+    credits: meta.cost?.credits ?? 0, model: meta.model ?? null, effort: meta.effort ?? null, turns: meta.turns ?? null,
+    lookups: steps.filter((s) => s.tool === "find_entity").length, tries: steps.filter((s) => s.tool === "run_oql").length,
+    word_retries: meta.word_retries ?? 0, new_words: meta.new_words?.length ?? 0,
+    count: num(body.count), confidence: num(body.confidence), shape: shapeOf(body.oql),
+    left_out: !!body.left_out, out_of_reach: !!body.out_of_reach, howto: !!body.howto,
+  };
+}
+
+async function answer(req: Request, parsed: QueryTextRequest, env: QueryWriterEnv, deps: Deps, started: number): Promise<Response> {
   const key = callerKey(req);
   if (!key) return reply(401, { error: "Send your OpenAlex API key as \"Authorization: Bearer YOUR_KEY\"." }, 0);
   if (!env.ANTHROPIC_API_KEY && !deps.anthropic) return reply(503, { error: "The query writer isn't configured." }, 0);
