@@ -16,8 +16,8 @@
   "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "workers_dev": false,
   "preview_urls": false,
-  // Each request logs one line saying how it went, never what was asked (queryText.ts outcomeLine; #1494). The lines go
-  // to Better Stack through the account's OTLP destination betterstack-mcp-server (source cf-mcp-server, service
+  // Each request logs one line saying how it went and what was asked: the question, the queries and the account's ids,
+  // never the key (queryText.ts outcomeLine; #1494). The lines go to Better Stack through the account's OTLP destination betterstack-mcp-server (source cf-mcp-server, service
   // openalex-query-writer), kept 30 days there; Cloudflare keeps no copy. No invocation logs: a GET carries the
   // question in its URL, and the proxy's own logs already record requests.
   "observability": {

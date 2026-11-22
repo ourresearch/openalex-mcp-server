@@ -240,9 +240,21 @@ export async function handle(req: Request, env: QueryWriterEnv, deps: Deps = {},
     return res;
   } finally {
     try {
-      log?.(JSON.stringify(outcomeLine(res?.status ?? 500, (res && sent.get(res)) ?? {}, asked, Date.now() - started)));
+      log?.(JSON.stringify(outcomeLine(res?.status ?? 500, (res && sent.get(res)) ?? {}, asked, Date.now() - started, accountOf(req))));
     } catch { /* the line never breaks a reply */ }
   }
+}
+
+/**
+ * The caller's account, as the API proxy names it: the proxy sets these headers from the key it checked and drops any
+ * the caller sent, and only the proxy reaches this Worker (no route), so they can be trusted. Ids only, never the key.
+ */
+export const USER_ID_HEADER = "X-OpenAlex-User-Id";
+export const ORG_ID_HEADER = "X-OpenAlex-Org-Id";
+export interface Account { userId: string | null; orgId: string | null }
+export function accountOf(req: Request): Account {
+  const id = (h: string) => req.headers.get(h)?.trim().slice(0, 100) || null;
+  return { userId: id(USER_ID_HEADER), orgId: id(ORG_ID_HEADER) };
 }
 
 /** The kind of answer a query gives: one number, a table of groups, a list of things, or the general form (oql.ts). */
@@ -257,15 +269,26 @@ export function shapeOf(oql: string | null | undefined): "number" | "table" | "l
 
 const num = (v: unknown) => (typeof v === "number" ? v : null);
 
+/** The longest query a line carries; longer ones are cut (a question is already capped at MAX_TEXT_CHARS). */
+export const MAX_LOGGED_QUERY_CHARS = 4000;
+
 /**
- * How a request fared, never what it said: no question text, query, key, institution or answer. The weekly health
- * numbers for /query/text (answered, empty results, help desk, follow-ups, time, price) come from these lines (#1494).
+ * How a request fared, and what was asked: the question, the page's query on a follow-up, the query the answer set and
+ * the account's ids, kept like the search terms in the API's request logs (30 days in Better Stack). Never the key, the
+ * institution or the answer's rows. The weekly health numbers for /query/text (answered, empty results, help desk,
+ * follow-ups, time, price) and the weekly read of what people ask come from these lines (#1494).
  */
-export function outcomeLine(status: number, body: Record<string, any>, asked: QueryTextRequest | null, ms: number): Record<string, unknown> {
+export function outcomeLine(
+  status: number, body: Record<string, any>, asked: QueryTextRequest | null, ms: number,
+  account: Account = { userId: null, orgId: null },
+): Record<string, unknown> {
   const meta = body.meta ?? {};
   const steps: Array<{ tool: string }> = meta.steps ?? [];
+  const cut = (q: unknown) => (typeof q === "string" && q ? q.slice(0, MAX_LOGGED_QUERY_CHARS) : null);
   return {
-    event: "query_text", v: 1, status, route: body.route ?? null, ms,
+    event: "query_text", v: 2, status, route: body.route ?? null, ms,
+    user_id: account.userId, org_id: account.orgId,
+    text: asked?.text ?? null, current_query: cut(asked?.currentQuery), oql: cut(body.oql), sort: body.sort ?? null,
     follow_up: !!asked?.currentQuery, history: asked?.history.length ?? 0, institution: !!asked?.institution,
     words: asked?.text.match(/\S+/g)?.length ?? null,
     credits: meta.cost?.credits ?? 0, model: meta.model ?? null, effort: meta.effort ?? null, turns: meta.turns ?? null,

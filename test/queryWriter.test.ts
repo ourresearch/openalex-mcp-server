@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRequest, callerKey, creditsFor, handle, confidence, shapeOf, PRICE_MULTIPLIER, MAX_QUERY_CHARS } from "../src/queryText";
+import { parseRequest, callerKey, creditsFor, handle, confidence, shapeOf, accountOf, PRICE_MULTIPLIER, MAX_QUERY_CHARS, USER_ID_HEADER, ORG_ID_HEADER } from "../src/queryText";
 import { costUsd } from "../src/chat";
 
 /** A request message's text, whether sent as a string or as blocks (the newest carries a cache mark). */
@@ -144,21 +144,33 @@ describe("handle", () => {
     expect(body.meta.model).toBe("claude-opus-5-5");
   });
 
-  it("logs one line per request saying how it went, never what was asked or answered", async () => {
+  it("logs one line per request: how it went, the question, the queries and the account's ids, never the key", async () => {
     const lines: string[] = [];
     const anthropic = fakeAnthropic([[tool("r", "run_oql", { oql: SUBMIT.input.oql })], [SUBMIT]]);
-    await handle(post({ text: "open access articles about coffee and health", current_query: "get works about coffee", history: [{ text: "coffee", oql: "get works about coffee" }] }),
-      { OPENALEX_API_BASE: BASE, TYPESAFE_API_KEY: "t" }, { anthropic, openalex: fakeOpenAlex(), fetchImpl: jevFetch(0.874), guide: "G", route: DATA }, (l) => lines.push(l));
-    await handle(get("/query/text/kelp"), { OPENALEX_API_BASE: BASE }, { anthropic: fakeAnthropic([[{ type: "text", text: "hmm" }]]), openalex: fakeOpenAlex(), guide: "G", route: DATA }, (l) => lines.push(l));
+    const asked = post({ text: "open access articles about coffee and health", current_query: "get works about coffee",
+      history: [{ text: "coffee", oql: "get works about coffee" }], institution: { id: "I146416000", name: "University of Kansas" } }, "k123-secret");
+    asked.headers.set(USER_ID_HEADER, "user-abc");
+    await handle(asked, { OPENALEX_API_BASE: BASE, TYPESAFE_API_KEY: "t" },
+      { anthropic, openalex: fakeOpenAlex(), fetchImpl: jevFetch(0.874), guide: "G", route: DATA }, (l) => lines.push(l));
+    const orgAsked = get("/query/text/kelp", "k123-secret");
+    orgAsked.headers.set(ORG_ID_HEADER, "org-xyz");
+    await handle(orgAsked, { OPENALEX_API_BASE: BASE }, { anthropic: fakeAnthropic([[{ type: "text", text: "hmm" }]]), openalex: fakeOpenAlex(), guide: "G", route: DATA }, (l) => lines.push(l));
     await handle(post({ text: "" }), { OPENALEX_API_BASE: BASE }, {}, (l) => lines.push(l));
     expect(lines).toHaveLength(3);
-    for (const l of lines) expect(l).not.toMatch(/coffee|kelp|health|Bearer|test-key/i);
+    for (const l of lines) expect(l).not.toMatch(/k123|secret|Bearer|Kansas|I146416000/i);
     const [ok, none, bad] = lines.map((l) => JSON.parse(l));
-    expect(ok).toMatchObject({ event: "query_text", status: 200, route: "query", follow_up: true, history: 1, words: 7, tries: 1,
-      count: 5559, confidence: 0.874, shape: "list" });
+    expect(ok).toMatchObject({ event: "query_text", v: 2, status: 200, route: "query", follow_up: true, history: 1, words: 7, tries: 1,
+      count: 5559, confidence: 0.874, shape: "list", user_id: "user-abc", org_id: null,
+      text: "open access articles about coffee and health", current_query: "get works about coffee", oql: SUBMIT.input.oql });
     expect(ok.credits).toBeGreaterThan(0);
-    expect(none).toMatchObject({ status: 422, follow_up: false, count: null });
-    expect(bad).toMatchObject({ status: 400, words: null });
+    expect(none).toMatchObject({ status: 422, follow_up: false, count: null, text: "kelp", oql: null, user_id: null, org_id: "org-xyz" });
+    expect(bad).toMatchObject({ status: 400, words: null, text: null, user_id: null });
+  });
+
+  it("reads the account's ids from the proxy's headers only, trimmed and capped", () => {
+    const r = new Request(BASE + "/query/text/kelp", { headers: { [USER_ID_HEADER]: "  user-abc ", [ORG_ID_HEADER]: "x".repeat(500) } });
+    expect(accountOf(r)).toEqual({ userId: "user-abc", orgId: "x".repeat(100) });
+    expect(accountOf(get("/query/text/kelp"))).toEqual({ userId: null, orgId: null });
   });
 
   it("logs a thrown request as a 500 and logs nothing without a logger", async () => {
