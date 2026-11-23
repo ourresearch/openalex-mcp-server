@@ -120,6 +120,8 @@ export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
         n,
         name: a?.author?.display_name ?? a?.raw_author_name ?? null,
         id: shortId(a?.author?.id),
+        // oxjob #2540: the author type (software-agent, organization) says when an author is an AI agent; most are untyped.
+        type: a?.author?.type ?? null,
         orcid: a?.author?.orcid ? String(a.author.orcid).replace(/^https?:\/\/orcid\.org\//i, "") : null,
         position: a?.author_position ?? null,
         is_corresponding: a?.is_corresponding ? true : null,

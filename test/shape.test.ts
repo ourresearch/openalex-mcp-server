@@ -197,6 +197,13 @@ describe("shapeWork", () => {
     expect(s.citations_by_year).toEqual([{ year: 2024, citations: 100 }]);
     expect(s.authors_total).toBeUndefined();
   });
+
+  it("full shape says an author's type when the API types it, and nothing for untyped authors (oxjob #2540)", () => {
+    const agent = { author: { id: "https://openalex.org/A9", display_name: "AIRev 2", type: "software-agent" }, institutions: [], author_position: "first" };
+    const s = shapeWork({ ...sampleWork, authorships: [agent, ...sampleWork.authorships] }, { full: true }) as any;
+    expect(s.authors[0]).toEqual({ name: "AIRev 2", id: "A9", type: "software-agent", position: "first" });
+    expect(s.authors[1].type).toBeUndefined();
+  });
   it("full shape keeps every year and the unrounded percentile (oxjob #1885)", () => {
     const years = Array.from({ length: 15 }, (_, i) => ({ year: 2026 - i, cited_by_count: i + 1 }));
     const s = shapeWork({ ...sampleWork, counts_by_year: years, citation_normalized_percentile: { value: 0.99997717 } }, { full: true }) as any;

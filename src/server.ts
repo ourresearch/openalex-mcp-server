@@ -462,7 +462,7 @@ export function createServer(ctx: ServerContext): McpServer {
       title: "Get work",
       description:
         "Fetch the full record for one scholarly work by OpenAlex ID (W2741809807), DOI (10.7717/peerj.4375 or a doi.org URL), arXiv id (2305.18290, arXiv:2305.18290v2 or an arxiv.org URL), PMID, or PMCID. " +
-        "Returns the authors with affiliations and ORCIDs (all of them up to 100; a bigger collaboration lists the first 100, the last and the corresponding authors, numbered, with authors_total), the full abstract, venue, open-access links, topics, keywords, funding, citations in every year the API counts, and related works. " +
+        "Returns the authors with affiliations, ORCIDs and author type where known (software-agent marks an AI agent) (all of them up to 100; a bigger collaboration lists the first 100, the last and the corresponding authors, numbered, with authors_total), the full abstract, venue, open-access links, topics, keywords, funding, citations in every year the API counts, and related works. " +
         "Also the reviews linked to the work (reviewed_by_count and up to 25 reviews: title, date, venue, authors with their type, open-access link; read_reviews gives their text), and for a review, the works it reviews.",
       inputSchema: { id: z.string().min(1).max(300).describe("OpenAlex work ID, DOI, arXiv id, PMID, or PMCID.") },
       annotations: { title: "Get work", ...READ_ONLY },
