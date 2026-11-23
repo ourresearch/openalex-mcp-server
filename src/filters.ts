@@ -121,10 +121,10 @@ export function assertSemanticCompatible(args: WorkFilterArgs & { sort?: string 
     throw new Error(`sort=${args.sort} is not supported with semantic search, which always lists the closest matches by meaning first. Use keyword mode to sort by ${args.sort}.`);
   if (args.min_citations !== undefined && args.min_citations > 0)
     throw new Error("min_citations is not supported with semantic search. Use keyword mode, or drop the citation floor and sort afterwards.");
-  if (args.countries?.length)
-    throw new Error("countries is not supported with semantic search. Use keyword mode, or filter by institution_ids instead.");
   if (args.min_reviews !== undefined && args.min_reviews > 0)
     throw new Error("min_reviews is not supported with semantic search. Use keyword mode to keep works that have reviews.");
+  if (args.countries?.length)
+    throw new Error("countries is not supported with semantic search. Use keyword mode, or filter by institution_ids instead.");
 }
 
 export const GROUP_BY_FIELDS = {
