@@ -5,8 +5,8 @@ import { createServer, serverInstructions } from "../src/server";
 import { shapeWork } from "../src/shape";
 import { assertSemanticCompatible, buildWorkFilter } from "../src/filters";
 import {
-  TEXT_AS_DATA_NOTE, clip, elifeReviewDoi, elifeReviewTexts, fetchOpenCopy, looksLikeChallenge, markupToText, teiToText,
-  unsafeUrlReason,
+  TEXT_AS_DATA_NOTE, clip, elifeReviewDoi, elifeReviewTexts, fetchOpenCopy, looksLikeChallenge, markupToText,
+  reviewCommonsDoi, reviewText, teiToText, unsafeUrlReason,
 } from "../src/reviews";
 
 // oxjob #2540: reviews are links between works (link type review). The connector shows reviewed_by_count, lists a
@@ -116,6 +116,36 @@ const ELIFE = {
     },
   },
 };
+
+describe("Review Commons reviews", () => {
+  const EEB = {
+    review_process: {
+      reviews: [
+        { doi: "10.15252/rc.2026000599", text: "**Note:** reviewed for *Review Commons*.\n\nThe authors should test a second cell line." },
+        { doi: "10.15252/rc.2026721366", text: "Reviewer 2: the splicing readout needs controls." },
+      ],
+      response: { doi: "10.15252/rc.2026344557", text: "We thank the reviewers." },
+    },
+  };
+  it("recognises their DOIs", () => {
+    expect(reviewCommonsDoi("https://doi.org/10.15252/rc.2026000599")).toBe("10.15252/rc.2026000599");
+    expect(reviewCommonsDoi("10.15252/embj.2020000599")).toBeNull();
+  });
+  it("reads a closed-marked review from EMBO's Early Evidence Base, via the preprint its DOI redirects to", async () => {
+    const f = vi.fn(async (u: any) => {
+      const url = String(u);
+      if (url === "https://doi.org/10.15252/rc.2026000599") return new Response(null, { status: 302, headers: { location: "https://eeb.embo.org/doi/10.64898/2026.02.17.706284#rev0-rr1" } });
+      if (url === "https://eeb.embo.org/api/v1/doi/10.64898/2026.02.17.706284") return new Response(JSON.stringify(EEB), { headers: { "content-type": "application/json" } });
+      return new Response("unexpected", { status: 500 });
+    });
+    vi.stubGlobal("fetch", f);
+    const w = { id: "https://openalex.org/W7222867592", doi: "https://doi.org/10.15252/rc.2026000599", open_access: { is_oa: false }, primary_location: { landing_page_url: "https://doi.org/10.15252/rc.2026000599" } };
+    const r = await reviewText(w, async () => null, new Map());
+    expect(r).toMatchObject({ source: "review_commons" });
+    expect(r.text).toContain("The authors should test a second cell line.");
+    expect((f.mock.calls[0] as any[])[1]).toMatchObject({ redirect: "manual" });
+  });
+});
 
 describe("eLife reviews", () => {
   it("recognises eLife review DOIs", () => {

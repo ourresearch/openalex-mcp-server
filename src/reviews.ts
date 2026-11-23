@@ -2,8 +2,9 @@
  * A work's reviews (oxjob #2540). A review is linked to the work it reviews by a link of type `review` (#2481): the
  * review is the link's origin, the reviewed work its target, served by /links. Works carry reviewed_by_count.
  *
- * read_reviews hands an assistant the text of the open ones, from (in order) eLife's public preprint API for eLife
- * reviews (its site answers non-browser clients with a challenge page), OpenAlex's own stored full text (GROBID TEI on
+ * read_reviews hands an assistant the text of the open ones, from (in order) the publisher's own API where one serves
+ * each review's text (eLife, whose site answers non-browser clients with a challenge page; Review Commons, through
+ * EMBO's Early Evidence Base, whose pages need JavaScript), OpenAlex's own stored full text (GROBID TEI on
  * content.openalex.org, 100 credits), or a guarded fetch of the review's open copy: http(s) only, no IP hosts, each
  * redirect re-checked, size and time caps, HTML and plain text only. The text goes back as data, under a note that it
  * is never to be read as instructions.
@@ -175,7 +176,7 @@ export function looksLikeChallenge(text: string): boolean {
 }
 
 type TextResult =
-  | { text: string; source: "openalex" | "elife" | "open_copy"; url?: string }
+  | { text: string; source: "openalex" | "elife" | "review_commons" | "open_copy"; url?: string }
   | { text: null; reason: string; url?: string };
 
 interface FetchCaps {
@@ -269,27 +270,69 @@ export async function elifeReviewTexts(msid: string, version: string, fetchImpl:
   return out;
 }
 
+const EEB_API = "https://eeb.embo.org/api/v1/doi/";
+
+/** Review Commons review DOIs (10.15252/rc.<id>). OpenAlex marks them closed; EMBO's Early Evidence Base serves them. */
+export function reviewCommonsDoi(doi: string | null | undefined): string | null {
+  const bare = bareDoi(doi)?.toLowerCase() ?? "";
+  return /^10\.15252\/rc\.\d+$/.test(bare) ? bare : null;
+}
+
+/** The preprint a Review Commons review belongs to: its DOI redirects to eeb.embo.org/doi/<preprint DOI>. */
+export async function reviewCommonsPreprint(reviewDoi: string, fetchImpl: typeof fetch = fetch): Promise<string | null> {
+  const res = await fetchImpl(`https://doi.org/${reviewDoi}`, {
+    redirect: "manual",
+    headers: { "User-Agent": USER_AGENT },
+    signal: AbortSignal.timeout(OPEN_COPY_CAPS.timeoutMs),
+  });
+  await res.body?.cancel().catch(() => {});
+  const m = (res.headers.get("location") ?? "").match(/^https:\/\/eeb\.embo\.org\/doi\/(10\.[^#?]+)/i);
+  return m ? decodeURIComponent(m[1]!) : null;
+}
+
+/** The Review Commons reviews and author response of one preprint (Markdown text), keyed by lower-case DOI. */
+export async function eebReviewTexts(preprintDoi: string, fetchImpl: typeof fetch = fetch): Promise<Map<string, string>> {
+  const res = await fetchImpl(`${EEB_API}${preprintDoi}`, {
+    headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+    signal: AbortSignal.timeout(OPEN_COPY_CAPS.timeoutMs),
+  });
+  if (!res.ok) throw new Error(`EEB answered HTTP ${res.status}`);
+  const data = JSON.parse(await readCapped(res, 5_000_000));
+  const rp = (Array.isArray(data) ? data[0] : data)?.review_process ?? {};
+  const out = new Map<string, string>();
+  for (const r of [...(rp.reviews ?? []), rp.response]) {
+    if (r?.doi && typeof r.text === "string") out.set(String(r.doi).toLowerCase(), r.text);
+  }
+  return out;
+}
+
 /**
- * The text of one review, from the first source that has it, else why there is none. eLife's API comes before the
- * stored text: it gives each review on its own, while a stored copy of an eLife review can be the whole reviewed-
+ * The text of one review, from the first source that has it, else why there is none. A publisher's API comes before
+ * the stored text: it gives each review on its own, while a stored copy of an eLife review can be the whole reviewed-
  * preprint page, which opens with the assessment (W7167927612, reviewer #2, stores the assessment's text).
- * `elifeCache` holds one eLife fetch per preprint across a call's reviews.
+ * `cache` holds one publisher fetch per preprint across a call's reviews.
  */
 export async function reviewText(
   w: any,
   storedTei: (workId: string) => Promise<string | null>,
-  elifeCache: Map<string, Promise<Map<string, string>>>,
+  cache: Map<string, Promise<Map<string, string> | null>>,
 ): Promise<TextResult> {
   const id = shortId(w?.id);
-  const url = oaUrl(w) ?? undefined;
+  const url = oaUrl(w) ?? w?.primary_location?.landing_page_url ?? undefined;
+  const once = (key: string, load: () => Promise<Map<string, string> | null>) => {
+    if (!cache.has(key)) cache.set(key, load().catch(() => null));
+    return cache.get(key)!;
+  };
   const el = elifeReviewDoi(w?.doi);
   if (el) {
-    const key = `${el.msid}v${el.version}`;
-    if (!elifeCache.has(key)) elifeCache.set(key, elifeReviewTexts(el.msid, el.version));
-    try {
-      const html = (await elifeCache.get(key)!).get(el.doi);
-      if (html) return { text: markupToText(html), source: "elife", url };
-    } catch { /* fall through to the stored text */ }
+    const html = (await once(`elife:${el.msid}v${el.version}`, () => elifeReviewTexts(el.msid, el.version)))?.get(el.doi);
+    if (html) return { text: markupToText(html), source: "elife", url };
+  }
+  const rc = reviewCommonsDoi(w?.doi);
+  if (rc) {
+    const preprint = await reviewCommonsPreprint(rc).catch(() => null);
+    const text = preprint ? (await once(`eeb:${preprint.toLowerCase()}`, () => eebReviewTexts(preprint)))?.get(rc) : null;
+    if (text) return { text: text.trim(), source: "review_commons", url };
   }
   if (w?.has_content?.grobid_xml && id) {
     try {
@@ -301,8 +344,8 @@ export async function reviewText(
   if (w?.open_access?.is_oa === false || !url) {
     return { text: null, reason: "no open copy is known: the review is closed or OpenAlex has no link to it", url };
   }
-  // eLife's site answers scripts with a bot check, so its page is no fallback for its API.
-  if (el) return { text: null, reason: "eLife's API has no text for this review just now; open the link", url };
+  // eLife's site answers scripts with a bot check, and EEB's pages need JavaScript: no fallback for their APIs.
+  if (el || rc) return { text: null, reason: `${el ? "eLife's" : "EMBO's Early Evidence Base"} API has no text for this review just now; open the link`, url };
   return fetchOpenCopy(url);
 }
 
