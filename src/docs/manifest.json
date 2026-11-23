@@ -13,9 +13,9 @@
   },
   "api_quick_reference": {
     "url": "https://help.openalex.org/api/llm-quick-reference/",
-    "sha": "cf5f31ff9ed11c8f",
-    "fetched_at": "2026-11-19",
-    "bytes": 11057
+    "sha": "33cfc3045aaa2a84",
+    "fetched_at": "2026-11-23",
+    "bytes": 11888
   },
   "fixing_authors": {
     "url": "https://help.openalex.org/access/fixing-errors/authors/",
@@ -25,8 +25,8 @@
   },
   "author_curation": {
     "url": "https://help.openalex.org/api/author-curation/",
-    "sha": "b4d2437c30030f8b",
-    "fetched_at": "2026-11-16",
+    "sha": "2a7c5b491a8d45e0",
+    "fetched_at": "2026-11-23",
     "bytes": 9687
   }
 }

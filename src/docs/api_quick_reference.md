@@ -168,6 +168,17 @@ cited_by_count                - Total citations
 /works?filter=authorships.author.id:A5023888391
 ```
 
+### Who did what on a work (CRediT roles, editors, translators)
+Each authorship has `contributor_roles`: the CRediT roles stated for that author, `editor` for the editors of an edited book, or `translator` for a work's translators, e.g.
+`[{"id": "https://openalex.org/contributor-roles/methodology", "display_name": "Methodology"}]`. About 3 million works
+have them; an empty list means none were stated. There's no works filter for roles yet, so to find works where a person
+had a role, list their works and read the role on their own authorship:
+```bash
+/works?filter=authorships.author.id:A5068542997&per_page=100&select=id,display_name,authorships
+# keep works where the authorship whose author.id is A5068542997 lists the role
+```
+All 15 roles: `/contributor-roles`. [More](https://help.openalex.org/data/contributor-roles/)
+
 ### Get works from institution
 ```bash
 # Step 1: Find institution
