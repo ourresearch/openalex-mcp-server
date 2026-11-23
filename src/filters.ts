@@ -42,6 +42,8 @@ export const workFilterShape = {
     .describe("Only these open-access statuses (OR)."),
   min_citations: z.number().int().min(0).optional()
     .describe("Minimum cited_by_count. Not supported with semantic search."),
+  min_reviews: z.number().int().min(0).optional()
+    .describe("Minimum reviewed_by_count: 1 keeps works with at least one linked review (peer reviews, eLife assessments, book reviews, agents' reviews). A count, not a verdict; a work with none may still have been reviewed. OQL: `reviewed by count > 0`. Not supported with semantic search."),
   author_ids: z.array(z.string()).optional()
     .describe("OpenAlex author IDs (e.g. A5067184382). Resolve names with search_entities first."),
   institution_ids: z.array(z.string()).optional()
@@ -93,6 +95,7 @@ export function buildWorkFilter(args: WorkFilterArgs, extra: string[] = []): str
   if (args.is_traditional !== undefined) parts.push(`is_traditional:${args.is_traditional}`);
   if (args.oa_status?.length) parts.push(`open_access.oa_status:${args.oa_status.join("|")}`);
   if (args.min_citations !== undefined && args.min_citations > 0) parts.push(`cited_by_count:>${args.min_citations - 1}`);
+  if (args.min_reviews !== undefined && args.min_reviews > 0) parts.push(`reviewed_by_count:>${args.min_reviews - 1}`);
   const a = joinIds(args.author_ids); if (a) parts.push(`authorships.author.id:${a}`);
   const i = joinIds(args.institution_ids); if (i) parts.push(`authorships.institutions.lineage:${i}`);
   const s = joinIds(args.source_ids); if (s) parts.push(`primary_location.source.id:${s}`);
@@ -120,6 +123,8 @@ export function assertSemanticCompatible(args: WorkFilterArgs & { sort?: string 
     throw new Error("min_citations is not supported with semantic search. Use keyword mode, or drop the citation floor and sort afterwards.");
   if (args.countries?.length)
     throw new Error("countries is not supported with semantic search. Use keyword mode, or filter by institution_ids instead.");
+  if (args.min_reviews !== undefined && args.min_reviews > 0)
+    throw new Error("min_reviews is not supported with semantic search. Use keyword mode to keep works that have reviews.");
 }
 
 export const GROUP_BY_FIELDS = {

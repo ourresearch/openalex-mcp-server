@@ -154,6 +154,11 @@ export function entityPath(entity: EntityType, input: string): string {
   return checkedPath(`/${entity}/` + encodeURIComponent(id).replace(/%2F/g, "/").replace(/%3A/g, ":"), input);
 }
 
+/** A DOI without its resolver prefix ("https://doi.org/10.1/x" -> "10.1/x"), or null. */
+export function bareDoi(doi: string | null | undefined): string | null {
+  return doi ? String(doi).replace(/^https?:\/\/(dx\.)?doi\.org\//i, "") : null;
+}
+
 /** Split a comma/space separated list of IDs into short IDs, dropping blanks. */
 export function idList(ids: string[] | undefined): string[] {
   if (!ids) return [];

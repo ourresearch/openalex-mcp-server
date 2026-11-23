@@ -8,6 +8,8 @@ export const USER_AGENT = "openalex-mcp-server/0.1 (https://github.com/ourresear
 export interface OpenAlexClientOptions {
   apiKey: string;
   baseUrl?: string;
+  /** Where stored full text is served (oxjob #2540). Default https://content.openalex.org. */
+  contentBaseUrl?: string;
   /** How to name the key in messages, e.g. "your personal OpenAlex key" or "the X organization key". */
   keyLabel?: string;
   /** Called once when OpenAlex rejects the key (401): the grant holding it is stale. Never called on a 403. */
@@ -68,6 +70,7 @@ export function pulledParams(include: boolean | undefined): Params {
 export class OpenAlexClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
+  private readonly contentBaseUrl: string;
   readonly keyLabel: string;
   private readonly onUnauthorized?: () => void;
   private unauthorizedFired = false;
@@ -81,6 +84,7 @@ export class OpenAlexClient {
   constructor(opts: OpenAlexClientOptions) {
     this.apiKey = opts.apiKey;
     this.baseUrl = (opts.baseUrl ?? "https://api.openalex.org").replace(/\/+$/, "");
+    this.contentBaseUrl = (opts.contentBaseUrl ?? "https://content.openalex.org").replace(/\/+$/, "");
     this.keyLabel = opts.keyLabel ?? "your OpenAlex key";
     this.onUnauthorized = opts.onUnauthorized;
     this.timeoutMs = opts.timeoutMs ?? 25_000;
@@ -151,6 +155,43 @@ export class OpenAlexClient {
     }
   }
 
+  /**
+   * OpenAlex's stored full text of a work as GROBID TEI (content.openalex.org, 100 credits; oxjob #2540), or null when
+   * it has none. Credits count toward the tool call like any API call; read at most maxBytes.
+   */
+  async getStoredTei(workId: string, maxBytes = 1_500_000): Promise<string | null> {
+    let res: Response;
+    try {
+      res = await fetch(`${this.contentBaseUrl}/works/${encodeURIComponent(workId)}.grobid-xml`, {
+        headers: { Authorization: `Bearer ${this.apiKey}`, "User-Agent": USER_AGENT, Accept: "application/xml" },
+        signal: AbortSignal.timeout(Math.min(this.timeoutMs, 15_000)),
+      });
+    } catch {
+      return null;
+    }
+    this.noteHeaders(res);
+    // Any refusal (no stored text, an empty budget) just means this source has nothing; the caller tries the next.
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      return null;
+    }
+    return readCapped(res, maxBytes);
+  }
+
+  /** Credits spent and the daily budget, from any OpenAlex response's headers. */
+  private noteHeaders(res: Response) {
+    const used = Number(res.headers.get("x-ratelimit-credits-used") ?? 0);
+    if (Number.isFinite(used)) this.creditsUsed += used;
+    const remaining = res.headers.get("x-ratelimit-remaining");
+    const limit = res.headers.get("x-ratelimit-limit");
+    const reset = res.headers.get("x-ratelimit-reset");
+    this.lastBudget = {
+      remaining: remaining ? Number(remaining) : undefined,
+      limit: limit ? Number(limit) : undefined,
+      resetSeconds: reset ? Number(reset) : undefined,
+    };
+  }
+
   private async getOnce<T = any>(path: string, params: Params = {}): Promise<T> {
     return this.request<T>(this.buildUrl(path, params), { method: "GET" });
   }
@@ -176,16 +217,7 @@ export class OpenAlexClient {
       throw new OpenAlexError(`Request to OpenAlex ${why}. Try a narrower query or retry in a moment.`, 0);
     }
 
-    const used = Number(res.headers.get("x-ratelimit-credits-used") ?? 0);
-    if (Number.isFinite(used)) this.creditsUsed += used;
-    const remaining = res.headers.get("x-ratelimit-remaining");
-    const limit = res.headers.get("x-ratelimit-limit");
-    const reset = res.headers.get("x-ratelimit-reset");
-    this.lastBudget = {
-      remaining: remaining ? Number(remaining) : undefined,
-      limit: limit ? Number(limit) : undefined,
-      resetSeconds: reset ? Number(reset) : undefined,
-    };
+    this.noteHeaders(res);
 
     if (res.ok) {
       return (await res.json()) as T;
@@ -255,6 +287,29 @@ export class OpenAlexClient {
     }
     throw new OpenAlexError(`OpenAlex returned HTTP ${res.status}${apiMessage ? `: ${apiMessage}` : ""}. Retry in a moment.`, res.status, undefined, res.status >= 500);
   }
+}
+
+/** Read at most maxBytes of a body as UTF-8 text, cancelling the rest (oxjob #2540: stored and fetched review text). */
+export async function readCapped(res: Response, maxBytes: number): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const room = maxBytes - size;
+    chunks.push(value.byteLength > room ? value.subarray(0, room) : value);
+    size += Math.min(value.byteLength, room);
+    if (size >= maxBytes) {
+      await reader.cancel().catch(() => {});
+      break;
+    }
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) { bytes.set(c, at); at += c.byteLength; }
+  return new TextDecoder("utf-8").decode(bytes);
 }
 
 /** OpenAlex 400s for bad filters list every valid field; keep the message readable. */

@@ -2,7 +2,7 @@
  * Response shaping: turn large OpenAlex entity objects into compact, LLM-friendly records.
  * Everything here is pure and unit-tested.
  */
-import { shortId } from "./ids";
+import { bareDoi, shortId } from "./ids";
 
 /** Rebuild plain-text abstract from OpenAlex's inverted index. */
 export function abstractFromInvertedIndex(idx: Record<string, number[]> | null | undefined): string | null {
@@ -90,7 +90,7 @@ export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
     ...retracted,
     ...pulled,
     id: shortId(w.id),
-    doi: w.doi ? String(w.doi).replace(/^https?:\/\/doi\.org\//i, "") : null,
+    doi: bareDoi(w.doi),
     title: w.display_name ?? w.title ?? null,
     year: w.publication_year ?? null,
     type: w.type ?? null,
@@ -102,6 +102,8 @@ export function shapeWork(w: any, opts: ShapeWorkOptions = {}) {
     venue: src.display_name ?? loc.raw_source_name ?? null,
     venue_id: shortId(src.id),
     cited_by_count: w.cited_by_count ?? null,
+    // oxjob #2540: how many reviews are linked to the work. Lists show it only when there are some; a full record always.
+    reviewed_by_count: typeof w.reviewed_by_count === "number" && (opts.full || w.reviewed_by_count > 0) ? w.reviewed_by_count : null,
     fwci: round(w.fwci),
     is_oa: typeof oa.is_oa === "boolean" ? oa.is_oa : null,
     oa_url: oa.oa_url ?? null,
