@@ -62,6 +62,20 @@ describe("/authorize errors", () => {
     expect(await res.text()).toContain("&lt;script&gt;");
   });
 
+  it("refuse a plain-http remote redirect URI from an older client or CIMD document (#2323)", async () => {
+    const kv = new Map<string, string>();
+    const res = await authorize(env(async () => ({ responseType: "code", clientId: "c1", redirectUri: "http://attacker.example/cb", scope: [], state: "s1" }), kv));
+    expect(res.status).toBe(400);
+    expect(res.headers.get("location")).toBeNull();
+    expect(await res.text()).not.toContain("attacker.example");
+    expect(kv.size).toBe(0);
+  });
+
+  it("let a loopback http redirect URI through to the consent page (#2323)", async () => {
+    const res = await authorize(env(async () => ({ responseType: "code", clientId: "c1", redirectUri: "http://localhost:33418/callback", scope: [], state: "s1" })));
+    expect(res.status).toBe(302);
+  });
+
   it("leave a valid request going to the consent page", async () => {
     const kv = new Map<string, string>();
     const res = await authorize(env(async () => ({ responseType: "code", clientId: "c1", redirectUri: "https://elsewhere.example/landing", scope: [], state: "s1" }), kv));
