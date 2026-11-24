@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { runChat, runOql, findEntity, systemPrompt, costUsd, MAX_TURNS, type ChatEvent, type OpenAlexLike } from "../src/chat";
+import { runChat, runOql, findEntity, systemPrompt, costUsd, meContext, BARE_LIST_MESSAGE, MAX_TURNS, type ChatEvent, type OpenAlexLike } from "../src/chat";
+import { oqlIsBareList } from "../src/oql";
 
 /** A request message's text, whether sent as a string or as blocks (the newest carries a cache mark). */
 const textOf = (c: any): string => (typeof c === "string" ? c : c.map((b: any) => b.text ?? "").join("\n"));
@@ -287,5 +288,56 @@ describe("systemPrompt", () => {
   it("names the person's institution when the page knows it", () => {
     expect(systemPrompt({ id: "I146416000", name: "University of Kansas" }, "G")).toContain("University of Kansas (I146416000)");
     expect(systemPrompt(null, "G")).toContain("say in the note which institution the query assumes");
+  });
+});
+
+describe("nothing to look for (#1494)", () => {
+  it("knows a bare list from a real question", () => {
+    expect(oqlIsBareList("get works")).toBe(true);
+    expect(oqlIsBareList(" GET journals ")).toBe(true);
+    expect(oqlIsBareList("get sdgs")).toBe(false);   // a small set someone may want listed
+    expect(oqlIsBareList("get works, most cited first")).toBe(false);
+    expect(oqlIsBareList("get the count of works")).toBe(false);
+    expect(oqlIsBareList("get works about kelp")).toBe(false);
+  });
+  it("takes a bare list with an order (the most cited works ever)", async () => {
+    const anthropic = fakeAnthropic([[tool("s", "submit", { oql: "get works", sort: "cited_by_count:desc", note: "" })]]);
+    const events: ChatEvent[] = [];
+    const out = await runChat({ anthropic, openalex: fakeOpenAlex() }, { messages: [{ role: "user", content: "most cited ever" }] }, (e) => { events.push(e); });
+    expect(out.answered).toBe(true);
+  });
+  it("refuses a bare list and takes the model's question to the person instead", async () => {
+    const anthropic = fakeAnthropic([
+      [tool("s1", "submit", { oql: "get works", sort: "", note: "" })],
+      [{ type: "text", text: "Whose works? Tell me your name or ORCID." }],
+    ]);
+    const events: ChatEvent[] = [];
+    const out = await runChat({ anthropic, openalex: fakeOpenAlex() }, { messages: [{ role: "user", content: "list all my publications" }] }, (e) => { events.push(e); });
+    expect(out.answered).toBe(false);
+    expect(anthropic.requests[1].messages.at(-1).content[0]).toMatchObject({ is_error: true });
+    expect(events.find((e) => e.type === "ask")).toEqual({ type: "ask", question: "Whose works? Tell me your name or ORCID." });
+  });
+  it("says what's missing when the last turn is still a bare list", async () => {
+    const anthropic = fakeAnthropic([[tool("s", "submit", { oql: "get works", sort: "", note: "" })]]);
+    const events: ChatEvent[] = [];
+    await runChat({ anthropic, openalex: fakeOpenAlex() }, { messages: [{ role: "user", content: "list all my publications" }] }, (e) => { events.push(e); });
+    expect(events.filter((e) => e.type === "answer")).toHaveLength(0);
+    expect(events.find((e) => e.type === "ask")).toEqual({ type: "ask", question: BARE_LIST_MESSAGE });
+    const done = events.at(-1) as any;   // every tool_use still has its result
+    expect(done.messages.at(-1).content[0].type).toBe("tool_result");
+  });
+  it("keeps the generic message when a stop without a query says too much", async () => {
+    const anthropic = fakeAnthropic([[{ type: "text", text: "x".repeat(301) }]]);
+    const events: ChatEvent[] = [];
+    await runChat({ anthropic, openalex: fakeOpenAlex() }, { messages: [{ role: "user", content: "q" }] }, (e) => { events.push(e); });
+    expect((events.find((e) => e.type === "error") as any).message).toBe("The assistant stopped without a query.");
+  });
+  it("puts the person's own profile, or its absence, before the question only when known", async () => {
+    expect(meContext(undefined)).toBe("");
+    expect(meContext(null)).toContain("no claimed OpenAlex author profile");
+    const anthropic = fakeAnthropic([[tool("s", "submit", { oql: "get [Ann Lee](A1)'s works", sort: "", note: "" })]]);
+    await runChat({ anthropic, openalex: fakeOpenAlex() }, { messages: [{ role: "user", content: "my papers" }], me: { id: "A1", name: "Ann Lee" } }, () => {});
+    const sent = textOf(anthropic.requests[0].messages[0].content);
+    expect(sent.indexOf("[Ann Lee](A1)")).toBeLessThan(sent.indexOf("my papers"));
   });
 });

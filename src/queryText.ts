@@ -18,6 +18,7 @@
  *     plain keywords, answered with no model (plainInput.ts); never on a follow-up
  *   route "help_desk": a how-to with no subject, answered from help.openalex.org: {answer, link}, oql null (router.ts)
  *   route "query": the agent's query, plus left_out (a second question left out), out_of_reach and howto when they apply
+ *   route "ask": no query; `note` asks the person something back ("whose works?"), free
  * 422: no query found; 400: a bad request; 502: the model failed. The proxy charges none of these (errors are free).
  *
  * The front door (Jason, 2026-10-11): deterministic pass, then the router, then the help desk or the agent. The agent
@@ -26,7 +27,9 @@
  * agreed with #1494's judge at AUROC 0.76-0.84).
  */
 import Anthropic from "@anthropic-ai/sdk";
-import { CHAT_EFFORT, CHAT_MODEL, publicPreview, runChat, runOql, type ChatEvent, type Institution, type Preview, type Turn } from "./chat";
+import { CHAT_EFFORT, CHAT_MODEL, publicPreview, runChat, runOql, type ChatEvent, type Institution, type MeLookup, type Preview, type Turn } from "./chat";
+import { authorShort } from "./ids";
+import { UsersApiClient } from "./users";
 import { oqlIsNumbers, oqlThingFirst, splitOqlSteps } from "./oql";
 import { frontDoor } from "./frontDoor";
 import { HELP_EFFORT, HELP_MODEL, helpDesk, routeQuestion, type RouteResult } from "./router";
@@ -54,6 +57,54 @@ export interface QueryWriterEnv {
    * note. Unset: the model reads it. Off until the rule is confirmed (#1660).
    */
   ONE_WORD_NAMES?: string;
+  /** users-api, for the profile the caller claimed ("my papers"); unset = no lookup. */
+  USERS_API_BASE?: string;
+}
+
+/**
+ * A question about the asker's own works, in the questions this chat has had so far. Shortcut: English plus a few
+ * phrasings in Portuguese, Spanish, French and German, the languages real questions came in (#1494 EXPLORE § 22);
+ * a miss only means the agent answers without knowing who is asking, as before. Telling the agent on every question
+ * would catch every phrasing, but needs an eval first: the line could pull an author filter into unrelated questions.
+ */
+const OWN_WORKS = new RegExp([
+  String.raw`\bmy\s+(own\s+)?(works?|papers?|publications?|articles?|outputs?|citations?|h-?index|profile|co-?authors?|collaborators?|books?|preprints?|datasets?|orcid|author\s+(id|profile))\b`,
+  String.raw`\bI\s+(have\s+)?(published|wrote|written|authored|co-?authored)\b`,
+  String.raw`\b(by|cited?|cites|citing)\s+me\b`,
+  String.raw`\b(meus|minhas|mis|mes|meine)\s+(artigos|trabalhos|publicações|publicacoes|artículos|publicaciones|trabajos|articles|publications|travaux|artikel|publikationen|veröffentlichungen|arbeiten)\b`,
+].join("|"), "iu");
+
+export function asksAboutOwnWorks(parsed: Pick<QueryTextRequest, "text" | "history">): boolean {
+  return [parsed.text, ...parsed.history.map((h) => h.text)].some((t) => OWN_WORKS.test(t));
+}
+
+/** How long the agent may wait on the profile lookup; past it, it answers without knowing who is asking. */
+export const ME_LOOKUP_MS = 2000;
+
+/**
+ * The author profile the caller claimed: null when the account has none, undefined when it can't be told (an org key,
+ * users-api slow or down). Never throws. Two quick reads on the caller's key: users-api's /users/me, then the name.
+ */
+export async function claimedAuthor(
+  key: string, usersApiBase: string | undefined, openalex: { get(path: string, params?: any): Promise<any> }, fetchImpl?: typeof fetch,
+): Promise<MeLookup> {
+  if (!usersApiBase) return undefined;
+  const lookup = async (): Promise<MeLookup> => {
+    const me = await new UsersApiClient({ apiKey: key, baseUrl: usersApiBase, timeoutMs: ME_LOOKUP_MS, fetchImpl }).me();
+    const id = authorShort(me.author_id);
+    if (!id) return null;
+    const author = await openalex.get(`/authors/${id}`, { select: "id,display_name" });
+    return { id, name: String(author?.display_name || id).replace(/[[\]()]/g, "") };
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<undefined>((done) => { timer = setTimeout(() => done(undefined), ME_LOOKUP_MS); });
+  try {
+    return await Promise.race([lookup(), late]);
+  } catch {
+    return undefined;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 /** Jason, 2026-10-20: charge on the expensive side while it's new, and bring it down later. */
@@ -197,6 +248,8 @@ function reply(status: number, body: Record<string, any>, credits: number): Resp
 
 interface AgentRun {
   answer: Extract<ChatEvent, { type: "answer" }> | null;
+  /** no query: what the agent asks the person back */
+  ask: string | null;
   error: string | null;
   turns: number;
   wordRetries: number;
@@ -207,16 +260,18 @@ interface AgentRun {
 
 /** The OQL agent on one question, its events collected. */
 async function runAgent(deps: Parameters<typeof runChat>[0], parsed: QueryTextRequest,
-  started: number): Promise<AgentRun> {
-  const run: AgentRun = { answer: null, error: null, turns: 0, wordRetries: 0, steps: [], costUsd: 0 };
+  started: number, me?: MeLookup): Promise<AgentRun> {
+  const run: AgentRun = { answer: null, ask: null, error: null, turns: 0, wordRetries: 0, steps: [], costUsd: 0 };
   const out = await runChat(deps, {
     messages: [{ role: "user", content: parsed.text }],
     currentQuery: parsed.currentQuery,
     history: parsed.history,
     institution: parsed.institution,
+    me,
   }, (e) => {
     if (e.type === "step") run.steps.push({ tool: e.tool, detail: e.detail, ms: Date.now() - started });
     else if (e.type === "answer") run.answer = e;
+    else if (e.type === "ask") run.ask = e.question;
     else if (e.type === "error" && !run.error) run.error = e.message;
     else if (e.type === "done") ({ turns: run.turns, word_retries: run.wordRetries } = e);
   });
@@ -284,9 +339,10 @@ export function outcomeLine(
 ): Record<string, unknown> {
   const meta = body.meta ?? {};
   const steps: Array<{ tool: string }> = meta.steps ?? [];
-  const cut = (q: unknown) => (typeof q === "string" && q ? q.slice(0, MAX_LOGGED_QUERY_CHARS) : null);
+  const cut = (q: unknown, max = MAX_LOGGED_QUERY_CHARS) => (typeof q === "string" && q ? q.slice(0, max) : null);
   return {
-    event: "query_text", v: 2, status, route: body.route ?? null, ms,
+    event: "query_text", v: 3, status, route: body.route ?? null, ms,
+    error: cut(body.error, 300), me: meta.me ?? null,
     user_id: account.userId, org_id: account.orgId,
     text: asked?.text ?? null, current_query: cut(asked?.currentQuery), oql: cut(body.oql), sort: body.sort ?? null,
     follow_up: !!asked?.currentQuery, history: asked?.history.length ?? 0, institution: !!asked?.institution,
@@ -310,6 +366,8 @@ async function answer(req: Request, parsed: QueryTextRequest, env: QueryWriterEn
   // Before any model (frontDoor.ts): an identifier, the full name of an institution, journal, funder or person, a
   // pasted title a lookup confirms, a Boolean search string, or plain keywords. No model, so no model cost; the
   // searches themselves are charged by the proxy like any call. A follow-up gets only the title and Boolean checks.
+  // "my papers": who is asking, looked up beside the front door (the agent waits for whatever is left of it)
+  const mePending = asksAboutOwnWorks(parsed) ? claimedAuthor(key, env.USERS_API_BASE, openalex, deps.fetchImpl) : Promise.resolve(undefined);
   const door = await frontDoor(parsed.text, (q) => runOql(openalex, q), {
     oa: openalex, followUp: !!parsed.currentQuery, oneWordNames: env.ONE_WORD_NAMES === "keywords",
   });
@@ -329,10 +387,12 @@ async function answer(req: Request, parsed: QueryTextRequest, env: QueryWriterEn
   const model = (followUp && env.FOLLOWUP_MODEL) || env.CHAT_MODEL || CHAT_MODEL;
   const effort = (followUp && env.FOLLOWUP_EFFORT) || env.CHAT_EFFORT || CHAT_EFFORT;
   const multiplier = multiplierOf(env);
-  const agent = (signal?: AbortSignal) => runAgent({ anthropic, openalex, guide: deps.guide, effort, model, signal }, parsed, started);
+  const routing = deps.route ? deps.route(parsed.text, parsed.currentQuery) : routeQuestion(anthropic, parsed.text, parsed.currentQuery);
+  const me = await mePending;   // the router never needs it
+  const agent = (signal?: AbortSignal) => runAgent({ anthropic, openalex, guide: deps.guide, effort, model, signal }, parsed, started, me);
   const stop = new AbortController();
   const first = agent(stop.signal);
-  const routed = deps.route ? await deps.route(parsed.text, parsed.currentQuery) : await routeQuestion(anthropic, parsed.text, parsed.currentQuery);
+  const routed = await routing;
   let preUsd = routed.costUsd;
   let run: AgentRun;
   if (routed.route === "help_desk") {
@@ -352,7 +412,7 @@ async function answer(req: Request, parsed: QueryTextRequest, env: QueryWriterEn
   } else {
     run = await first;
   }
-  const { answer, error, turns, wordRetries, steps } = run;
+  const { answer, ask, error, turns, wordRetries, steps } = run;
 
   const conf = answer
     ? await confidence(env.TYPESAFE_API_KEY, parsed.text, answer, deps.fetchImpl ?? fetch)
@@ -363,7 +423,16 @@ async function answer(req: Request, parsed: QueryTextRequest, env: QueryWriterEn
     model, effort, turns, elapsed_ms: Date.now() - started, cost,
     // the no-new-words check: submits refused for new search words, and any left when the turns ran out
     word_retries: wordRetries, new_words: answer?.new_words ?? [], steps,
+    // asked about their own works: the claimed profile was found ("profile"), the account has none ("none")
+    me: me === undefined ? undefined : me ? "profile" : "none",
   };
+  if (!answer && ask) {
+    // a question back (whose works?) shows as a reply on the page, and costs the caller nothing, like an error
+    return reply(200, {
+      text: parsed.text, route: "ask", oql: null, sort: null, note: ask, confidence: null, count: null, preview: null,
+      meta: { ...meta, cost: { credits: 0, usd: 0 } },
+    }, 0);
+  }
   if (!answer) {
     const modelFailed = (error ?? "").startsWith("The model call failed");
     return reply(modelFailed ? 502 : 422, { text: parsed.text, error: error ?? "No query found.", meta }, cost.credits);

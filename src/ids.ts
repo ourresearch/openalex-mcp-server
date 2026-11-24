@@ -10,6 +10,12 @@ export function shortId(id: string | null | undefined): string | null {
   return s;
 }
 
+/** An author id as users-api stores it (https://openalex.org/authors/a123, or bare) -> "A123"; null if it isn't one. */
+export function authorShort(id: string | null | undefined): string | null {
+  const s = shortId(String(id ?? "").replace(/^(https?:\/\/openalex\.org\/)?authors\//i, ""));
+  return s && /^A\d+$/.test(s) ? s : null;
+}
+
 /**
  * The id inside an OpenAlex reference, for the path normalizers: "openalex:W1", "https://openalex.org/W1" and the
  * website's "https://openalex.org/works/W1" all give "W1". Anything left that isn't an id is refused after this.

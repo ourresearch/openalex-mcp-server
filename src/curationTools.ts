@@ -7,7 +7,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { OpenAlexClient, OpenAlexError, pulledParams, type ListResponse } from "./openalex";
 import { UsersApiClient, UsersApiError, type MeRecord, type CurationPayload, type CurationRow } from "./users";
-import { shortId, workPath } from "./ids";
+import { authorShort, shortId, workPath } from "./ids";
 import { shapeWork, shapeEntity, compact } from "./shape";
 import { joinIds } from "./filters";
 import { nameTokens, buildLadderFilterValue, findMatchedAuthorship, fullMatchCount, LADDER_STEPS } from "./names";
@@ -49,11 +49,6 @@ const MAX_ITEMS = 100;
 const COUNT_THRESHOLD = 100;
 const COMMON_NAME_THRESHOLD = 1000;
 
-/** users-api stores author ids as https://openalex.org/authors/a123 as well as the bare form. */
-const authorShort = (id: string | null | undefined): string | null => {
-  const s = shortId(String(id ?? "").replace(/^(https?:\/\/openalex\.org\/)?authors\//i, ""));
-  return s && /^A\d+$/.test(s) ? s : null;
-};
 
 /** Why curation `id` may not be cancelled here, or null when it is the user's own pending curation on their claimed profile. */
 function cancelRefusal(id: string, row: CurationRow, userId: string, aid: string): string | null {

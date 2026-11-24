@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRequest, callerKey, creditsFor, handle, confidence, shapeOf, accountOf, PRICE_MULTIPLIER, MAX_QUERY_CHARS, USER_ID_HEADER, ORG_ID_HEADER } from "../src/queryText";
+import { parseRequest, callerKey, creditsFor, handle, confidence, shapeOf, accountOf, asksAboutOwnWorks, claimedAuthor, PRICE_MULTIPLIER, MAX_QUERY_CHARS, USER_ID_HEADER, ORG_ID_HEADER } from "../src/queryText";
 import { costUsd } from "../src/chat";
 
 /** A request message's text, whether sent as a string or as blocks (the newest carries a cache mark). */
@@ -154,16 +154,16 @@ describe("handle", () => {
       { anthropic, openalex: fakeOpenAlex(), fetchImpl: jevFetch(0.874), guide: "G", route: DATA }, (l) => lines.push(l));
     const orgAsked = get("/query/text/kelp", "k123-secret");
     orgAsked.headers.set(ORG_ID_HEADER, "org-xyz");
-    await handle(orgAsked, { OPENALEX_API_BASE: BASE }, { anthropic: fakeAnthropic([[{ type: "text", text: "hmm" }]]), openalex: fakeOpenAlex(), guide: "G", route: DATA }, (l) => lines.push(l));
+    await handle(orgAsked, { OPENALEX_API_BASE: BASE }, { anthropic: fakeAnthropic([[{ type: "text", text: "hmm ".repeat(80) }]]), openalex: fakeOpenAlex(), guide: "G", route: DATA }, (l) => lines.push(l));
     await handle(post({ text: "" }), { OPENALEX_API_BASE: BASE }, {}, (l) => lines.push(l));
     expect(lines).toHaveLength(3);
     for (const l of lines) expect(l).not.toMatch(/k123|secret|Bearer|Kansas|I146416000/i);
     const [ok, none, bad] = lines.map((l) => JSON.parse(l));
-    expect(ok).toMatchObject({ event: "query_text", v: 2, status: 200, route: "query", follow_up: true, history: 1, words: 7, tries: 1,
+    expect(ok).toMatchObject({ event: "query_text", v: 3, status: 200, error: null, me: null, route: "query", follow_up: true, history: 1, words: 7, tries: 1,
       count: 5559, confidence: 0.874, shape: "list", user_id: "user-abc", org_id: null,
       text: "open access articles about coffee and health", current_query: "get works about coffee", oql: SUBMIT.input.oql });
     expect(ok.credits).toBeGreaterThan(0);
-    expect(none).toMatchObject({ status: 422, follow_up: false, count: null, text: "kelp", oql: null, user_id: null, org_id: "org-xyz" });
+    expect(none).toMatchObject({ status: 422, error: "The assistant stopped without a query.", follow_up: false, count: null, text: "kelp", oql: null, user_id: null, org_id: "org-xyz" });
     expect(bad).toMatchObject({ status: 400, words: null, text: null, user_id: null });
   });
 
@@ -198,7 +198,8 @@ describe("handle", () => {
   });
 
   it("reports what the model cost when it finds no query (422; the proxy charges errors nothing)", async () => {
-    const res = await handle(get("/query/text/kelp"), { OPENALEX_API_BASE: BASE }, { anthropic: fakeAnthropic([[{ type: "text", text: "hmm" }]]), openalex: fakeOpenAlex(), guide: "G", route: DATA });
+    // a stop with more than a short question back is a failure, not a reply
+    const res = await handle(get("/query/text/kelp"), { OPENALEX_API_BASE: BASE }, { anthropic: fakeAnthropic([[{ type: "text", text: "hmm ".repeat(80) }]]), openalex: fakeOpenAlex(), guide: "G", route: DATA });
     expect(res.status).toBe(422);
     expect(Number(res.headers.get("X-Credits-Cost"))).toBe(Math.ceil(costUsd(USAGE) * PRICE_MULTIPLIER * 10000));
   });
@@ -328,5 +329,70 @@ describe("confidence", () => {
     expect((await confidence("t", "q", ans, failing)).p).toBeNull();
     const throwing = (async () => { throw new Error("down"); }) as unknown as typeof fetch;
     expect((await confidence("t", "q", ans, throwing)).p).toBeNull();
+  });
+});
+
+describe("my works (#1494)", () => {
+  const ask = (text: string, history: string[] = []) => ({ text, history: history.map((t) => ({ text: t, oql: null })) });
+  it("knows a question about the asker's own works, in this turn or an earlier one", () => {
+    for (const t of ["Can you list all my publications?", "How many citations do my papers have?", "what have I published since 2020",
+      "who cited me", "Quais são os meus artigos?", "mes publications"]) expect(asksAboutOwnWorks(ask(t))).toBe(true);
+    for (const t of ["What is my institution's open access output?", "For my research I need journal titles", "How do I find kelp papers?"]) {
+      expect(asksAboutOwnWorks(ask(t))).toBe(false);
+    }
+    expect(asksAboutOwnWorks(ask("I'm logged in and my ORCID is there"))).toBe(true);
+    expect(asksAboutOwnWorks(ask("I'm logged in", ["Can you list all my publications?"]))).toBe(true);
+  });
+
+  const USERS = "https://user.test";
+  const users = (status: number, body: any) => (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+  const authors = { async get(path: string) { return { id: `https://openalex.org${path}`, display_name: "Ann Lee" }; } };
+  it("finds the claimed profile on the caller's key, says none for an account without one, and unknown otherwise", async () => {
+    expect(await claimedAuthor("k", USERS, authors, users(200, { author_id: "https://openalex.org/authors/a5000000001" })))
+      .toEqual({ id: "A5000000001", name: "Ann Lee" });
+    expect(await claimedAuthor("k", USERS, authors, users(200, { author_id: null }))).toBeNull();
+    expect(await claimedAuthor("k", USERS, authors, users(401, { error: true }))).toBeUndefined();
+    expect(await claimedAuthor("k", undefined, authors, users(200, { author_id: "A1" }))).toBeUndefined();
+    const down = (async () => { throw new Error("down"); }) as unknown as typeof fetch;
+    expect(await claimedAuthor("k", USERS, authors, down)).toBeUndefined();
+    const slow = { async get() { return new Promise(() => {}); } };   // never answers: the lookup gives up, the agent goes on
+    expect(await claimedAuthor("k", USERS, slow, users(200, { author_id: "A1" }))).toBeUndefined();
+  }, 5000);
+
+  it("tells the agent who is asking only when they ask about their own works, and logs that it did", async () => {
+    const lines: string[] = [];
+    const seenUrls: string[] = [];
+    const fetchImpl = (async (u: any) => {
+      seenUrls.push(String(u));
+      return String(u).includes("/users/me") ? new Response(JSON.stringify({ author_id: "https://openalex.org/authors/A5000000001" }))
+        : new Response(JSON.stringify({ answers: { answers: { type: "noul", noul: 0.9 } }, usage: { input_tokens: 600 } }));
+    }) as unknown as typeof fetch;
+    const openalex = { ...fakeOpenAlex(), async get() { return { display_name: "Ann Lee" }; } };
+    const mine = fakeAnthropic([[tool("s", "submit", { oql: "get [Ann Lee](A5000000001)'s works", sort: "", note: "" })]]);
+    const res = await handle(post({ text: "Can you list all my publications?" }), { OPENALEX_API_BASE: BASE, USERS_API_BASE: USERS, TYPESAFE_API_KEY: "t" },
+      { anthropic: mine, openalex, fetchImpl, guide: "G", route: DATA }, (l) => lines.push(l));
+    expect(res.status).toBe(200);
+    expect(textOf(mine.requests[0].messages[0].content)).toContain("[Ann Lee](A5000000001)");
+    expect(mine.requests[0].system[0].text).not.toContain("A5000000001");   // the cached system prompt stays the same for all
+    expect(JSON.parse(lines[0])).toMatchObject({ v: 3, me: "profile" });
+
+    const other = fakeAnthropic([[SUBMIT]]);
+    seenUrls.length = 0;
+    await handle(post({ text: "open access articles about coffee and health" }), { OPENALEX_API_BASE: BASE, USERS_API_BASE: USERS, TYPESAFE_API_KEY: "t" },
+      { anthropic: other, openalex, fetchImpl, guide: "G", route: DATA }, (l) => lines.push(l));
+    expect(seenUrls.some((u) => u.includes("/users/me"))).toBe(false);
+    expect(textOf(other.requests[0].messages[0].content)).not.toContain("author profile");
+    expect(JSON.parse(lines[1]).me).toBeNull();
+  });
+
+  it("answers a question back as a free reply the page shows, not an error", async () => {
+    const lines: string[] = [];
+    const anthropic = fakeAnthropic([[{ type: "text", text: "Whose works? Tell me your name or ORCID." }]]);
+    const res = await handle(post({ text: "list all my publications" }), { OPENALEX_API_BASE: BASE },
+      { anthropic, openalex: fakeOpenAlex(), guide: "G", route: DATA }, (l) => lines.push(l));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Credits-Cost")).toBe("0");
+    expect(await res.json()).toMatchObject({ route: "ask", oql: null, note: "Whose works? Tell me your name or ORCID." });
+    expect(JSON.parse(lines[0])).toMatchObject({ status: 200, route: "ask", credits: 0, error: null });
   });
 });

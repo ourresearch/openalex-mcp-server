@@ -27,6 +27,7 @@
   },
   "vars": {
     "ENVIRONMENT": "production",
-    "OPENALEX_API_BASE": "https://api.openalex.org"
+    "OPENALEX_API_BASE": "https://api.openalex.org",
+    "USERS_API_BASE": "https://user.openalex.org"
   }
 }

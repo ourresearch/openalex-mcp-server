@@ -17,6 +17,8 @@ export interface UsersApiOptions {
   /** Called once when users-api rejects the key (401): the grant holding it is stale. */
   onUnauthorized?: () => void;
   timeoutMs?: number;
+  /** For tests; unset = the global fetch. */
+  fetchImpl?: typeof fetch;
 }
 
 export interface ClaimRecord {
@@ -117,12 +119,14 @@ export class UsersApiClient {
   private readonly onUnauthorized?: () => void;
   private unauthorizedFired = false;
   private readonly timeoutMs: number;
+  private readonly fetchImpl?: typeof fetch;
 
   constructor(opts: UsersApiOptions) {
     this.apiKey = opts.apiKey;
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
     this.onUnauthorized = opts.onUnauthorized;
     this.timeoutMs = opts.timeoutMs ?? 20_000;
+    this.fetchImpl = opts.fetchImpl;
   }
 
   me(): Promise<MeRecord> {
@@ -178,8 +182,9 @@ export class UsersApiClient {
 
   private async request<T = any>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: any, okStatuses?: number[]): Promise<T> {
     let res: Response;
+    const doFetch = this.fetchImpl ?? fetch;   // called unbound: the global fetch refuses another `this`
     try {
-      res = await fetch(this.baseUrl + path, {
+      res = await doFetch(this.baseUrl + path, {
         method,
         headers: {
           Authorization: `Bearer ${this.apiKey}`,

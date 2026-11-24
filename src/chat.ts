@@ -14,6 +14,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { rowsOf } from "./frontDoor";
 import { OpenAlexError } from "./openalex";
+import { oqlIsBareList } from "./oql";
 import { newWords, typedVocabulary } from "./searchWords";
 import CHAT_GUIDE from "./chat_guide.md";
 
@@ -66,6 +67,11 @@ How to write good queries:
 `;
 
 export interface Institution { id: string; name: string }
+
+/** The author profile the person asking has claimed (short id, e.g. A5023888391), for "my papers" (#1494). */
+export interface Me { id: string; name: string }
+/** Who is asking: their claimed profile, null for an account with none, undefined when not looked up or not known. */
+export type MeLookup = Me | null | undefined;
 
 /** How a model is told the query the page shows now (the agent and the router; the router's prompt names it). */
 export const pageQueryNote = (q: string) => `(The results page currently shows this query: ${q})`;
@@ -160,7 +166,9 @@ export type ChatEvent =
   | { type: "answer"; oql: string; sort: string | null; note: string; preview: Preview; new_words: string[];
       left_out: string | null; out_of_reach: string | null; howto: string | null }
   | { type: "done"; messages: Anthropic.MessageParam[]; cost_usd: number; usage: Usage; turns: number; word_retries: number }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  /** no query: the model asks the person something back (whose works?), in one short sentence */
+  | { type: "ask"; question: string };
 
 export interface Usage { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }
 
@@ -238,9 +246,33 @@ export interface ChatInput {
   /** Earlier turns of the page's chat, oldest first: what was asked and the query that turn set (null: none). */
   history?: Turn[] | null;
   institution?: Institution | null;
+  /** Who is asking, looked up when they ask about their own works. */
+  me?: MeLookup;
 }
 
 export interface Turn { text: string; oql: string | null }
+
+/**
+ * The person's own profile as context for the newest question. It goes into the user turn, not the system prompt,
+ * so the cached system prompt stays the same for everyone.
+ */
+export function meContext(me: MeLookup): string {
+  if (me === undefined) return "";
+  if (me === null) {
+    return "(The person asking has no claimed OpenAlex author profile, so you don't know who they are. If they ask " +
+      "about their own works and give no name or ORCID, don't guess and don't list every work: call no tool, and reply " +
+      "in one short sentence asking for their name or ORCID.)\n\n";
+  }
+  return `(The person asking has claimed the OpenAlex author profile [${me.name}](${me.id}). Their own works ("my papers", ` +
+    `"my citations", "what I published") are this author's works: \`get [${me.name}](${me.id})'s works\`.)\n\n`;
+}
+
+/** The longest reply with no query that the page shows as a question back; longer ones are a failure. */
+export const MAX_ASK_CHARS = 300;
+
+/** What the page says when the agent can only list everything. */
+export const BARE_LIST_MESSAGE =
+  "That doesn't say what to look for. Name an author, topic, journal or institution (for your own works, your name or ORCID).";
 
 /** Earlier turns as context for the newest question (the page's chat history, #1744). */
 export function historyContext(history: Turn[] | null | undefined): string {
@@ -273,7 +305,7 @@ export async function runChat(
     await emit({ type: "error", message: "The conversation must end with the person's question." });
     return { cost_usd: 0, answered: false };
   }
-  const before = historyContext(input.history);
+  const before = meContext(input.me) + historyContext(input.history);
   const after = input.currentQuery ? `\n\n${pageQueryNote(input.currentQuery)}` : "";
   if (before || after) {
     // Context for a follow-up, around the newest user turn only (earlier turns stay exactly as returned).
@@ -336,7 +368,9 @@ export async function runChat(
     messages.push({ role: "assistant", content: res.content as any });
     const uses = res.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
     if (!uses.length) {
-      await emit({ type: "error", message: "The assistant stopped without a query." });
+      // a short reply with no query is the model asking the person something (whose works?): the page shows it
+      const said = res.content.flatMap((b: any) => (b.type === "text" ? [b.text] : [])).join(" ").trim();
+      await emit(said && said.length <= MAX_ASK_CHARS ? { type: "ask", question: said } : { type: "error", message: "The assistant stopped without a query." });
       break;
     }
     // stopped while the model was thinking: run none of its tool calls (they would spend the person's credits)
@@ -366,6 +400,13 @@ export async function runChat(
         const { p, added } = await trial(a);
         if (!p.ok && !lastTurn) {
           results.push({ type: "tool_result", tool_use_id: b.id, is_error: true, content: "Not submitted: this query fails. " + JSON.stringify(p).slice(0, 1500) });
+          continue;
+        }
+        if (p.ok && !a.sort && oqlIsBareList(p.canonical ?? a.oql)) {
+          if (lastTurn) await emit({ type: "ask", question: BARE_LIST_MESSAGE });
+          results.push({ type: "tool_result", tool_use_id: b.id, is_error: true, content: "Not submitted: with no condition this " +
+            "lists everything in OpenAlex, which answers nothing they asked. Submit the query for what they asked. If the " +
+            "question doesn't say what to look for, call no tool and reply in one short sentence saying what you need from them." });
           continue;
         }
         if (added.length && !lastTurn) {

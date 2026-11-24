@@ -54,6 +54,15 @@ const SUMMARY_STEP = new RegExp(STEP_OPENER + String.raw`(?:summarize\s+using|ca
 const COMPARE_STEP = new RegExp(STEP_OPENER + String.raw`compare\b`, "i");
 
 /** A new-form number or table: `get the count of works about kelp by year` (#1555). */
+/**
+ * Every work (or author, journal, institution) with no condition: millions of rows that answer nothing anyone asks
+ * (#1494). Only the big entities: `get sdgs` or `get continents` lists a small set someone may want. With an order
+ * (`get works, most cited first`) or as a count (`get the count of works`) it is a real question, so neither matches.
+ */
+export function oqlIsBareList(oql: string | null | undefined): boolean {
+  return /^\s*get\s+(works|authors|sources|journals|institutions|locations)\s*$/i.test(oql ?? "");
+}
+
 export function oqlIsNumbers(oql: string): boolean {
   return /^\s*get\s+the\s/i.test(oql);
 }
