@@ -19,6 +19,7 @@ import {
   grantIdOf, keyLabel,
 } from "./auth";
 import { ICON_PNG_BASE64 } from "./icon";
+import { redirectUriProblem, registrationProblem } from "./redirectPolicy";
 import { reportError, withErrorReporting, type SentryEnv } from "./sentry";
 
 export interface Env extends AuthEnv, SentryEnv {
@@ -109,6 +110,12 @@ publicApp.get("/authorize", async (c) => {
       return c.html(errorPage(`This connection request is not valid (${e.code}: ${e.description}). Go back to your app and connect again.`), 400);
     }
     return c.json({ error: "invalid_request", error_description: e?.message ?? String(e) }, 400);
+  }
+  // Registration refuses a plain-http remote redirect URI, but clients registered before that rule and CIMD
+  // documents can still name one, so it is checked here too (#2323). Shown on this host, never redirected.
+  const redirectProblem = redirectUriProblem(request.redirectUri);
+  if (redirectProblem) {
+    return c.html(errorPage(`This connection request is not valid (invalid_request: ${redirectProblem}). Go back to your app and connect again.`), 400);
   }
   const client = await env.OAUTH_PROVIDER.lookupClient(request.clientId);
   const clientName = (client?.clientName ?? "An MCP client").slice(0, 120);
@@ -279,6 +286,12 @@ function providerFor(env: Env): OAuthProvider<Env> {
     // high-traffic servers, but Claude Code and older clients still use DCR: support both.
     clientIdMetadataDocumentEnabled: true,
     clientRegistrationEndpoint: "/oauth/register",
+    // Registration stays open (public clients like Claude Code need it), but only for redirect URIs the MCP spec
+    // allows, with caps on list size and lengths (#2323).
+    clientRegistrationCallback: ({ clientMetadata }) => {
+      const problem = registrationProblem(clientMetadata);
+      return problem ? { code: "invalid_redirect_uri", description: problem, status: 400 } : undefined;
+    },
     scopesSupported: [SCOPE],
     resourceMetadata: {
       resource,
