@@ -132,7 +132,12 @@ publicApp.get("/oauth/callback", async (c) => {
   if (!pending) {
     return c.html(errorPage("This sign-in link has expired or was already used. Go back to your app and connect again."), 400);
   }
-  const back = (error: string, description: string) => {
+  // Same rule as /authorize, at the last step before the code leaves: a request parked before that rule shipped
+  // must not complete either (#2323).
+  if (redirectUriProblem(pending.request.redirectUri)) {
+    return c.html(errorPage("This connection request is not valid. Go back to your app and connect again."), 400);
+  }
+  const back =(error: string, description: string) => {
     const u = new URL(pending.request.redirectUri);
     u.searchParams.set("error", error);
     u.searchParams.set("error_description", description);
@@ -290,7 +295,7 @@ function providerFor(env: Env): OAuthProvider<Env> {
     // allows, with caps on list size and lengths (#2323).
     clientRegistrationCallback: ({ clientMetadata }) => {
       const problem = registrationProblem(clientMetadata);
-      return problem ? { code: "invalid_redirect_uri", description: problem, status: 400 } : undefined;
+      return problem ? { ...problem, status: 400 } : undefined;
     },
     scopesSupported: [SCOPE],
     resourceMetadata: {
