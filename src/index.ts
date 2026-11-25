@@ -19,7 +19,6 @@ import {
   grantIdOf, keyLabel,
 } from "./auth";
 import { ICON_PNG_BASE64 } from "./icon";
-import { redirectUriProblem, registrationProblem } from "./redirectPolicy";
 import { reportError, withErrorReporting, type SentryEnv } from "./sentry";
 
 export interface Env extends AuthEnv, SentryEnv {
@@ -111,12 +110,6 @@ publicApp.get("/authorize", async (c) => {
     }
     return c.json({ error: "invalid_request", error_description: e?.message ?? String(e) }, 400);
   }
-  // Registration refuses a plain-http remote redirect URI, but clients registered before that rule and CIMD
-  // documents can still name one, so it is checked here too (#2323). Shown on this host, never redirected.
-  const redirectProblem = redirectUriProblem(request.redirectUri);
-  if (redirectProblem) {
-    return c.html(errorPage(`This connection request is not valid (invalid_request: ${redirectProblem}). Go back to your app and connect again.`), 400);
-  }
   const client = await env.OAUTH_PROVIDER.lookupClient(request.clientId);
   const clientName = (client?.clientName ?? "An MCP client").slice(0, 120);
   const id = await storePending(env, request, clientName);
@@ -132,12 +125,7 @@ publicApp.get("/oauth/callback", async (c) => {
   if (!pending) {
     return c.html(errorPage("This sign-in link has expired or was already used. Go back to your app and connect again."), 400);
   }
-  // Same rule as /authorize, at the last step before the code leaves: a request parked before that rule shipped
-  // must not complete either (#2323).
-  if (redirectUriProblem(pending.request.redirectUri)) {
-    return c.html(errorPage("This connection request is not valid. Go back to your app and connect again."), 400);
-  }
-  const back =(error: string, description: string) => {
+  const back = (error: string, description: string) => {
     const u = new URL(pending.request.redirectUri);
     u.searchParams.set("error", error);
     u.searchParams.set("error_description", description);
@@ -291,12 +279,6 @@ function providerFor(env: Env): OAuthProvider<Env> {
     // high-traffic servers, but Claude Code and older clients still use DCR: support both.
     clientIdMetadataDocumentEnabled: true,
     clientRegistrationEndpoint: "/oauth/register",
-    // Registration stays open (public clients like Claude Code need it), but only for redirect URIs the MCP spec
-    // allows, with caps on list size and lengths (#2323).
-    clientRegistrationCallback: ({ clientMetadata }) => {
-      const problem = registrationProblem(clientMetadata);
-      return problem ? { ...problem, status: 400 } : undefined;
-    },
     scopesSupported: [SCOPE],
     resourceMetadata: {
       resource,
