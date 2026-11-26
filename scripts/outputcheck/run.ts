@@ -12,6 +12,9 @@
  *               year for year, and citation_percentile equals the API's value
  *   topics      30 random topics (seed 1857), works from 2023: search_works, group_works and analyze_works with topic_ids
  *               and calculate_works "in the topic" give one count
+ *   lineage     (oxjob #2644) group_works by publisher (40 biggest of 2023) and analyze_works top_institutions (6 sets):
+ *               each row equals the count of the same tools' publisher_ids / institution_ids filter (sub-units
+ *               included); and group_works(institution_ids=[CNRS], group_by=institution) gives CNRS's row = total_works
  * Fixtures were built by oxjob #1885's work/build_fixtures.py (2026-10-26).
  */
 import { readFileSync } from "node:fs";
@@ -21,6 +24,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { oauthLogin } from "../oauth-login";
 import { OpenAlexClient } from "../../src/openalex";
 import { workPath } from "../../src/ids";
+import { pool } from "../../src/pool";
 
 const dir = new URL(".", import.meta.url).pathname;
 const load = (f: string) => JSON.parse(readFileSync(dir + f, "utf8"));
@@ -156,7 +160,52 @@ async function topics() {
   return { set: "topics", agree, n: list.length, anyOk };
 }
 
-const SETS: Record<string, () => Promise<any>> = { bigauthors, cby, topics };
+// oxjob #2644: a group_works / analyze_works row for a publisher or institution must equal the count the same tools
+// give for that organization's own publisher_ids / institution_ids filter (which, like OQL, includes its sub-units).
+const INSTITUTION_SETS: Array<{ name: string; args: Record<string, any> }> = [
+  { name: "CRISPR topic 2023", args: { topic_ids: ["T10878"], from_year: 2023, to_year: 2023 } },
+  { name: "France 2023", args: { countries: ["FR"], from_year: 2023, to_year: 2023 } },
+  { name: "climate change 2024", args: { query: "climate change", from_year: 2024, to_year: 2024 } },
+  { name: "NIH-funded 2023", args: { funder_ids: ["F4320332161"], from_year: 2023, to_year: 2023 } },
+  { name: "China 2024", args: { countries: ["CN"], from_year: 2024, to_year: 2024 } },
+  { name: "computer science 2024", args: { raw_filter: "primary_topic.field.id:fields/17", from_year: 2024, to_year: 2024 } },
+];
+
+async function lineage() {
+  const year = { from_year: 2023, to_year: 2023 };
+  const countOf = async (args: Record<string, any>) => numberFrom((await call("search_works", { ...args, limit: 1, include_abstracts: false })).json);
+  const off = (row: number, own: number | undefined) => own !== row;
+  const far = (row: number, own: number | undefined) => typeof own === "number" && own > 1.05 * row;
+
+  // 1. The 40 biggest 2023 publishers in group_works, each against its own publisher_ids count.
+  const g = await call("group_works", { group_by: "publisher", ...year, limit: 40 });
+  const pubs: any[] = (g.json?.groups ?? []).filter((x: any) => x.id && x.id !== "unknown");
+  const pubRows = await pool(pubs, 6, async (p) => ({ p, own: await countOf({ publisher_ids: [p.id], ...year }) }));
+  const pubOff = pubRows.filter((r) => off(r.p.count, r.own));
+  console.log(`lineage/publishers: group_works rows that differ from their own publisher_ids count ${pubOff.length}/${pubRows.length} (missing ${pubOff.reduce((s, r) => s + ((r.own ?? 0) - r.p.count), 0).toLocaleString()} works)`);
+  for (const r of pubOff.slice(0, 12)) console.log(`    ${r.p.id} ${r.p.name}: row ${r.p.count.toLocaleString()} own filter ${r.own?.toLocaleString()}`);
+
+  // 2. analyze_works top 10 institutions in 6 typical sets, each against its own institution_ids count within the set.
+  let instRows = 0, instOff = 0, instFar = 0;
+  for (const s of INSTITUTION_SETS) {
+    const a = await call("analyze_works", { ...s.args, sections: ["top_institutions"], top_n: 10 });
+    const top: any[] = a.json?.top_institutions ?? [];
+    const rows = await pool(top, 6, async (x) => ({ x, own: await countOf({ ...s.args, institution_ids: [x.id] }) }));
+    const bad = rows.filter((r) => off(r.x.count, r.own)), big = rows.filter((r) => far(r.x.count, r.own));
+    instRows += rows.length; instOff += bad.length; instFar += big.length;
+    console.log(`    ${s.name}: ${bad.length}/${rows.length} differ, ${big.length} by > 5% | ${bad.slice(0, 3).map((r) => `${r.x.name} ${r.x.count.toLocaleString()} vs ${r.own?.toLocaleString()}`).join("; ")}`);
+  }
+  console.log(`lineage/institutions: analyze_works top-10 rows that differ from their own institution_ids count ${instOff}/${instRows} (${instFar} by > 5%)`);
+
+  // 3. Within one call: CNRS's own row equals the call's total.
+  const c = await call("group_works", { group_by: "institution", institution_ids: ["I1294671590"], ...year, limit: 5 });
+  const cnrsRow = (c.json?.groups ?? []).find((x: any) => x.id === "I1294671590")?.count;
+  const cnrsOk = cnrsRow === c.json?.total_works;
+  console.log(`lineage/cnrs: group_works(institution_ids=[CNRS], group_by=institution) 2023 total_works ${c.json?.total_works} CNRS row ${cnrsRow}${cnrsOk ? " EQUAL" : " DIFFER"}`);
+  return { set: "lineage", publishersOff: pubOff.length, publishers: pubRows.length, institutionsOff: instOff, institutionsFar: instFar, institutions: instRows, cnrsOk };
+}
+
+const SETS: Record<string, () => Promise<any>> = { bigauthors, cby, topics, lineage };
 const wanted = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SETS);
 const summary: any[] = [];
 for (const s of wanted) summary.push(await SETS[s]!());

@@ -774,6 +774,7 @@ export function createServer(ctx: ServerContext): McpServer {
         "Aggregate works matching a query and/or filters, counting them by one dimension: author, institution, institution_type, country, source (journal), publisher, funder, year, type, is_traditional (traditional scholarly works vs the rest), topic, subfield, field, domain, keyword, oa_status, is_oa, top_10_percent, top_1_percent, language, or sdg. " +
         "Answers \"who are the top authors on X\", \"which institutions publish most on Y\", \"how has research on Z grown per year\", \"which journals carry the most papers on W\", \"who does institution A collaborate with\" (institution_ids + group_by institution). " +
         "Returns each group's ID, display name and work count, sorted by count. Keyword/exact queries aggregate over all matching works; semantic queries aggregate over the 50 most relevant works only. " +
+        "A publisher or institution row counts the organization with all its sub-units (Springer Nature includes Springer and BMC; CNRS includes its labs), the same meaning as publisher_ids, institution_ids and OQL, so a parent and its sub-units each get a row: rows nest, so don't add them up. " +
         "For two or three dimensions in one call (by year and country, by field and open access status) or numbers beyond the count (mean FWCI, percent open access, share), use calculate_works instead of one group_works call per value. " +
         "Accepts an OQL query in `oql` for complex selections (the group by is added from group_by if the query has none). " +
         "Note: group_by author over institution-filtered works also counts co-authors from other institutions; for \"researchers AT institution X on topic Y\" use search_entities with institution_ids and topic_ids instead.",
@@ -828,6 +829,7 @@ export function createServer(ctx: ServerContext): McpServer {
               + (args.group_by === "is_traditional" ? ",is_traditional" : ""),
           });
           const groups = countLocally(data.results, args.group_by as GroupByKey).slice(0, limit);
+          if (args.group_by === "institution") await nameInstitutions(client, groups);
           return ok(compact({
             group_by: args.group_by, query, mode, filter: filter ?? null, pulled_works: pulled.note,
             basis: `the ${data.results.length} most semantically relevant works (OpenAlex cannot aggregate semantic search over the full corpus)`,
@@ -858,6 +860,7 @@ export function createServer(ctx: ServerContext): McpServer {
         "Build a one-call profile of any set of works defined by a query and/or filters: an institution's output, a funder's portfolio, an author's career, a topic, a country, a journal. " +
         "Returns total works, open-access share by status, share of works in the top 10% and top 1% most-cited (field-normalized), counts by year and by type, and the top fields, topics, institutions, countries, sources, funders and authors, plus international and industry collaboration shares. " +
         "Use it for research-office, library, and funder reporting questions (\"summarize our 2024 research\", \"how much of NIH-funded work at UW is open access\", \"who does MIT collaborate with on AI\"). " +
+        "top_institutions counts each institution with all its sub-units (CNRS includes its labs), as institution_ids does, so a parent and its sub-units can both be listed. " +
         "Pick sections to keep the response small. Keyword queries only (no semantic mode). Each section costs one cheap API call.",
       inputSchema: {
         query: z.string().max(2000).optional().describe("Optional keyword search text (Boolean supported)."),
@@ -888,7 +891,7 @@ export function createServer(ctx: ServerContext): McpServer {
         if (want.has("citation_impact")) { jobs.top10 = g("citation_normalized_percentile.is_in_top_10_percent", 2); jobs.top1 = g("citation_normalized_percentile.is_in_top_1_percent", 2); }
         if (want.has("top_fields")) jobs.fields = g("primary_topic.field.id", topN);
         if (want.has("top_topics")) jobs.topics = g("primary_topic.id", topN);
-        if (want.has("top_institutions")) jobs.institutions = g("authorships.institutions.id", topN);
+        if (want.has("top_institutions")) jobs.institutions = g(GROUP_BY_FIELDS.institution, topN);
         if (want.has("top_countries")) jobs.countries = g("authorships.countries", topN);
         if (want.has("top_sources")) jobs.sources = g("primary_location.source.id", topN);
         if (want.has("top_funders")) jobs.funders = g("funders.id", topN);
@@ -989,26 +992,52 @@ export function createServer(ctx: ServerContext): McpServer {
   return server;
 }
 
+/** Fill in the names of institutions counted only as a parent in a lineage (a work carries no parent names). */
+async function nameInstitutions(client: OpenAlexClient, groups: Array<{ id: string; name: string }>) {
+  const nameless = groups.filter((g) => g.name === g.id && /^I\d+$/.test(g.id)).slice(0, 100);   // one API page
+  if (!nameless.length) return;
+  try {
+    const data = await client.get<ListResponse>("/institutions", { filter: `id:${nameless.map((g) => g.id).join("|")}`, select: "id,display_name", per_page: nameless.length });
+    const byId = new Map((data.results ?? []).map((r: any) => [shortId(r.id), r.display_name]));
+    for (const g of nameless) g.name = byId.get(g.id) ?? g.name;
+  } catch { /* the id stands in for the name */ }
+}
+
 /** Count top-50 semantic results locally along a group_by dimension. */
 function countLocally(works: any[], dim: GroupByKey) {
   const counts = new Map<string, { id: string; name: string; count: number }>();
-  const add = (id: string | null | undefined, name: string | null | undefined) => {
+  // A name can arrive after the id was first counted without one (a parent seen in a lineage before on its own).
+  const add = (id: string | null | undefined, name: string | null | undefined, count = true) => {
     if (!id) return;
     const key = shortId(id) ?? id;
-    const cur = counts.get(key) ?? { id: key, name: name ?? key, count: 0 };
-    cur.count++;
+    const cur = counts.get(key) ?? { id: key, name: key, count: 0 };
+    if (name && cur.name === key) cur.name = name;
+    if (count) cur.count++;
     counts.set(key, cur);
   };
   for (const w of works) {
     const seen = new Set<string>();
-    const once = (id: any, name: any) => { const k = String(id); if (!seen.has(k)) { seen.add(k); add(id, name); } };
+    const once = (id: any, name: any) => { const k = String(id); const first = !seen.has(k); seen.add(k); if (first || name) add(id, name, first); };
     switch (dim) {
       case "author": for (const a of w.authorships ?? []) once(a?.author?.id, a?.author?.display_name); break;
-      case "institution": for (const a of w.authorships ?? []) for (const i of a?.institutions ?? []) once(i?.id, i?.display_name); break;
+      // An institution with its sub-units, as group_by institution counts it (#2644): a work counts once for the
+      // institution and once for each parent in its lineage. A parent's name is filled in by nameInstitutions.
+      case "institution":
+        for (const a of w.authorships ?? []) for (const i of a?.institutions ?? []) {
+          once(i?.id, i?.display_name);
+          for (const p of i?.lineage ?? []) once(p, null);
+        }
+        break;
       case "institution_type": for (const a of w.authorships ?? []) for (const i of a?.institutions ?? []) once(i?.type, i?.type); break;
       case "country": for (const a of w.authorships ?? []) for (const c of a?.countries ?? []) once(c, c); break;
       case "source": once(w.primary_location?.source?.id, w.primary_location?.source?.display_name); break;
-      case "publisher": once(w.primary_location?.source?.host_organization, w.primary_location?.source?.host_organization_name); break;
+      case "publisher": {
+        const s = w.primary_location?.source;
+        const lineage: any[] = s?.host_organization_lineage?.length ? s.host_organization_lineage : [s?.host_organization];
+        const names: any[] | undefined = s?.host_organization_lineage_names?.length === lineage.length ? s.host_organization_lineage_names : undefined;
+        lineage.forEach((p, k) => once(p, names?.[k] ?? (p === s?.host_organization ? s?.host_organization_name : null)));
+        break;
+      }
       case "funder": for (const f of w.funders ?? []) once(f?.id, f?.display_name); break;
       case "year": once(w.publication_year, String(w.publication_year)); break;
       case "type": once(w.type, w.type); break;

@@ -47,7 +47,7 @@ export const workFilterShape = {
   author_ids: z.array(z.string()).optional()
     .describe("OpenAlex author IDs (e.g. A5067184382). Resolve names with search_entities first."),
   institution_ids: z.array(z.string()).optional()
-    .describe("OpenAlex institution IDs (e.g. I27837315). Matches any author's affiliation."),
+    .describe("OpenAlex institution IDs (e.g. I27837315). Matches any author's affiliation, including the institution's sub-units (a university's hospitals and labs, CNRS's labs)."),
   source_ids: z.array(z.string()).optional()
     .describe("OpenAlex source (journal/repository) IDs (e.g. S137773608)."),
   topic_ids: z.array(z.string()).optional()
@@ -59,7 +59,7 @@ export const workFilterShape = {
   funder_ids: z.array(z.string()).optional()
     .describe("OpenAlex funder IDs (e.g. F4320332161)."),
   publisher_ids: z.array(z.string()).optional()
-    .describe("OpenAlex publisher IDs (e.g. P4310319908)."),
+    .describe("OpenAlex publisher IDs (e.g. P4310319908). Includes the publisher's imprints and sub-publishers (Springer Nature includes Springer and BMC)."),
   countries: z.array(z.string().length(2)).optional()
     .describe("ISO-3166 alpha-2 country codes of author institutions (OR), e.g. [\"US\",\"GB\"]. Not supported with semantic search."),
   language: z.string().length(2).optional()
@@ -135,13 +135,17 @@ export function assertSemanticCompatible(args: WorkFilterArgs & { sort?: string 
     throw new Error("exclude_ai_authors is not supported with semantic search. Use keyword mode to leave out works with known AI authors.");
 }
 
+// One meaning of "publisher" and "institution" across the tools (#2644): the organization with all its sub-units
+// (lineage), as the publisher_ids / institution_ids filters and OQL's "by publisher" / "by institution" count them.
+// So Springer Nature's row includes Springer and BMC, and CNRS's includes its labs; a parent and its sub-units each get
+// a row (rows nest, so they are not to be summed).
 export const GROUP_BY_FIELDS = {
   author: "authorships.author.id",
-  institution: "authorships.institutions.id",
+  institution: "authorships.institutions.lineage",
   institution_type: "authorships.institutions.type",
   country: "authorships.countries",
   source: "primary_location.source.id",
-  publisher: "primary_location.source.host_organization",
+  publisher: "primary_location.source.host_organization_lineage",
   funder: "funders.id",
   year: "publication_year",
   type: "type",
